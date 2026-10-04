@@ -4,6 +4,7 @@ import {RomReader} from "./binary";
 import type {RomFile} from "./decompress";
 import type {RenderWaves} from "./waves";
 import {InitMachine,type InitMemory} from "./actor-init-machine";
+import {NativeLoaderPreview,LOADER_REGISTRY_ADDRESS,LOADER_ARENA_DESCRIPTOR,verifiedLoaderPresentationCall} from "./actor-init-loader-preview";
 
 export interface NativeActorSceneDeclaration {prototypeId:string;parameters:[number,number,number];position:Vec3;rotation:Vec3}
 export interface NativeActorContext {roomId:number;templateRoomId?:number;siblings?:NativeActorSceneDeclaration[]}
@@ -33,11 +34,12 @@ export interface NativeActorInitResult {
   /** All selected constructor/deferred/child calls returned without an unresolved dependency path. */
   completed?:boolean;
   timedPreview?:{kind:"timed-child-prefix";callbackCount:number;initialCounter:number;childEntry:number};
+  loaderPreview?:{donor:number;preloadedCount:number;preloadedCursor:number;finalCount:number;finalCursor:number};
   failureKind?:"scene-gated"|"unresolved";
   branches:{pc:number;taken:boolean;target:number}[];
   deferredCallbacks:number[];
   syntheticMemory:{address:number;bytes:Uint8Array;conditional?:boolean;codeFile?:number}[];
-  readonlyMemory:{address:number;fileId:number;byteLength:number}[];
+  readonlyMemory:{address:number;fileId:number;byteLength:number;scope?:"cold-world-loader"}[];
 }
 export interface NativeControllerResourceContract {
   kind:"verified-controller-closure";
@@ -119,7 +121,7 @@ const MESH_FREE_CONTROLLERS=new Map<number,{entry:number;overlay:number;reason:s
 ]);
 
 /** Private synthetic state overlays canonical ROM bytes; original assets never change. */
-class ActorMemory implements InitMemory {
+export class ActorMemory implements InitMemory {
   readonly regions:Region[]=[];
   readonly privateBytes=new Map<number,number>();
   readonly overlayBytes=new Map<number,Map<number,number>>();
@@ -130,6 +132,7 @@ class ActorMemory implements InitMemory {
   readonly resourceSegments=new Map<number,number>();
   nextWave=0x82000000;
   onWrite?:(address:number,size:number)=>void;
+  loader?:NativeLoaderPreview;
   constructor(readonly reader:RomReader,readonly files:Map<number,RomFile>){}
   allocate(size:number):number {
     if(this.next+size>0x81200000)throw new Error("Synthetic actor memory budget exceeded.");
@@ -137,10 +140,18 @@ class ActorMemory implements InitMemory {
     this.regions.push({start:address,bytes:new Uint8Array(size)});return address;
   }
   wave(fileId:number,segment:number,bytes:Uint8Array):number {
+    if(this.loader){if(this.loader.lookup(fileId)===-1)this.loader.load(fileId);this.syncLoader();return this.loader.base(fileId);}
     const existing=this.resourceBases.get(fileId);if(existing!==undefined)return existing;
     if(bytes.length>16*1024*1024||this.nextWave+bytes.length>0xbf000000)throw new Error("Synthetic readonly wave budget exceeded.");
     const base=this.nextWave;this.nextWave=Math.ceil((base+bytes.length)/0x10000)*0x10000;
     this.regions.push({start:base,bytes,readonly:true});this.resourceBases.set(fileId,base);this.resourceSegments.set(segment,base);return base;
+  }
+  syncLoader():void {
+    if(!this.loader)return;const context=this.loader.registry.snapshot();
+    for(const allocation of context.allocations)if(!this.resourceBases.has(allocation.fileId)){
+      this.regions.push({start:allocation.address,bytes:allocation.bytes,readonly:true});this.resourceBases.set(allocation.fileId,allocation.address);
+    }
+    this.regions.find(r=>r.start===LOADER_REGISTRY_ADDRESS)!.bytes.set(context.records);
   }
   romOffset(address:number,size:number):number|undefined {
     if(address>=0x80000400&&address+size<=0x8007e020)return this.reader.check(address-0x80000000+0xc00,size);
@@ -153,6 +164,8 @@ class ActorMemory implements InitMemory {
   }
   read(address:number,size:number):Uint8Array {
     if(!Number.isSafeInteger(address)||!Number.isSafeInteger(size)||size<0||address<0||address+size>0x100000000)throw new Error("Invalid offline native memory read.");
+    const readonly=this.regions.filter(r=>r.readonly&&address<r.start+r.bytes.length&&address+size>r.start);
+    if(readonly.length&&!readonly.some(r=>address>=r.start&&address+size<=r.start+r.bytes.length))throw new Error("Offline readonly resource read crosses an allocation boundary.");
     const output=new Uint8Array(size);
     for(let i=0;i<size;i++){
       const at=address+i,privateValue=at>=0x08000000&&at<0x09000000?this.overlayBytes.get(this.codeFile)?.get(at):this.privateBytes.get(at);
@@ -169,6 +182,11 @@ class ActorMemory implements InitMemory {
     return output;
   }
   write(address:number,bytes:Uint8Array):void {
+    if(!Number.isSafeInteger(address)||address<0||!(bytes instanceof Uint8Array)||address+bytes.length>0x100000000)throw new Error("Invalid offline native memory write.");
+    if(this.loader&&address<0x80594000&&address+bytes.length>0x80304000)throw new Error("Offline native write overlaps the readonly world-cache bank.");
+    // Reject the entire write BEFORE mutating any byte. Low world-cache aliases
+    // are immutable; CPU overlay08 writes stay in their file-scoped namespace.
+    if(this.regions.some(r=>(r.codeFile===undefined||r.codeFile===this.codeFile)&&r.readonly&&address<r.start+r.bytes.length&&address+bytes.length>r.start))throw new Error("Offline native write overlaps a readonly resource allocation.");
     if((address<0x80000400||address+bytes.length>0x81400000)&&!this.regions.some(r=>(r.codeFile===undefined||r.codeFile===this.codeFile)&&!r.readonly&&address>=r.start&&address+bytes.length<=r.start+r.bytes.length)&&!(this.codeFile&&address>=0x08000000&&address+bytes.length<=0x09000000&&this.romOffset(address,bytes.length)!==undefined))throw new Error(`Unmapped offline native write at ${hex(address)}.`);
     if(this.privateBytes.size+[...this.overlayBytes.values()].reduce((sum,bytes)=>sum+bytes.size,0)+bytes.length>2*1024*1024)throw new Error("Synthetic native write budget exceeded.");
     for(let i=0;i<bytes.length;i++){
@@ -181,7 +199,7 @@ class ActorMemory implements InitMemory {
 
 /** ROM-driven initializer evaluation. Actor IDs never act as a guessed model ID. */
 export class ActorInitializer {
-  constructor(readonly reader:RomReader,readonly files:Map<number,RomFile>,readonly waves:Pick<RenderWaves,"wave">){}
+  constructor(readonly reader:RomReader,readonly files:Map<number,RomFile>,readonly waves:Pick<RenderWaves,"wave">&Partial<Pick<RenderWaves,"image">>){}
   resolve(input:NativeActorInitInput):NativeActorInitResult {
     const observed=new Set<number>(),initial=new Map<number,boolean>();
     const baseline=this.evaluate(input,initial,observed,12000);let used=baseline.instructionCount;
@@ -205,9 +223,11 @@ export class ActorInitializer {
   private evaluate(input:NativeActorInitInput,progression:Map<number,boolean>,observedFlags:Set<number>,instructionLimit:number):NativeActorInitResult {
     const diagnostics:string[]=[],bindings:NativeActorBinding[]=[],callbacks:number[]=[];
     const result:NativeActorInitResult={bindings,status:"unsupported",diagnostics,instructionCount:0,branches:[],deferredCallbacks:callbacks,syntheticMemory:[],readonlyMemory:[]};
+    if(input.actorId===0x24c||input.actorId===0x35c)result.completed=false;
     const memory=new ActorMemory(this.reader,this.files),objects:ObjectState[]=[],sceneObjects=new Map<number,ObjectState>(),multiObjectBodies=new Set<number>();
     let currentTask=0,allocationCount=0,removed=false;
     let timedPolicy:NativeTimedPreviewPolicy|undefined;
+    let loader:NativeLoaderPreview|undefined;
     const children:{task:number;entry:number;codeFile:number}[]=[];
     const cpu=new InitMachine(memory,{instructions:instructionLimit,callDepth:64},(pc,machine)=>intercept(pc,machine));
     const word=(at:number)=>cpu.u32(at),half=(at:number)=>cpu.u16(at),put=(at:number,value:number,size=4)=>cpu.store(at,value,size);
@@ -216,6 +236,7 @@ export class ActorInitializer {
     const createObject=(task:number,defaults=true):ObjectState=>{
       if(++allocationCount>64)throw new Error("Native constructor object budget exceeded.");
       const address=memory.allocate(0x100),object:ObjectState={address,task,index:objects.length,segments:new Map(),rotationMask:{x:false,y:false,z:false},provenance:[]};objects.push(object);
+      if(loader)put(address+4,2,1); // Verified kind2 allocator, separate from byte5 draw bucket.
       if(defaults){for(const offset of [0x1c,0x20,0x24])setFloat(address+offset,0.1);put(address+0x30,0xc006d920);put(address+5,2,1);}
       const old=word(task+0x18);if(!old)put(task+0x18,address);else put(word(task+0x1c),address);
       put(task+0x1c,address);return object;
@@ -243,6 +264,7 @@ export class ActorInitializer {
       const primary=this.reader.u16(filesAt),secondary=this.reader.u16(filesAt+2),model=this.reader.u32(slotsAt);
       if(!model)throw new Error(`Native identity ${hex(identity)} has an empty model slot ${slot}.`);
       object.identity=identity;object.slot=slot;object.segments.clear();
+      if(loader){for(const id of [primary,secondary])if(id&&loader.lookup(id)===-1)loader.load(id);if(loader.lookup(338)===-1)throw new Error("Scoped native binder requires genuinely preloaded shared File338.");memory.syncLoader();}
       for(const fileId of [primary,secondary,0x152])if(fileId){const segment=segmentFor(fileId);memory.wave(fileId,segment,this.waves.wave(fileId));object.segments.set(segment,{fileId,offset:0});}
       put(object.address+0x2c,(model+type)>>>0);
       for(let index=0;index<6;index++){
@@ -273,10 +295,16 @@ export class ActorInitializer {
         diagnostics.push("Omitted verified sound0x271 spatial presentation event at File30:0x4594; audio queue/camera-distance playback is not simulated.");
       }
       else if(pc===0x80001e50)m.registers[2]=segmentFor(a);
-      else if(pc===0x800141c4){m.registers[2]=a?memory.wave(a,segmentFor(a),resource(a)):0;}
+      else if(pc===0x800141c4){m.registers[2]=loader?loader.lookup(a):a?memory.wave(a,segmentFor(a),resource(a)):0;}
+      else if(pc===0x80013b14&&loader){m.registers[2]=loader.load(a);memory.syncLoader();}
+      else if(pc===0x80013ac4&&loader){if(memory.codeFile!==74||m.registers[31]!==0x0800395c||a!==0x080039d0)throw new Error("Unverified scoped native resource-list caller.");m.registers[2]=loader.loadListAt(a);memory.syncLoader();}
+      else if(loader&&(pc===0x8003ff50||pc===0x80038bc8)){
+        if(!verifiedLoaderPresentationCall({actorId:input.actorId,codeFile:memory.codeFile,target:pc,returnAddress:m.registers[31],argument:a}))throw new Error("Unverified scoped loader presentation call.");
+        diagnostics.push(`Omitted verified void ${pc===0x8003ff50?"VI feature0x40":"audio1"} presentation event from File74:0x3920; no V0 or hardware/queue state is fabricated.`);
+      }
       else if(pc===0x80014840){
         if((a|0)<=0)m.registers[2]=a;
-        else {const segment=segmentFor(b),base=memory.wave(b,segment,resource(b)),offset=a-segment*0x1000000,wave=resource(b);if(offset<0||offset>=wave.length)throw new Error("Native segmented pointer exceeds its declared resource.");m.registers[2]=(base+offset)>>>0;}
+        else {const segment=segmentFor(b),base=loader?loader.base(b):memory.wave(b,segment,resource(b)),offset=a-segment*0x1000000,wave=resource(b);if(offset<0||offset>=wave.length)throw new Error("Native segmented pointer exceeds its declared resource.");m.registers[2]=(base+offset)>>>0;}
       }
       else if(pc===0x80014218){
         const object=objects.find(value=>value.address===a);if(!object)throw new Error("Native resource commit requires a synthetic display object.");
@@ -284,6 +312,7 @@ export class ActorInitializer {
         for(let index=0;index<6;index++){
           const fileId=half(a+0x34+index*8);if(!fileId){put(a+0x38+index*8,0);continue;}
           const segment=segmentFor(fileId);if(segment!==index+8){m.registers[2]=0xffffffff;continue;}
+          if(loader&&loader.lookup(fileId)===-1)throw new Error("Scoped native14218 cannot implicitly load a missing resource.");
           const base=memory.wave(fileId,segment,this.waves.wave(fileId));put(a+0x38+index*8,base);object.segments.set(segment,{fileId,offset:0});
         }
         if(word(a+0x2c)&&object.identity===undefined){object.identity=half(object.task+0x5e);object.slot=-1;object.provenance.push("native direct object graphics/resource commit at 0x80014218; no registry slot was inferred");}
@@ -306,10 +335,12 @@ export class ActorInitializer {
       }else if(pc===0x80219e08){const object=objectFor(a),factor=cpu.fromBits(b);for(const offset of [0x1c,0x20,0x24])setFloat(object.address+offset,Math.fround(float(object.address+offset)*factor));}
       else if(pc===0x8021a310){const object=objectFor(a);for(const offset of [0x14,0x16,0x18])put(object.address+offset,0x8000,2);}
       else if(pc===0x800148f0){
+        if(loader){if(a!==LOADER_ARENA_DESCRIPTOR)throw new Error("Scoped arena requires its verified descriptor.");m.registers[2]=loader.arena.allocate(b);m.returnFromIntercept();return true;}
         if((b|0)<=0||b>65536)throw new Error("Native arena allocation request exceeds the bounded preview domain.");
         memory.next=Math.ceil(memory.next/64)*64;m.registers[2]=memory.allocate(((b+0x4f)&~0x3f)-0x10);
         if(!diagnostics.includes("Native arena preview assumes zeroed allocation succeeds; memory-pressure failure is not simulated."))diagnostics.push("Native arena preview assumes zeroed allocation succeeds; memory-pressure failure is not simulated.");
       }
+      else if(pc===0x80014b74&&loader){if(a!==LOADER_ARENA_DESCRIPTOR)throw new Error("Scoped arena free requires its verified descriptor.");m.registers[2]=loader.arena.free(b);}
       else if(pc===0x80024670){
         // Fresh native 25270 allocates 0x80 bytes, then 246BC initializes this
         // exact UI/controller work record. No file request occurs in the builder.
@@ -410,6 +441,13 @@ export class ActorInitializer {
     };
     try {
       if(!Number.isInteger(input.actorId)||input.actorId<0||input.actorId>0x405||input.parameters.length!==3||input.parameters.some(v=>!Number.isInteger(v)||v<0||v>0xffffffff))throw new Error("Actor initializer input must come from a validated native actor record.");
+      if(input.actorId===0x24c||input.actorId===0x35c){
+        if(!this.waves.image)throw new Error("Scoped native loader lacks a canonical image provider.");
+        loader=new NativeLoaderPreview(this.reader,this.files,input,{image:this.waves.image.bind(this.waves)});memory.loader=loader;
+        memory.regions.push({start:LOADER_REGISTRY_ADDRESS,bytes:loader.registry.records});
+        memory.regions.push({start:LOADER_ARENA_DESCRIPTOR,bytes:loader.arena.descriptor},{start:0x802f7000,bytes:loader.arena.bytes});memory.syncLoader();
+        diagnostics.push("Conditional cold postcallback donor checkpoint: reserved player prefix has no registry IDs; ordered native common/room/callback loads are reconstructed. Actual live occupancy and PIC transient arena/framebuffer scratch pressure are not simulated; later scene/cutscene/physics callbacks stop before execution.");
+      }
       timedPolicy=nativeTimedPreviewPolicy(this.reader,this.files,input);
       for(const vector of [input.position,input.rotation])if(AXES.some(axis=>!Number.isFinite(vector[axis])))throw new Error("Native actor transform is not finite.");
       if(input.priorScene){
@@ -516,16 +554,18 @@ export class ActorInitializer {
       }
       // An extra direct object can be a shadow before the primary deferred
       // body is bound. Its declaration never suppresses pending setup stages.
-      for(let stage=0;!timedPolicy&&stage<4&&object.identity===undefined&&callbacks.length;stage++){
+      if(loader&&input.actorId===0x35c){if(word(task+0xc)!==0x080000a8||memory.codeFile!==74||word(word(0x801fc628)+0x2c)!==0xa020cbf0)throw new Error("Scoped35C parent/camera context changed.");cpu.run(0x080000a8,[task,object.address],STOP);if(children.length!==1||children[0].entry!==0x08002bbc||children[0].codeFile!==74)throw new Error("Scoped35C immediate child setup changed.");}
+      if(loader&&input.actorId===0x24c&&(children.length!==2||children[0].entry!==0x08000324||children[1].entry!==0x08001820||children.some(c=>c.codeFile!==45)))throw new Error("Scoped24C requires the verified flag99-clear immediate-child branch; alternate File70 scene remains unresolved.");
+      for(let stage=0;!timedPolicy&&!loader&&stage<4&&object.identity===undefined&&callbacks.length;stage++){
         const callback=callbacks[callbacks.length-1];if(!callback)break;
         callbacks.pop();object.provenance.push(`advanced deferred initializer ${hex(callback)}`);cpu.run(callback,[task,object.address],STOP);
       }
-      if(!timedPolicy&&object.identity===undefined&&callbacks.length){result.failureKind="unresolved";diagnostics.push("Primary deferred initializer remains unresolved after the advancement budget, even if a linked object declared a model.");}
+      if(!timedPolicy&&!loader&&object.identity===undefined&&callbacks.length){result.failureKind="unresolved";diagnostics.push("Primary deferred initializer remains unresolved after the advancement budget, even if a linked object declared a model.");}
       for(let index=0;index<children.length;index++){
         const child=children[index],childObject=objectFor(child.task);currentTask=child.task;memory.codeFile=child.codeFile;put(0x8016dab4,child.task);
         const entry=word(child.task+0xc);if(!entry)throw new Error("Native child task callback is null; visual behavior remains unresolved.");
         childObject.provenance.push(`executed configured native child callback ${hex(entry)} after parent setup`);cpu.run(entry,[child.task,childObject.address],STOP);
-        for(let stage=0;!timedPolicy&&stage<4&&childObject.identity===undefined&&!multiObjectBodies.has(child.task);stage++){
+        for(let stage=0;!timedPolicy&&!loader&&stage<4&&childObject.identity===undefined&&!multiObjectBodies.has(child.task);stage++){
           const callback=word(child.task+0xc);if(!callback||callback===entry)break;
           childObject.provenance.push(`advanced native child deferred initializer ${hex(callback)}`);cpu.run(callback,[child.task,childObject.address],STOP);
         }
@@ -540,7 +580,8 @@ export class ActorInitializer {
           value.provenance.push("Relocated CPU material root File30 loaded section base+0x7C30|0x20000000; FD09001000 remains RSP segment9 File384, not CPU segment8 or model File470.");
         }
       }
-      result.completed=!result.timedPreview&&result.failureKind!=="unresolved";
+      if(loader){result.loaderPreview=loader.metadata();result.failureKind??="scene-gated";diagnostics.push("Scoped immediate native loader preview only; parent and child later callbacks are pending. Foreign constructor/resource lifecycle completion is not asserted.");}
+      result.completed=!loader&&!result.timedPreview&&result.failureKind!=="unresolved";
       if(objects.some(value=>value.identity!==undefined))result.status="resolved";
       else throw new Error(callbacks.length?"Deferred initializer budget ended with an unresolved callback; visual absence is not established.":"Constructor completed without a model declaration; child/deferred visual behavior is not established.");
     }catch(error){if(result.failureKind!=="unresolved")result.failureKind=removed||error instanceof NativeSceneStateError?"scene-gated":"unresolved";diagnostics.push(`${error instanceof Error?error.message:String(error)} [initializer PC ${hex(cpu.pc)}]`);}
@@ -563,7 +604,7 @@ export class ActorInitializer {
     }
     if(diagnostics.length)result.status=bindings.length?"conditional":"unsupported";
     if(input.requiredSiblingMissing){result.completed=false;result.failureKind="unresolved";result.status=bindings.length?"conditional":"unsupported";diagnostics.push("Native actor1B0 requires actor287 earlier in the actual target room spawn roster; the required sibling is absent or has not completed initialization.");}
-    result.readonlyMemory=[...memory.resourceBases].map(([fileId,address])=>({address,fileId,byteLength:memory.regions.find(r=>r.start===address)!.bytes.length}));
+    result.readonlyMemory=[...memory.resourceBases].map(([fileId,address])=>({address,fileId,byteLength:memory.regions.find(r=>r.start===address)!.bytes.length,...(loader?{scope:"cold-world-loader" as const}:{})}));
     result.syntheticMemory=memory.regions.filter(region=>!region.readonly&&region.start!==0x813e0000).map(region=>({address:region.start,bytes:region.bytes.slice(),...(region.conditional?{conditional:true}:{}),...(region.codeFile===undefined?{}:{codeFile:region.codeFile})}));
     for(const [codeFile,writes] of [[undefined,memory.privateBytes],...memory.overlayBytes] as [number|undefined,Map<number,number>][]){
       const privateAddresses=[...writes.keys()].sort((a,b)=>a-b);

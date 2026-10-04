@@ -16,7 +16,7 @@ export interface NativeDoorGeometry {
 }
 
 const AXES=["x","y","z"] as const;
-interface ReadonlyResource {address:number;fileId:number;byteLength:number}
+interface ReadonlyResource {address:number;fileId:number;byteLength:number;scope?:"cold-world-loader"}
 const identity=()=>[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];
 const digest=(value:unknown)=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const bytesFor=(model:ActorModel)=>model.meshes.reduce((sum,m)=>sum+(m.positions.length+m.indices.length+(m.uvs?.length??0)+(m.colors?.length??0)+(m.normals?.length??0))*8+(m.material?.texgen?128:0),0)+model.textures.reduce((sum,t)=>sum+t.width*t.height*4+t.rgbaBase64.length*2,0);
@@ -64,7 +64,16 @@ export class ActorVisuals {
     return wave.subarray(offset,offset+size);
   }
   private asset(binding:NativeActorBinding,synthetic:NativeActorMemorySpan[],readonly:ReadonlyResource[]):ActorModel {
-    if(readonly.length>1024||readonly.some(span=>!Number.isSafeInteger(span.address)||span.address<0x82000000||!Number.isSafeInteger(span.byteLength)||span.byteLength<0||span.byteLength>16*1024*1024||span.address+span.byteLength>0xbf000000))throw new Error("Native readonly actor resource mapping exceeds its bounded arena.");
+    if(readonly.length>1024||readonly.some(span=>!Number.isSafeInteger(span.address)||!Number.isSafeInteger(span.byteLength)||span.byteLength<0||span.byteLength>16*1024*1024||!(span.address>=0x82000000&&span.address+span.byteLength<=0xbf000000||span.scope==="cold-world-loader"&&span.address>=0x80321500&&span.address+span.byteLength<=0x80594000&&span.address%64===0)))throw new Error("Native readonly actor resource mapping exceeds its bounded arena.");
+    const lower=readonly.filter(span=>span.address<0x82000000).sort((a,b)=>a.address-b.address),ids=new Set<number>();
+    if(lower.length>48)throw new Error("Scoped native readonly registry exceeds48slots.");
+    for(const [index,span] of lower.entries()){
+      if(!Number.isInteger(span.fileId)||span.fileId<=0||span.fileId>=0x520)throw new Error("Scoped native readonly file ID is invalid.");
+      const file=this.files.get(span.fileId),start=this.reader.u32(0x556c4+span.fileId*8),end=this.reader.u32(0x556c4+span.fileId*8+4);
+      if(!file||file.compressed||ids.has(span.fileId)||end-start!==span.byteLength||(start&0x40000000)!==(end&0x40000000)||index&&lower[index-1].address+lower[index-1].byteLength>span.address)throw new Error("Scoped native readonly allocation identity/extent/overlap changed.");ids.add(span.fileId);
+      let segment=-1;for(let at=0x55510;at<0x556c4;at+=4){const upper=this.reader.u16(at);if(!upper)break;if(span.fileId<upper){segment=this.reader.bytes[at+3];break;}}
+      if(segment<0||(segment===0x11||start&0x40000000)&&span.address%4096!==0)throw new Error("Scoped native readonly code alignment changed.");
+    }
     const baseKey=digest([binding.modelPointer,binding.materialPointer,binding.segments,binding.animationFrame,binding.animationBlendCountdown,readonly]);
     for(const [key,cached] of this.assetCache){if(cached.baseKey===baseKey&&cached.dependencies.every(dep=>{try{return Buffer.from(this.read(binding,dep.address,dep.size,synthetic,readonly)).toString("hex")===dep.expectedHex;}catch{return false;}})){this.assetCache.delete(key);this.assetCache.set(key,cached);return cached.model;}}
     const dependencies=new Map<string,{address:number;size:number;expectedHex:string}>();let dependencyBytes=0;
