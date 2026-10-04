@@ -117,7 +117,7 @@ test("generated native mapper C preserves every vanilla stage and actual custom 
     const directory = mkdtempSync(path.join(tmpdir(), "mnsg-authored-mapper-"));
     try {
         const source = `#include <assert.h>\n#include <stdint.h>\ntypedef unsigned short u16;\n#define RECOMP_PATCH\ntypedef struct {u16 room,donor;} AuthoredRoomRegistry;\nstatic AuthoredRoomRegistry authored_rooms[]={{620,465},{621,128}};\nstatic void authored_install(AuthoredRoomRegistry *room){(void)room;}\nstatic AuthoredRoomRegistry *authored_find(u16 room){for(int i=0;i<2;i++)if(authored_rooms[i].room==room)return &authored_rooms[i];return 0;}\nstatic unsigned char storage[0x40000];\nunsigned char *D_8015C5C8_15D1C8=storage;\nu16 D_8005BA10_5C610[]={0,300,350,400,540,544,549,561,588,607,613,618,619,620};\n${authoringMapperSource()}\nint main(void){for(u16 room=0;room<800;room++){u16 mapped=room==620?465:room==621?128:room;unsigned int stage=0,index=0;for(unsigned int i=1;i<=13;i++)if(mapped<D_8005BA10_5C610[i]){stage=i-1;index=mapped-D_8005BA10_5C610[i-1];break;}*(u16*)(storage+0x3adf2)=room;func_8000B3E4_BFE4();assert(storage[0x3ade4]==stage);assert(*(u16*)(storage+0x3adf4)==index);func_801F8F0C_5B4E1C();if(stage==0&&mapped>89){if(mapped>127){stage=5;index=(u16)(index-128);}else{stage=4;index=(u16)(index-90);}}assert(storage[0x3adf6]==stage);assert(*(u16*)(storage+0x3adf8)==index);assert(*(u16*)(storage+0x3adf2)==room);}return 0;}\n`;
-        const file = path.join(directory, "mapper.c"), binary = path.join(directory, "mapper");
+        const file = path.join(directory, "mapper.c"), binary = path.join(directory, process.platform === "win32" ? "mapper.exe" : "mapper");
         writeFileSync(file, source);
         execFileSync(hostClang, ["-std=c99", "-Wall", "-Wextra", "-Werror", file, "-o", binary]);
         execFileSync(binary, []);
@@ -413,7 +413,7 @@ int main(void){
  authored_rooms[0].ready=0;prior=D_8015C5CC_15D1CC;mnsg_authored_before_background(object);mnsg_authored_after_background();assert(D_8015C5CC_15D1CC==prior);
  return 0;
 }`;
-        const file=path.join(directory,"address.c"),binary=path.join(directory,"address");
+        const file=path.join(directory,"address.c"),binary=path.join(directory,process.platform === "win32" ? "address.exe" : "address");
         writeFileSync(file,source);execFileSync(hostClang,["-std=c99","-Wall","-Wextra","-Werror","-Wno-pointer-to-int-cast",file,"-o",binary]);execFileSync(binary,[]);
     }finally{rmSync(directory,{recursive:true,force:true});}
 });
