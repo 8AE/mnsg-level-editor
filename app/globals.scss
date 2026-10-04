@@ -1,0 +1,8 @@
+html, body { margin: 0; min-height: 100%; }
+body { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--page-background); color: var(--neutral-on-background-strong); }
+* { box-sizing: border-box; }
+button, input, select, textarea { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: default; }
+::selection { background: var(--brand-alpha-medium); }
+:focus-visible { outline: 2px solid var(--brand-on-background-medium); outline-offset: 3px; }
