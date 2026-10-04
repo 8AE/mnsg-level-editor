@@ -137,7 +137,14 @@ function render(
         });
     }
     scene.updateMatrixWorld(true);
-    const bounds = new THREE.Box3().setFromObject(scene);
+    const bounds = new THREE.Box3();
+    if (layer && "actorVisuals" in payload) {
+      // Model content bounds exclude hidden selection helpers and origin proxies.
+      for (const visual of payload.actorVisuals) {
+        const modelBounds = layer.bounds(visual.actorRef);
+        if (modelBounds && !modelBounds.isEmpty()) bounds.union(modelBounds);
+      }
+    } else bounds.setFromObject(scene);
     if (bounds.isEmpty()) throw new Error("No decoded surfaces to preview.");
     const center = bounds.getCenter(new THREE.Vector3()),
       distance = Math.max(

@@ -795,7 +795,7 @@ test("door volume matches native bottom-origin XYZ rotation and live dimension e
 test(
   "GPU native thumbnail jobs reuse one context, release job assets, recover after a rejected preview and release on pagehide",
   { skip: process.env.MNSG_GPU_TEST !== "1" },
-  async () => {
+  async (context) => {
     const { build } = await import("esbuild");
     const { chromium } = await import("playwright");
     const bundle = await build({
@@ -803,6 +803,7 @@ test(
         resolveDir: process.cwd(),
         contents: `
       import {assetThumbnail} from "./components/assetThumbnails";
+      import * as THREE from "three";
       let contexts = 0, lost = 0;
       const original = HTMLCanvasElement.prototype.getContext;
       HTMLCanvasElement.prototype.getContext = function(type, ...args) {
@@ -817,13 +818,49 @@ test(
         let rejection = false;
         try {await assetThumbnail({...payload, meshes:[]});} catch {rejection=true;}
         const restored = await assetThumbnail(payload);
+        // Native-shaped hierarchical fixture: offsets belong to part/bone transforms,
+        // never to the thumbnail camera or a recentered copy of its vertices.
+        const cube = new THREE.BoxGeometry(20, 40, 20);
+        const mesh = {id:"actor-surface", source:"display-list", positions:Array.from(cube.attributes.position.array), indices:Array.from(cube.index.array), uvs:Array.from(cube.attributes.uv.array), material:{...material,textureId:"white"}};
+        cube.dispose();
+        const prototype = {id:"fixture-prototype", actorId:1, name:"Fixture", parameters:[0,0,0]};
+        const fixture = (partOffset, boneOffset) => ({
+          actorModels:[{id:"fixture-model", warnings:[], textures:[{id:"white", width:1, height:1, format:"fixture RGBA", rgbaBase64:"/////w=="}], meshes:[mesh], nodes:[
+            {parentIndex:null, matrix:new THREE.Matrix4().makeTranslation(...boneOffset).toArray(), meshIndices:[]},
+            {parentIndex:0, matrix:new THREE.Matrix4().makeTranslation(3,4,2).toArray(), meshIndices:[0]}
+          ]}],
+          actorVisuals:[{actorRef:"fixture-actor", status:"supported", warnings:[], parts:[{
+            assetId:"fixture-model", rootMatrix:new THREE.Matrix4().makeScale(1.2,1.2,1.2).toArray(),
+            positionOffset:{x:partOffset[0],y:partOffset[1],z:partOffset[2]}, rotationOverrides:{}, billboardAxes:{x:false,y:false,z:false}, pose:"initial-frame", provenance:{identity:1,slot:0,fileIds:[],modelPointer:0}
+          }]}]
+        });
+        const pixels = async url => {
+          const image = new Image(); image.src=url; await image.decode();
+          const canvas=document.createElement("canvas");canvas.width=image.width;canvas.height=image.height;
+          const context=canvas.getContext("2d");context.drawImage(image,0,0);
+          const rgba=context.getImageData(0,0,image.width,image.height).data;
+          let count=0,minX=image.width,minY=image.height,maxX=-1,maxY=-1;
+          for(let i=3;i<rgba.length;i+=4) if(rgba[i]>32) {
+            count++;const x=((i-3)/4)%image.width,y=Math.floor(((i-3)/4)/image.width);
+            minX=Math.min(minX,x);maxX=Math.max(maxX,x);minY=Math.min(minY,y);maxY=Math.max(maxY,y);
+          }
+          return {count,width:maxX-minX+1,height:maxY-minY+1};
+        };
+        const offOrigin=[];
+        for(const [partOffset,boneOffset] of [
+          [[0,0,0],[0,0,0]], [[1337,-120,730],[0,0,0]], [[0,0,0],[440,-20,0]], [[-2300,500,1200],[440,-20,0]]
+        ]) {
+          const actor=fixture(partOffset,boneOffset), beforePayload=JSON.stringify(actor);
+          const image=await assetThumbnail(actor,prototype);
+          offOrigin.push({...await pixels(image),unchanged:JSON.stringify(actor)===beforePayload});
+        }
         const before = contexts;
         window.dispatchEvent(new Event("pagehide"));
         await new Promise(resolve => setTimeout(resolve, 50));
         const afterHide = lost;
         window.dispatchEvent(new Event("pageshow"));
         const resumed = await assetThumbnail(payload);
-        return {contexts, before, lost:afterHide, rejection, valid:images.every(image=>image.startsWith("data:image/png;base64,")), stable:images.every(image=>image===restored) && restored===resumed};
+        return {contexts, before, lost:afterHide, offOrigin, rejection, valid:images.every(image=>image.startsWith("data:image/png;base64,")), stable:images.every(image=>image===restored) && restored===resumed};
       };
     `,
       },
@@ -864,6 +901,35 @@ test(
         "only pagehide/resume creates a replacement context",
       );
       assert.equal(result.lost, 1);
+      context.diagnostic(
+        `Actor thumbnail coverage (center, part offset, bone offset, both): ${JSON.stringify(result.offOrigin)}`,
+      );
+      const centered = result.offOrigin[0];
+      assert.ok(
+        centered.count > 1000,
+        `Centered actor must be readable, got ${centered.count} pixels`,
+      );
+      for (const [index, translated] of result.offOrigin.entries()) {
+        assert.equal(
+          translated.unchanged,
+          true,
+          `Native payload${index} must remain unchanged`,
+        );
+        assert.ok(
+          translated.count > 1000,
+          `Off-origin actor${index} must be readable, got ${translated.count} pixels`,
+        );
+        assert.ok(
+          translated.count / centered.count >= 0.9 &&
+            translated.count / centered.count <= 1.1,
+          `Actor${index} coverage must match centered framing: ${JSON.stringify(result.offOrigin)}`,
+        );
+        assert.ok(
+          Math.abs(translated.width - centered.width) <= 2 &&
+            Math.abs(translated.height - centered.height) <= 2,
+          `Actor${index} projected dimensions must match centered framing`,
+        );
+      }
       assert.equal(result.rejection, true);
       assert.equal(result.valid, true);
       assert.equal(
