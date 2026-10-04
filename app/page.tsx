@@ -3,18 +3,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Column, Row, Spinner, Text } from "@once-ui-system/core";
 import { FiArrowUpRight, FiBox, FiCheck, FiChevronRight, FiCornerUpLeft, FiCornerUpRight, FiDownload, FiFolder, FiGrid, FiLayers, FiMaximize, FiMove, FiPlus, FiSave, FiSearch, FiSettings, FiUpload, FiX } from "react-icons/fi";
-import type { ActorOverride, AppApi, AppStatus, EditorProject, EventOverride, RoomData, RoomSummary, Vec3 } from "../shared/types";
+import type { ActorOverride, ActorVisualPayload, AppApi, AppStatus, EditorProject, EventOverride, RoomData, RoomSummary, Vec3 } from "../shared/types";
 import RoomViewport, { type ViewOptions } from "../components/RoomViewport";
 import Inspector from "../components/Inspector";
 import RoomInspector from "../components/RoomInspector";
 import { roomTextureCoverage, type RenderTextureCoverage } from "../components/roomMaterials";
+import type { ActorRenderCoverage } from "../components/actorModelScene";
+import { requestActorVisuals } from "../components/actorVisualRequests";
 import { applyOverrides, checkedActorPosition, checkedGeometryTranslation, checkedPosition, countProjectChanges, effectiveGeometryTranslation, sampleRoom, sharedGeometryImpacts, withGeometryOverride } from "../components/editorModel";
 import "./editor.scss";
 
 type Modal = "new" | "export" | "discard" | null;
 const fingerprint = (project: EditorProject | null) => project ? JSON.stringify({ name: project.name, roomOverrides: project.roomOverrides }) : "";
 const messageOf = (error: unknown) => error instanceof Error ? error.message : "The operation could not be completed.";
-const initialOptions: ViewOptions = { textures: true, grid: true, axes: true, wireframe: false, actors: true, events: true, translate: false };
+const initialOptions: ViewOptions = { geometry: true, textures: true, grid: true, axes: true, wireframe: false, actors: true, events: true, translate: false };
 
 function ModalShell({ title, children, onClose }: { title: string; children: React.ReactNode; onClose(): void }) {
   const dialog = useRef<HTMLDivElement>(null);
@@ -55,6 +57,10 @@ export default function EditorPage() {
   const [options, setOptions] = useState(initialOptions);
   const [frame, setFrame] = useState({ version: 0, selected: false });
   const [renderCoverage, setRenderCoverage] = useState<RenderTextureCoverage>({ roomId: -1, textured: 0, total: 0, images: 0, warnings: [] });
+  const [actorCoverage, setActorCoverage] = useState<ActorRenderCoverage & { roomId: number }>({ roomId: -1, rendered: 0, renderedActorRefs: [], supported: 0, conditional: 0, partial: 0, nonvisual: 0, unsupported: 0, parts: 0, texturedTriangles: 0, warnings: [], failures: {} });
+  const [actorPayload, setActorPayload] = useState<{ source: RoomData; data: ActorVisualPayload } | null>(null);
+  const [actorPendingRoom, setActorPendingRoom] = useState<RoomData | null>(null);
+  const [actorVisualError, setActorVisualError] = useState<{ source: RoomData; message: string } | null>(null);
   const [past, setPast] = useState<EditorProject[]>([]);
   const [future, setFuture] = useState<EditorProject[]>([]);
   const [modal, setModal] = useState<Modal>(null);
@@ -63,7 +69,13 @@ export default function EditorPage() {
   const deferred = useRef<(() => void) | null>(null);
   const loadSequence = useRef(0);
   const busyLock = useRef(false);
-  const room = useMemo(() => baseRoom ? applyOverrides(baseRoom, project) : null, [baseRoom, project]);
+  const room = useMemo(() => {
+    if (!baseRoom) return null;
+    const view = applyOverrides(baseRoom, project);
+    return actorPayload?.source === baseRoom ? { ...view, ...actorPayload.data } : view;
+  }, [baseRoom, project, actorPayload]);
+  const actorOverrideKey = JSON.stringify(project?.roomOverrides[String(baseRoom?.id)]?.actors ?? {});
+  const actorRefreshing = Boolean(baseRoom && actorPendingRoom === baseRoom);
   const dirty = fingerprint(project) !== saved;
   const api = () => {
     const bridge: AppApi | undefined = window.mnsg;
@@ -115,6 +127,16 @@ export default function EditorPage() {
     window.addEventListener("beforeunload", leave);
     return () => window.removeEventListener("beforeunload", leave);
   }, [dirty]);
+  useEffect(() => {
+    if (!baseRoom || sample || !window.mnsg) return;
+    setActorPendingRoom(baseRoom); setActorVisualError(null);
+    return requestActorVisuals((id, overrides) => api().loadActorVisuals(id, overrides), baseRoom.id, JSON.parse(actorOverrideKey) as Record<string, ActorOverride>,
+      data => setActorPayload({ source: baseRoom, data }),
+      issue => setActorVisualError({ source: baseRoom, message: `Actor preview could not refresh: ${messageOf(issue)}` }),
+      () => setActorPendingRoom(null));
+    // Actor values, including reset and history, affect native constructor parts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseRoom, actorOverrideKey, sample]);
   const guard = (task: () => void) => { if (dirty) { deferred.current = task; setModal("discard"); } else task(); };
   const importRom = () => guard(() => { void run("Importing ROM", async () => { const value = await api().importRom(); if (value) { await readWorkspace(value); setNotice("ROM imported. Your source file stays unchanged."); } }); });
   const openProject = () => guard(() => { void run("Opening project", async () => { const value = await api().openProject(); if (value) await readWorkspace(await api().getStatus(), value); }); });
@@ -161,13 +183,13 @@ export default function EditorPage() {
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement;
-      if (target.closest("input,textarea,[contenteditable=true]") || modal || busyLock.current) return;
+      if (event.defaultPrevented || event.altKey || event.isComposing || target.closest?.("input,textarea,select,[contenteditable]:not([contenteditable='false']),[role='textbox']") || modal || busyLock.current) return;
       if (event.metaKey || event.ctrlKey) {
         if (event.key.toLowerCase() === "s") { event.preventDefault(); void saveProject(); }
         if (event.key.toLowerCase() === "z") { event.preventDefault(); event.shiftKey ? redo() : undo(); }
-      } else if (event.key.toLowerCase() === "f") { event.preventDefault(); frameRoom(Boolean(selected)); }
-      else if (event.key.toLowerCase() === "g") setOptions(value => ({ ...value, grid: !value.grid }));
-      else if (event.key.toLowerCase() === "w") setOptions(value => ({ ...value, translate: !value.translate }));
+      } else if (!event.repeat && event.key.toLowerCase() === "f") { event.preventDefault(); frameRoom(Boolean(selected)); }
+      else if (!event.repeat && event.key.toLowerCase() === "g") setOptions(value => ({ ...value, grid: !value.grid }));
+      else if (!event.repeat && event.key.toLowerCase() === "t") setOptions(value => ({ ...value, translate: !value.translate }));
     };
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
@@ -178,10 +200,13 @@ export default function EditorPage() {
   const moveRecord = (id: string, position: Vec3) => { try { const actor = room?.actors.find(actor => actor.id === id); const checked = actor ? checkedActorPosition(actor, position) : checkedPosition(position); edit(actor ? "actors" : "events", id, { position: checked }); } catch (issue) { setError(messageOf(issue)); setOptions(value => ({ ...value, translate: false })); } };
   const selectedActor = room?.actors.find(actor => actor.id === selected);
   const selectedEvent = room?.events.find(event => event.id === selected);
+  const sourceVisual = room?.actorVisuals?.find(visual => visual.actorRef === selected);
+  const visualFailure = actorCoverage.roomId === room?.id && selected ? actorCoverage.failures[selected] : undefined;
+  const selectedVisual = sourceVisual && visualFailure ? { ...sourceVisual, status: "unsupported" as const, parts: selected && actorCoverage.renderedActorRefs.includes(selected) ? sourceVisual.parts : [], reason: visualFailure } : sourceVisual;
   const selectedMovable = Boolean((selectedActor?.editable && (selectedActor.sourceKind !== "partition" || selectedActor.partition)) || (selectedEvent?.editable && selectedEvent.position));
   const sources = new Set(room?.meshes.map(mesh => mesh.source));
   const textureCoverage = room && renderCoverage.roomId === room.id ? renderCoverage : room ? roomTextureCoverage(room) : { textured: 0, total: 0, images: 0 };
-  const roomWarnings = [...(room?.warnings ?? []), ...(renderCoverage.roomId === room?.id ? renderCoverage.warnings : [])];
+  const roomWarnings = [...new Set([...(room?.warnings ?? []), ...(renderCoverage.roomId === room?.id ? renderCoverage.warnings : []), ...(actorCoverage.roomId === room?.id ? actorCoverage.warnings : []), ...(actorVisualError?.source === baseRoom && actorVisualError ? [actorVisualError.message] : [])])];
   const geometryLabel = sample ? "Procedural sample" : textureCoverage.textured && options.textures ? "ROM texture preview" : sources.has("display-list") ? "Solid room geometry" : sources.has("collision") ? "Collision geometry" : "Placement markers";
   const overrides = project?.roomOverrides[String(room?.id)];
   const modified = Boolean(selected && (overrides?.actors[selectedEvent?.actorRef ?? selected] || overrides?.events[selected]));
@@ -211,14 +236,15 @@ export default function EditorPage() {
         </Column>
         <Column className="viewport-panel" flex={1}>
           <Row className="viewport-heading" vertical="center" horizontal="between" paddingX="20" borderBottom><Row gap="12" vertical="center"><Text variant="body-strong-s">{room?.name ?? "Choose a room"}</Text><span className="geometry-badge">{geometryLabel}</span></Row><Row gap="4"><Button size="s" variant="tertiary" aria-label="Undo" title="Undo · ⌘/Ctrl Z" disabled={!past.length || Boolean(busy)} onClick={undo}><FiCornerUpLeft /></Button><Button size="s" variant="tertiary" aria-label="Redo" title="Redo · ⌘/Ctrl Shift Z" disabled={!future.length || Boolean(busy)} onClick={redo}><FiCornerUpRight /></Button></Row></Row>
-          <div className="viewport-stage">{room && <RoomViewport room={room} selected={selected} options={busy ? { ...options, translate: false } : options} frame={frame} onSelect={selectRecord} onMove={moveRecord} onCoverage={setRenderCoverage} />}
-            <div className="viewport-top-overlay"><span className="view-tag">PERSPECTIVE <span>Y UP</span></span><div className="view-tool-stack"><Button variant="tertiary" size="s" horizontal="start" aria-label="Frame all geometry" title="Frame all geometry" onClick={() => frameRoom(false)}><FiMaximize /></Button><Button variant="tertiary" size="s" horizontal="start" aria-label="Frame selected record" title="Frame selected · F" disabled={!selectedActor && !selectedEvent?.position} onClick={() => frameRoom(true)}><span>F</span></Button><span className="stack-divider" /><Button variant="tertiary" size="s" horizontal="start" aria-label="Toggle translation gizmo" title="Translate · W" aria-pressed={options.translate} disabled={sample || Boolean(busy) || !selectedMovable} onClick={() => setOptions(value => ({ ...value, translate: !value.translate }))}><FiMove /></Button></div></div>
+          <div className="viewport-stage">{room && <RoomViewport room={room} selected={selected} options={busy ? { ...options, translate: false } : options} frame={frame} onSelect={selectRecord} onMove={moveRecord} onCoverage={setRenderCoverage} onActorCoverage={setActorCoverage} navigationEnabled={!modal && !busy} />}
+            <div className="viewport-top-overlay"><Column gap="8"><span className="view-tag">PERSPECTIVE <span>Y UP</span></span><span className="camera-key-hint">Click viewport · hold <kbd>WASD</kbd> to move</span></Column><div className="view-tool-stack"><Button variant="tertiary" size="s" horizontal="start" aria-label="Frame all geometry" title="Frame all geometry" onClick={() => frameRoom(false)}><FiMaximize /></Button><Button variant="tertiary" size="s" horizontal="start" aria-label="Frame selected record" title="Frame selected · F" disabled={!selectedActor && !selectedEvent?.position} onClick={() => frameRoom(true)}><span>F</span></Button><span className="stack-divider" /><Button variant="tertiary" size="s" horizontal="start" aria-label="Toggle translation gizmo" title="Translate · T" aria-pressed={options.translate} disabled={sample || Boolean(busy) || !selectedMovable} onClick={() => setOptions(value => ({ ...value, translate: !value.translate }))}><FiMove /></Button></div></div>
             <div className="viewport-bottom-overlay"><span className="axis-key"><i>X</i><i>Y</i><i>Z</i></span><span className="orbit-help">Drag to orbit <span>·</span> Right-drag to pan <span>·</span> Scroll to zoom</span></div>
-            {room && !room.meshes.length && <div className="no-geometry">No verified geometry for this room. Positioned records are shown as markers.</div>}
+            {room && !room.meshes.length && <div className="no-geometry">No verified room geometry. Actor previews remain available.</div>}
+            {!sample && room && <div className="actor-preview-summary" data-testid="actor-preview-summary" role="status">{actorRefreshing ? "Refreshing actor models · previous preview retained" : actorVisualError?.source === baseRoom ? "Actor preview refresh failed · previous preview retained" : actorCoverage.roomId === room.id ? `${actorCoverage.supported} native models · ${actorCoverage.conditional} conditional · ${actorCoverage.partial} partial · ${actorCoverage.nonvisual} controllers · ${actorCoverage.unsupported - actorCoverage.partial} unavailable` : "Reading actor visuals"}</div>}
             {busy && <div className="viewport-loading" role="status"><Spinner size="s" />{busy}…</div>}
           </div>
-          <Row className="viewport-controls" vertical="center" horizontal="between" paddingX="16" borderTop><Row gap="4">{(["textures", "grid", "wireframe", "actors", "events", "axes"] as const).map(key => <Button variant="tertiary" size="s" horizontal="start" key={key} data-testid={key === "textures" ? "textures-toggle" : undefined} disabled={key === "textures" && !textureCoverage.textured} className={options[key] ? "view-toggle active" : "view-toggle"} aria-pressed={options[key]} onClick={() => setOptions(value => ({ ...value, [key]: !value[key] }))}>{key === "grid" && <FiGrid />}{key.charAt(0).toUpperCase() + key.slice(1)}</Button>)}</Row><Text variant="label-default-xs" onBackground="neutral-weak">{room?.meshes.reduce((sum, mesh) => sum + mesh.indices.length / 3, 0).toLocaleString()} triangles</Text></Row>
-          <div className="viewport-note">{sharedImpacts.length > 0 ? `Shared geometry translation from room ${sharedImpacts.map(id => `0x${id.toString(16).toUpperCase()}`).join(", ")} · actor placements unchanged` : sample ? "Procedural sample · no ROM data · read only" : options.textures && textureCoverage.textured ? `ROM textures · ${textureCoverage.textured.toLocaleString()}/${textureCoverage.total.toLocaleString()} triangles · lighting, filtering and fog approximate` : "Solid room preview · actor models and event behavior are not rendered"}</div>
+          <Row className="viewport-controls" vertical="center" horizontal="between" paddingX="16" borderTop><Row gap="4">{(["geometry", "textures", "grid", "wireframe", "actors", "events", "axes"] as const).map(key => <Button variant="tertiary" size="s" horizontal="start" key={key} data-testid={key === "textures" || key === "geometry" ? `${key}-toggle` : undefined} title={key === "geometry" ? "Show or hide room surfaces to inspect actors in their initial pose" : undefined} disabled={key === "textures" && !textureCoverage.textured && !(actorCoverage.roomId === room?.id && actorCoverage.texturedTriangles)} className={options[key] ? "view-toggle active" : "view-toggle"} aria-pressed={options[key]} onClick={() => setOptions(value => ({ ...value, [key]: !value[key] }))}>{key === "grid" && <FiGrid />}{key.charAt(0).toUpperCase() + key.slice(1)}</Button>)}</Row><Text variant="label-default-xs" onBackground="neutral-weak">{room?.meshes.reduce((sum, mesh) => sum + mesh.indices.length / 3, 0).toLocaleString()} triangles</Text></Row>
+          <div className="viewport-note">{sharedImpacts.length > 0 ? `Shared geometry translation from room ${sharedImpacts.map(id => `0x${id.toString(16).toUpperCase()}`).join(", ")} · actor placements unchanged` : sample ? "Procedural sample · no ROM data · read only" : options.textures && textureCoverage.textured ? `ROM textures · ${textureCoverage.textured.toLocaleString()}/${textureCoverage.total.toLocaleString()} triangles · lighting, filtering and fog approximate` : "Solid preview · native actor initial poses · game behavior is not simulated"}</div>
         </Column>
         <Column className="detail-panel" borderLeft>
           <Row className="panel-heading" padding="20" vertical="center" horizontal="between"><Text variant="label-strong-s">OUTLINER</Text><FiBox /></Row>
@@ -226,7 +252,7 @@ export default function EditorPage() {
           {tab !== "room" && <><label className="search-box compact"><FiSearch /><input aria-label="Search records" placeholder={`Find ${tab}…`} value={recordSearch} onChange={event => setRecordSearch(event.target.value)} /></label>
           <div className="record-list" data-testid="actor-list" id="records-panel" role="tabpanel" aria-labelledby={`${tab}-tab`}>{visibleRecords.map(item => <Button variant="tertiary" size="s" horizontal="start" key={item.id} className={`record-item ${selected === item.id ? "is-selected" : ""}`} onClick={() => selectRecord(item.id)}><span className={`record-symbol ${tab}`}>{tab === "actors" ? <FiBox /> : "◇"}</span><span>{item.name}</span><code>{item.index.toString().padStart(2, "0")}</code>{(overrides?.actors["actorRef" in item && item.actorRef ? item.actorRef : item.id] || overrides?.events[item.id]) && <span className="modified-dot" />}</Button>)}{!visibleRecords.length && <div className="empty-records">{recordSearch ? "No matching records." : `No ${tab} in this room.`}</div>}</div></>}
           <Row className="inspector-heading" paddingX="20" paddingY="12" borderY horizontal="between"><Text variant="label-strong-xs">{tab === "room" ? "ROOM INSPECTOR" : "INSPECTOR"}</Text><Text variant="label-default-xs" onBackground="neutral-weak">{(tab === "room" ? Boolean(geometryTranslation) : modified) ? "Modified" : "Source values"}</Text></Row>
-          <div className="inspector-scroll">{tab === "room" && baseRoom ? <div id="records-panel" role="tabpanel" aria-labelledby="room-tab"><RoomInspector key={`room:${project?.id}:${baseRoom.id}`} room={baseRoom} translation={geometryTranslation ?? { x: 0, y: 0, z: 0 }} modified={Boolean(geometryTranslation)} sample={sample} busy={Boolean(busy)} sharedImpacts={sharedImpacts} onChange={editGeometry} onReset={() => editGeometry(null)} onFrame={() => frameRoom(false)} /></div> : <Inspector key={selected ?? "none"} actor={selectedActor} event={selectedEvent} sample={sample} busy={Boolean(busy)} supportedActorIds={baseRoom?.actors.map(actor => actor.actorId) ?? []} modified={modified} onActor={value => selected && edit("actors", selected, value)} onEvent={value => selected && edit("events", selected, value)} onReset={() => selected && edit(selectedActor ? "actors" : "events", selected, null)} onFrame={() => frameRoom(true)} onInspectActor={id => { selectRecord(id); setTab("actors"); }} />}</div>
+          <div className="inspector-scroll">{tab !== "room" && selectedActor && selectedVisual?.parts.length && !sample ? <div className="inspector-notice actor-occlusion-note">An actor’s initial pose may be hidden behind room surfaces. Use Geometry below the viewport to inspect it.</div> : null}{tab === "room" && baseRoom ? <div id="records-panel" role="tabpanel" aria-labelledby="room-tab"><RoomInspector key={`room:${project?.id}:${baseRoom.id}`} room={baseRoom} translation={geometryTranslation ?? { x: 0, y: 0, z: 0 }} modified={Boolean(geometryTranslation)} sample={sample} busy={Boolean(busy)} sharedImpacts={sharedImpacts} onChange={editGeometry} onReset={() => editGeometry(null)} onFrame={() => frameRoom(false)} /></div> : <Inspector key={selected ?? "none"} actor={selectedActor} event={selectedEvent} visual={selectedVisual} visualsPending={actorRefreshing} sample={sample} busy={Boolean(busy)} supportedActorIds={baseRoom?.actors.map(actor => actor.actorId) ?? []} modified={modified} onActor={value => selected && edit("actors", selected, value)} onEvent={value => selected && edit("events", selected, value)} onReset={() => selected && edit(selectedActor ? "actors" : "events", selected, null)} onFrame={() => frameRoom(true)} onInspectActor={id => { selectRecord(id); setTab("actors"); }} />}</div>
         </Column>
       </Row>
       {error && <div className="error-banner workspace-banner" role="alert"><span>{error}</span><Button variant="tertiary" size="s" horizontal="start" aria-label="Dismiss error" onClick={() => setError("")}><FiX /></Button></div>}

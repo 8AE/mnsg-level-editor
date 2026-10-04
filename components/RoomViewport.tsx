@@ -6,8 +6,10 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 import type { RoomData, Vec3 } from "../shared/types";
 import { createNativeSurfaceMaterial, linearNativeColors, RoomTexturePool, type RenderTextureCoverage } from "./roomMaterials";
+import { bindCameraKeyboardInput, CameraKeyboardControls, cancelTransformPreview, syncMarkerPosition, syncTransformAttachment, type NavigationContext } from "./cameraControls";
+import { ActorModelLayer, type ActorRenderCoverage } from "./actorModelScene";
 
-export interface ViewOptions { textures: boolean; grid: boolean; axes: boolean; wireframe: boolean; actors: boolean; events: boolean; translate: boolean }
+export interface ViewOptions { geometry: boolean; textures: boolean; grid: boolean; axes: boolean; wireframe: boolean; actors: boolean; events: boolean; translate: boolean }
 interface Props {
   room: RoomData;
   selected: string | null;
@@ -16,12 +18,18 @@ interface Props {
   onSelect(id: string | null): void;
   onMove(id: string, position: Vec3): void;
   onCoverage(coverage: RenderTextureCoverage): void;
+  onActorCoverage(coverage: ActorRenderCoverage & { roomId: number }): void;
+  navigationEnabled: boolean;
 }
 
-export default function RoomViewport({ room, selected, options, frame, onSelect, onMove, onCoverage }: Props) {
+export default function RoomViewport({ room, selected, options, frame, onSelect, onMove, onCoverage, onActorCoverage, navigationEnabled }: Props) {
   const host = useRef<HTMLDivElement>(null);
-  const callbacks = useRef({ onSelect, onMove, onCoverage });
-  callbacks.current = { onSelect, onMove, onCoverage };
+  const callbacks = useRef({ onSelect, onMove, onCoverage, onActorCoverage });
+  callbacks.current = { onSelect, onMove, onCoverage, onActorCoverage };
+  const navigationAllowed = useRef(navigationEnabled);
+  navigationAllowed.current = navigationEnabled;
+  const latestRoom = useRef(room);
+  latestRoom.current = room;
   const [failure, setFailure] = useState<string | null>(null);
   const cameraState = useRef<{ roomId: number; position: THREE.Vector3; target: THREE.Vector3 } | null>(null);
   const markerRoster = `${room.actors.map(actor => actor.id).join("|")}/${room.events.map(event => event.id).join("|")}`;
@@ -37,6 +45,9 @@ export default function RoomViewport({ room, selected, options, frame, onSelect,
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(renderer.domElement);
+    renderer.domElement.tabIndex = 0;
+    renderer.domElement.setAttribute("aria-label", "3D viewport. Focus here and hold W A S D to move the camera. Drag to orbit, right-drag to pan, scroll to zoom.");
+    renderer.domElement.dataset.testid = "viewport-navigation-canvas";
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x111719);
     const camera = new THREE.PerspectiveCamera(42, 1, 0.5, 250000);
@@ -44,6 +55,11 @@ export default function RoomViewport({ room, selected, options, frame, onSelect,
     orbit.enableDamping = true;
     orbit.dampingFactor = 0.12;
     orbit.maxDistance = 150000;
+    const publishCamera = () => {
+      container.dataset.cameraPosition = camera.position.toArray().map(value => value.toFixed(5)).join(",");
+      container.dataset.cameraTarget = orbit.target.toArray().map(value => value.toFixed(5)).join(",");
+    };
+    orbit.addEventListener("change", publishCamera);
     scene.add(new THREE.HemisphereLight(0xc8f2e6, 0x49515b, 2.3));
     const key = new THREE.DirectionalLight(0xe2f7f0, 2.2);
     key.position.set(800, 2000, 600);
@@ -112,6 +128,7 @@ export default function RoomViewport({ room, selected, options, frame, onSelect,
     };
     room.actors.forEach(actor => addMarker(actor.id, actor.position, false, actor.editable && (actor.sourceKind !== "partition" || Boolean(actor.partition))));
     room.events.forEach(event => { if (event.position) addMarker(event.id, event.position, true, event.editable); });
+    const actorModels = new ActorModelLayer(scene, markers, directions);
     const bounds = geometryBounds.clone();
     if (bounds.isEmpty()) markers.forEach(marker => bounds.expandByObject(marker));
     if (bounds.isEmpty()) bounds.set(new THREE.Vector3(-500, -100, -500), new THREE.Vector3(500, 100, 500));
@@ -127,7 +144,49 @@ export default function RoomViewport({ room, selected, options, frame, onSelect,
     transform.setTranslationSnap(1);
     scene.add(transform.getHelper());
     let moving = false;
-    transform.addEventListener("dragging-changed", event => { moving = Boolean(event.value); orbit.enabled = !moving; });
+    const keyboard = new CameraKeyboardControls(camera, orbit.target);
+    const publishTransform = () => {
+      container.dataset.transformDragging = String(transform.dragging);
+      container.dataset.transformAxis = transform.axis ?? "";
+      container.dataset.transformObjectId = transform.object?.userData.id ?? "";
+      container.dataset.transformPreviewPosition = transform.object?.position.toArray().map(value => value.toFixed(5)).join(",") ?? "";
+    };
+    transform.addEventListener("objectChange", publishTransform);
+    transform.addEventListener("axis-changed", publishTransform);
+    const orbitStart = () => keyboard.beginGesture("orbit");
+    const orbitEnd = () => keyboard.endGesture("orbit");
+    orbit.addEventListener("start", orbitStart);
+    orbit.addEventListener("end", orbitEnd);
+    const navigationContext = (target: EventTarget | null = document.activeElement): NavigationContext => ({
+      focused: document.activeElement === renderer.domElement && document.hasFocus(),
+      typing: Boolean((target as HTMLElement | null)?.closest?.("input,textarea,select,[contenteditable]:not([contenteditable='false']),[role='textbox']")),
+      blocked: !navigationAllowed.current || moving || document.hidden || Boolean(document.querySelector("[role='dialog'][aria-modal='true']")),
+    });
+    const cancelTransform = () => {
+      const id = transform.object?.userData.id;
+      const source = latestRoom.current.actors.find(actor => actor.id === id) ?? latestRoom.current.events.find(event => event.id === id);
+      cancelTransformPreview(transform, source?.position);
+      moving = false; orbit.enabled = true; keyboard.cancelGestures(); publishTransform();
+    };
+    const clearMovement = () => { cancelTransform(); container.dataset.navigationActive = "false"; };
+    let completingPointerUp = false;
+    const normalPointerUp = () => { completingPointerUp = true; queueMicrotask(() => { completingPointerUp = false; }); };
+    const canceledPointer = () => { if (!completingPointerUp) cancelTransform(); };
+    const canvasFocus = () => { container.dataset.navigationActive = "true"; };
+    const visibilityChanged = () => { if (document.hidden) clearMovement(); };
+    const detachKeyboard = bindCameraKeyboardInput(keyboard, { keyboard: window, canvas: renderer.domElement, window, document }, navigationContext, () => document.hidden);
+    renderer.domElement.addEventListener("focus", canvasFocus);
+    renderer.domElement.addEventListener("blur", clearMovement);
+    renderer.domElement.addEventListener("pointerup", normalPointerUp, true);
+    renderer.domElement.addEventListener("pointercancel", canceledPointer);
+    renderer.domElement.addEventListener("lostpointercapture", canceledPointer);
+    window.addEventListener("blur", clearMovement);
+    document.addEventListener("visibilitychange", visibilityChanged);
+    transform.addEventListener("dragging-changed", event => {
+      moving = Boolean(event.value); orbit.enabled = !moving;
+      if (moving) keyboard.beginGesture("transform"); else keyboard.endGesture("transform");
+      publishTransform();
+    });
     transform.addEventListener("mouseUp", () => {
       const object = transform.object;
       if (object) callbacks.current.onMove(object.userData.id, { x: Math.round(object.position.x), y: Math.round(object.position.y), z: Math.round(object.position.z) });
@@ -147,11 +206,20 @@ export default function RoomViewport({ room, selected, options, frame, onSelect,
     runtime.current = {
       syncRoom(data) {
         data.actors.forEach(actor => {
-          markers.get(actor.id)?.position.set(actor.position.x, actor.position.y, actor.position.z);
+          syncMarkerPosition(markers.get(actor.id), actor.position, transform);
           const direction = directions.get(actor.id);
           if (direction) direction.rotation.y = (actor.rotation.y & 0x3ff) * Math.PI * 2 / 1024;
         });
-        data.events.forEach(event => { if (event.position) markers.get(event.id)?.position.set(event.position.x, event.position.y, event.position.z); });
+        data.events.forEach(event => { if (event.position) syncMarkerPosition(markers.get(event.id), event.position, transform); });
+        actorModels.syncActors(data.actors);
+        const coverage = actorModels.setPayload(data.actorVisuals && data.actorModels ? { actorVisuals: data.actorVisuals, actorModels: data.actorModels } : null);
+        container.dataset.actorModelCount = String(coverage.rendered);
+        container.dataset.actorConditionalCount = String(coverage.conditional);
+        container.dataset.actorPartialCount = String(coverage.partial);
+        container.dataset.actorModelPartCount = String(coverage.parts);
+        container.dataset.actorTexturedTriangles = String(coverage.texturedTriangles);
+        callbacks.current.onActorCoverage({ ...coverage, roomId: data.id });
+        actorModels.updateCamera(camera);
         bounds.makeEmpty().union(geometryBounds);
         if (geometryBounds.isEmpty()) markers.forEach(marker => bounds.expandByObject(marker));
         if (bounds.isEmpty()) bounds.set(new THREE.Vector3(-500, -100, -500), new THREE.Vector3(500, 100, 500));
@@ -159,8 +227,9 @@ export default function RoomViewport({ room, selected, options, frame, onSelect,
       frame(selectedOnly) {
         const object = selectedId ? markers.get(selectedId) : undefined;
         if (selectedOnly && object) {
-          const center = object.position.clone();
-          const distance = markerSize * 25;
+          const modelBounds = selectedId ? actorModels.bounds(selectedId) : null;
+          const center = modelBounds && !modelBounds.isEmpty() ? modelBounds.getCenter(new THREE.Vector3()) : object.position.clone();
+          const distance = modelBounds && !modelBounds.isEmpty() ? Math.max(modelBounds.getSize(new THREE.Vector3()).length() * 1.3, markerSize * 10) : markerSize * 25;
           orbit.target.copy(center);
           camera.position.copy(center).add(new THREE.Vector3(distance, distance * 0.7, distance));
           orbit.update();
@@ -168,6 +237,8 @@ export default function RoomViewport({ room, selected, options, frame, onSelect,
       },
       update(id, view) {
         selectedId = id;
+        geometryGroup.visible = view.geometry;
+        container.dataset.geometryVisible = String(view.geometry);
         grid.visible = view.grid;
         axes.visible = view.axes;
         surfaces.forEach(surface => {
@@ -181,9 +252,11 @@ export default function RoomViewport({ room, selected, options, frame, onSelect,
           (marker.material as THREE.MeshStandardMaterial).emissiveIntensity = marker.userData.id === id ? 1.3 : 0.35;
           marker.scale.setScalar(marker.userData.id === id ? 1.18 : 1);
         });
+        actorModels.updateView(id, view);
         const object = id ? markers.get(id) : undefined;
-        transform.detach();
-        if (view.translate && object?.userData.editable && object.visible) transform.attach(object);
+        const attached = view.translate && object?.userData.editable && object.visible ? object : undefined;
+        syncTransformAttachment(transform, attached, cancelTransform);
+        publishTransform();
       },
     };
     runtime.current.update(selected, options);
@@ -193,14 +266,17 @@ export default function RoomViewport({ room, selected, options, frame, onSelect,
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
     let down = { x: 0, y: 0 };
-    const pointerDown = (event: PointerEvent) => { down = { x: event.clientX, y: event.clientY }; };
+    const pointerDown = (event: PointerEvent) => { renderer.domElement.focus({ preventScroll: true }); down = { x: event.clientX, y: event.clientY }; };
     const pointerUp = (event: PointerEvent) => {
       if (moving || transform.dragging || transform.axis || event.button !== 0 || Math.hypot(event.clientX - down.x, event.clientY - down.y) > 4) return;
       const rect = renderer.domElement.getBoundingClientRect();
       pointer.set(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
       raycaster.setFromCamera(pointer, camera);
-      const hit = raycaster.intersectObjects([...markers.values()].filter(marker => marker.visible), false)[0];
-      callbacks.current.onSelect(hit ? hit.object.userData.id : null);
+      const eventMarkers = [...markers.values()].filter(marker => marker.userData.event && marker.visible);
+      const hit = raycaster.intersectObjects([...actorModels.pickObjects(), ...eventMarkers], true)[0];
+      let hitObject: THREE.Object3D | null = hit?.object ?? null;
+      while (hitObject && !hitObject.userData.actorRef && !hitObject.userData.id) hitObject = hitObject.parent;
+      callbacks.current.onSelect(hitObject ? hitObject.userData.actorRef ?? hitObject.userData.id : null);
     };
     renderer.domElement.addEventListener("pointerdown", pointerDown);
     renderer.domElement.addEventListener("pointerup", pointerUp);
@@ -214,15 +290,35 @@ export default function RoomViewport({ room, selected, options, frame, onSelect,
     });
     resize.observe(container);
     let animation = 0;
-    const draw = () => { animation = requestAnimationFrame(draw); orbit.update(); renderer.render(scene, camera); };
-    draw();
+    let previousFrame = performance.now();
+    const draw = (now: number) => {
+      animation = requestAnimationFrame(draw);
+      const deltaSeconds = (now - previousFrame) / 1000; previousFrame = now;
+      orbit.update(); if (keyboard.step(deltaSeconds, navigationContext())) publishCamera(); actorModels.updateCamera(camera); renderer.render(scene, camera);
+    };
+    animation = requestAnimationFrame(draw);
     return () => {
       cameraState.current = { roomId: room.id, position: camera.position.clone(), target: orbit.target.clone() };
       cancelAnimationFrame(animation);
+      clearMovement();
+      detachKeyboard();
+      renderer.domElement.removeEventListener("focus", canvasFocus);
+      renderer.domElement.removeEventListener("blur", clearMovement);
+      renderer.domElement.removeEventListener("pointerup", normalPointerUp, true);
+      renderer.domElement.removeEventListener("pointercancel", canceledPointer);
+      renderer.domElement.removeEventListener("lostpointercapture", canceledPointer);
+      window.removeEventListener("blur", clearMovement);
+      document.removeEventListener("visibilitychange", visibilityChanged);
       resize.disconnect();
       renderer.domElement.removeEventListener("pointerdown", pointerDown);
       renderer.domElement.removeEventListener("pointerup", pointerUp);
+      orbit.removeEventListener("change", publishCamera);
+      orbit.removeEventListener("start", orbitStart);
+      orbit.removeEventListener("end", orbitEnd);
+      transform.removeEventListener("objectChange", publishTransform);
+      transform.removeEventListener("axis-changed", publishTransform);
       transform.dispose(); orbit.dispose();
+      actorModels.dispose();
       scene.traverse(object => { if (object instanceof THREE.Mesh || object instanceof THREE.LineSegments) object.geometry.dispose(); });
       materials.forEach(material => material.dispose());
       texturePool.dispose();

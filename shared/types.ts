@@ -70,6 +70,40 @@ export interface GeometryTexture {
   rgbaBase64: string;
   format: string;
 }
+export interface AxisFlags {x:boolean;y:boolean;z:boolean}
+export interface ActorModelNode {
+  parentIndex:number|null;
+  /** Native column-major local transform; placement is applied separately. */
+  matrix:number[];
+  billboardAxes?:AxisFlags;
+  meshIndices:number[];
+}
+export interface ActorModel {
+  id:string;
+  meshes:GeometryMesh[];
+  textures:GeometryTexture[];
+  nodes:ActorModelNode[];
+  warnings:string[];
+  localBounds?:{min:Vec3;max:Vec3};
+}
+export interface ActorVisualPart {
+  assetId:string;
+  /** Initial native scale/pivot; current placement position/rotation stays live. */
+  rootMatrix:number[];
+  positionOffset:Vec3;
+  rotationOverrides:Partial<Vec3>;
+  billboardAxes:AxisFlags;
+  pose:"static"|"initial-frame";
+  provenance:{identity:number;slot:number;fileIds:number[];modelPointer:number;animationFrame?:number;animationBlendCountdown?:number};
+}
+export interface ActorVisual {
+  actorRef:string;
+  status:"supported"|"conditional"|"nonvisual"|"unsupported";
+  parts:ActorVisualPart[];
+  reason?:string;
+  warnings:string[];
+}
+export interface ActorVisualPayload {actorVisuals:ActorVisual[];actorModels:ActorModel[]}
 export interface RoomSummary {
   id: number;
   name: string;
@@ -83,6 +117,8 @@ export interface RoomData extends RoomSummary {
   events: EventData[];
   meshes: GeometryMesh[];
   textures?: GeometryTexture[];
+  actorVisuals?:ActorVisual[];
+  actorModels?:ActorModel[];
   bounds?: { min: Vec3; max: Vec3 };
   source: SourceRecord;
   geometryEdit?: {
@@ -145,6 +181,7 @@ export interface AppApi {
   importRom(): Promise<AppStatus | null>;
   listRooms(): Promise<RoomSummary[]>;
   loadRoom(roomId: number): Promise<RoomData>;
+  loadActorVisuals(roomId:number,actorOverrides:Record<string,ActorOverride>):Promise<ActorVisualPayload>;
   newProject(name: string): Promise<EditorProject>;
   openProject(): Promise<EditorProject | null>;
   saveProject(project: EditorProject): Promise<ProjectSaveResult | null>;

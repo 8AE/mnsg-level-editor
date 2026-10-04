@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { ActorData, RomIdentity, RoomData, RoomSummary, SourceRecord } from "../shared/types";
+import type { ActorData,ActorOverride,ActorVisualPayload, RomIdentity, RoomData, RoomSummary, SourceRecord } from "../shared/types";
 import { RomReader, normalizeRomByteOrder } from "./rom/binary";
 import { decompressUsRom, readFileTable, type RomFile } from "./rom/decompress";
 import { ROOM_NAMES } from "./rom/catalog";
@@ -10,6 +10,8 @@ import { GeometryTranslations, type GeometryTranslation } from "./rom/translatio
 import type { Vec3 } from "../shared/types";
 import {RenderWaves} from "./rom/waves";
 import {renderRoom} from "./rom/render";
+import {ActorVisuals} from "./rom/actors";
+import {createProject,validateProject} from "./project";
 
 export { normalizeRomByteOrder } from "./rom/binary";
 export { decompressLzkn64, readFileTable } from "./rom/decompress";
@@ -27,6 +29,7 @@ export class ImportedRom {
   private readonly translations: GeometryTranslations;
   private readonly renderWaves:RenderWaves;
   private readonly renderedRooms=new Map<number,RoomData>();
+  private readonly actorVisuals:ActorVisuals;
   constructor(readonly bytes: Uint8Array, readonly identity: RomIdentity) {
     this.reader = new RomReader(bytes);
     this.files = new Map(readFileTable(bytes).map(file => [file.id, file]));
@@ -34,6 +37,7 @@ export class ImportedRom {
     this.reader.check(ROOM_TABLE, 800 * 4);
     this.translations=new GeometryTranslations(this.reader,this.files,id=>this.segment(id));
     this.renderWaves=new RenderWaves(this.reader,this.files,id=>this.segment(id));
+    this.actorVisuals=new ActorVisuals(this.reader,this.files,this.renderWaves);
   }
   private resident(pointer: number, size: number): number {
     if (pointer < FILE12_VRAM || pointer + size > FILE12_VRAM + FILE12_SIZE)
@@ -72,6 +76,12 @@ export class ImportedRom {
   geometryTranslation(roomId:number,translation:Vec3):GeometryTranslation {
     if(!Number.isInteger(roomId)||roomId<0||roomId>=800)throw new Error("Invalid native room ID.");
     return this.translations.translation(roomId,translation);
+  }
+  loadActorVisuals(roomId:number,actorOverrides:Record<string,ActorOverride>={}):ActorVisualPayload {
+    const room=this.loadBaseRoom(roomId),project=createProject("Actor preview",this.identity);
+    project.roomOverrides[String(roomId)]={actors:actorOverrides,events:{}};
+    const validated=validateProject(project,this.identity,id=>this.loadBaseRoom(id));
+    return this.actorVisuals.load(room,validated.roomOverrides[String(roomId)]?.actors??{});
   }
   loadRoom(id: number): RoomData {
     const cached=this.renderedRooms.get(id);if(cached){this.renderedRooms.delete(id);this.renderedRooms.set(id,cached);return structuredClone(cached);}

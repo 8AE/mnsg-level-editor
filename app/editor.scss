@@ -52,6 +52,11 @@
   .viewport-stage { position: relative; flex: 1; min-height: 150px; overflow: hidden; }
   .scene-host { position: absolute; inset: 0; }
   .scene-host canvas { display: block; width: 100%; height: 100%; outline: none; }
+  .scene-host:focus-within::after { content: ""; position: absolute; inset: 0; border: 2px solid var(--brand-border-medium); pointer-events: none; }
+  .viewport-stage:has(canvas:focus) .camera-key-hint { color: var(--editor-accent); opacity: 1; }
+  .camera-key-hint { color: var(--neutral-solid-medium); font-size: 10px; line-height: 1.6; padding: 7px 9px; background: var(--neutral-alpha-weak); border: 1px solid var(--neutral-alpha-medium); border-radius: 5px; }
+  .camera-key-hint kbd { font-size: 10px; letter-spacing: 2px; }
+  .actor-preview-summary { position: absolute; left: 20px; bottom: 52px; pointer-events: none; color: var(--editor-muted); font-size: 10px; padding: 5px 8px; border-radius: 4px; background: var(--editor-bg); }
   .viewport-top-overlay, .viewport-bottom-overlay { position: absolute; left: 20px; right: 20px; display: flex; justify-content: space-between; pointer-events: none; }
   .viewport-top-overlay { top: 20px; align-items: flex-start; }
   .viewport-bottom-overlay { bottom: 20px; align-items: center; }
@@ -94,6 +99,7 @@
   .empty-records { padding: 16px; color: var(--editor-muted); font-size: 12px; }
   .inspector-heading { letter-spacing: 1px; flex-shrink: 0; }
   .inspector-scroll { flex: 1; min-height: 0; overflow: auto; }
+  .actor-occlusion-note { margin: 20px 20px 0; }
   .value-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
   .value-field > span:first-child { color: var(--editor-muted); font-size: 10px; }
   .value-field input { background: var(--neutral-alpha-weak); border: 1px solid var(--editor-line); border-radius: 5px; padding: 9px 8px; width: 100%; color: var(--editor-text); font-family: var(--font-code), monospace; font-size: 11px; }

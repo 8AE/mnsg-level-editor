@@ -60,6 +60,21 @@ function registerOperations() {
   handle("get-status", status);
   handle("list-rooms", () => requireDatabase().listRooms());
   handle("load-room", (id) => { if (!Number.isInteger(id) || (id as number) < 0) throw new Error("Invalid room ID."); return requireDatabase().loadRoom(id as number); });
+  handle("load-actor-visuals", (id, overrides) => {
+    if (typeof id !== "number" || !Number.isInteger(id) || id < 0 || id > 799) throw new Error("Invalid room ID.");
+    if (!overrides || typeof overrides !== "object" || Array.isArray(overrides) || ![Object.prototype, null].includes(Object.getPrototypeOf(overrides))) throw new Error("Actor visual overrides must be a plain object.");
+    let serialized: string;
+    try { serialized = JSON.stringify(overrides); } catch { throw new Error("Actor visual overrides must contain finite project data without cycles."); }
+    if (Buffer.byteLength(serialized, "utf8") > 1024 * 1024) throw new Error("Actor visual overrides exceed the 1 MiB input limit.");
+    const db = requireDatabase();
+    const native = db.loadRoom(id);
+    if (Object.keys(overrides).length > native.actors.length) throw new Error("Actor visual overrides exceed the room's native actor count.");
+    // Run the same native record/type/parameter/transform checks as a saved
+    // project. This temporary project never replaces the user's editor project.
+    const preview = { ...createProject("Actor visual preview", romIdentity!), roomOverrides: { [String(id)]: { actors: overrides, events: {} } } };
+    const normalized = validate(preview).roomOverrides[String(id)].actors;
+    return db.loadActorVisuals(id, normalized);
+  });
   handle("import-rom", async () => {
     const choice = await dialog.showOpenDialog(window!, { title: "Choose your US Mystical Ninja Starring Goemon ROM", properties: ["openFile"], filters: [{ name: "Nintendo 64 ROM", extensions: ["z64", "v64", "n64", "rom", "bin"] }] });
     if (choice.canceled) return null;

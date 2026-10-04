@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { Button, Column, Row, Text } from "@once-ui-system/core";
-import type { ActorData, ActorOverride, EventData, EventOverride, Vec3 } from "../shared/types";
+import type { ActorData, ActorOverride, ActorVisual, EventData, EventOverride, Vec3 } from "../shared/types";
 import { checkedActorPosition, formatAddress, parseInteger, parseWords } from "./editorModel";
 
 export function ValueField({ label, value, disabled, commit, testId }: { label: string; value: string; disabled: boolean; commit(value: string): void; testId?: string }) {
@@ -28,6 +28,8 @@ function VectorFields({ label, value, disabled, commit }: { label: string; value
 interface Props {
   actor?: ActorData;
   event?: EventData;
+  visual?: ActorVisual;
+  visualsPending: boolean;
   sample: boolean;
   busy: boolean;
   supportedActorIds: number[];
@@ -39,9 +41,9 @@ interface Props {
   onInspectActor(id: string): void;
 }
 
-export default function Inspector({ actor, event, sample, busy, supportedActorIds, modified, onActor, onEvent, onReset, onFrame, onInspectActor }: Props) {
+export default function Inspector({ actor, event, visual, visualsPending, sample, busy, supportedActorIds, modified, onActor, onEvent, onReset, onFrame, onInspectActor }: Props) {
   const entity = actor ?? event;
-  if (!entity) return <Column className="inspector-empty" gap="12" padding="24"><span className="empty-selection">⌖</span><Text variant="body-strong-s">Select a record</Text><Text variant="body-default-s" onBackground="neutral-weak">Choose an actor or event from the outliner, or click a marker in the viewport.</Text></Column>;
+  if (!entity) return <Column className="inspector-empty" gap="12" padding="24"><span className="empty-selection">⌖</span><Text variant="body-strong-s">Select a record</Text><Text variant="body-default-s" onBackground="neutral-weak">Choose an actor or event from the outliner, or click its model or marker in the viewport.</Text></Column>;
   const disabled = sample || busy || !entity.editable;
   const positionDisabled = disabled || (actor?.sourceKind === "partition" && !actor.partition);
   return <Column className="inspector-content" gap="24" padding="20">
@@ -54,6 +56,6 @@ export default function Inspector({ actor, event, sample, busy, supportedActorId
     {event && <ValueField label={`Raw values · ${event.values.length} words`} value={event.values.map(formatAddress).join(", ")} disabled={disabled || !event.values.length} commit={value => onEvent({ values: parseWords(value, event.values.length) })} />}
     <Column gap="12" className="source-block"><Text variant="label-default-s" onBackground="neutral-weak">SOURCE RECORD</Text><Row horizontal="between" textVariant="label-default-xs"><span>ROM offset</span><code>{sample ? "—" : formatAddress(entity.source.romOffset)}</code></Row>{entity.source.segmentedAddress !== undefined && <Row horizontal="between" textVariant="label-default-xs"><span>Segment address</span><code>{formatAddress(entity.source.segmentedAddress)}</code></Row>}<Row horizontal="between" textVariant="label-default-xs"><span>Record bytes</span><code>{entity.source.expectedHex.length / 2}</code></Row></Column>
     <Row gap="8"><Button variant="secondary" size="s" fillWidth disabled={!entity.position} onClick={onFrame}>Frame</Button><Button variant="tertiary" size="s" fillWidth disabled={disabled || !modified} onClick={onReset}>Reset record</Button></Row>
-    <Text variant="body-default-xs" onBackground="neutral-weak">{actor ? "Markers represent placements. Native actor models are not rendered." : "Raw values preserve the imported record layout. Event behavior is not simulated."}</Text>
+    {actor ? <Column gap="8" data-testid="actor-visual-status"><Text variant="body-default-xs" onBackground="neutral-weak">{sample ? "Procedural placement marker · no game assets." : visualsPending ? "Refreshing native actor visuals. The previous preview is retained until decoding completes." : visual?.status === "supported" ? `Native ROM model · ${visual.parts.some(part => part.pose === "initial-frame") ? "initial animation pose" : "static pose"}. Placement fields edit the actor origin. Game behavior is not simulated.` : visual?.status === "conditional" ? `Conditional native model declaration · initial state. Runtime spawning and visibility are not simulated. ${visual.reason ?? ""}` : visual?.status === "nonvisual" ? `Nonvisual controller · shown as a hollow placement marker. ${visual.reason ?? ""}` : visual?.status === "unsupported" ? `${visual.parts.length ? "Partial native model preview with an amber origin marker" : "Model unavailable · amber placement marker"}. ${visual.reason ?? "This actor's native draw path is not yet supported."}` : "Actor visuals have not been decoded. A placement marker is shown."}</Text>{visual?.warnings.map((warning, index) => <Text key={index} variant="body-default-xs" onBackground="neutral-weak">{warning}</Text>)}</Column> : <Text variant="body-default-xs" onBackground="neutral-weak">Raw values preserve the imported record layout. Event behavior is not simulated.</Text>}
   </Column>;
 }
