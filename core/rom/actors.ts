@@ -1,6 +1,6 @@
 import {createHash} from "node:crypto";
 import type {ActorModel,ActorOverride,ActorVisual,ActorVisualPayload,RoomData,Vec3} from "../../shared/types";
-import {ActorInitializer,type NativeActorBinding,type NativeActorInitInput,type NativeActorInitResult} from "./actor-init";
+import {ActorInitializer,nativeControllerResourceContract,type NativeActorBinding,type NativeActorInitInput,type NativeActorInitResult} from "./actor-init";
 import {decodeNativeModelGraph,multiplyNativeMatrices} from "./actors-models";
 import {renderModelLists} from "./render";
 import {RomReader} from "./binary";
@@ -150,9 +150,9 @@ export class ActorVisuals {
     if(rounded)output.warnings.push("Native static initial-pose coordinates are rounded to signed16 vertex units for the authored door.");
     output.resourceFileIds=[...resources].sort((a,b)=>a-b);output.warnings=[...new Set(output.warnings)];return output;
   }
-  dependencies(input:NativeActorInitInput):{fileIds:number[];warnings:string[];completed:boolean;status:NativeActorInitResult["status"];failureKind:NativeActorInitResult["failureKind"]} {
-    const result=this.initializer.resolve(input),overlay=this.reader.i16(0x5e4ca6+input.actorId*2);
-    return {fileIds:[...new Set([...(overlay>0?[overlay]:[]),...result.bindings.flatMap(binding=>binding.segments.map(s=>s.fileId)),...(result.readonlyMemory??[]).map(s=>s.fileId)])].sort((a,b)=>a-b),warnings:[...result.diagnostics],completed:result.completed===true&&result.failureKind!=="unresolved",status:result.status,failureKind:result.failureKind};
+  dependencies(input:NativeActorInitInput):{fileIds:number[];warnings:string[];completed:boolean;proofKind?:"verified-controller-closure";provenance?:string[];status:NativeActorInitResult["status"];failureKind:NativeActorInitResult["failureKind"]} {
+    const contract=nativeControllerResourceContract(this.reader,this.files,input.actorId),result=this.initializer.resolve(input),overlay=this.reader.i16(0x5e4ca6+input.actorId*2);
+    return {fileIds:[...new Set([...(overlay>0?[overlay]:[]),...(contract?.resourceFileIds??[]),...result.bindings.flatMap(binding=>binding.segments.map(s=>s.fileId)),...(result.readonlyMemory??[]).map(s=>s.fileId)])].sort((a,b)=>a-b),warnings:[...result.diagnostics,...(contract?.warnings??[])],completed:result.completed===true&&result.failureKind!=="unresolved",...(contract?{proofKind:contract.kind,provenance:contract.provenance}:{}),status:result.status,failureKind:result.failureKind};
   }
   private renderInputs(inputs:{actorRef:string;input:NativeActorInitInput}[]):ActorVisualPayload {
     const payload:ActorVisualPayload={actorVisuals:[],actorModels:[]},assets=new Map<string,ActorModel>();let bytes=0,triangles=0;

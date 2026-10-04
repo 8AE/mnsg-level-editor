@@ -1,9 +1,10 @@
 # Author rooms
 
-Use the desktop app with your own supported US ROM. Version 0.2.0 includes
-version 2 projects, authored C/H and optional `.nrm` export. Local source, compile, 18-milestone desktop authoring smoke and macOS ARM64
-package checks passed. The installed app passed a normal launch with its cached
-ROM. Live gameplay checks remain open.
+Use the desktop app with your own supported US ROM. Version 0.2.1 includes
+version 2 projects, authored C/H and optional `.nrm` export. Source tests, typecheck, the production build, 15-milestone desktop authoring
+smoke, four timed-actor GPU checks and macOS ARM64 package checks passed. The
+installed 0.2.1 app passed a normal cached-ROM launch. Live gameplay checks
+remain open.
 
 ## Choose a starting room
 
@@ -86,10 +87,16 @@ candidates in the catalog; read their diagnostic status before placing them.
 The library uses your ROM's model and texture data for supported thumbnails.
 You may see conditional, partial or unavailable previews for other paths.
 
-The catalog contains 361 candidate IDs: 74 supported, 168 conditional,
-11 nonvisual and 108 unresolved, including seven partial previews. Keep the
+The catalog contains 361 candidate IDs: 74 supported, 170 conditional,
+11 nonvisual and 106 unresolved, including seven partial previews. Keep the
 status visible when choosing a prototype; export requires a verified native
 resource context in addition to a preview.
+
+Falling Barrel (0x19A) and Slicer (0x19D) offer conditional previews of their
+first timed child. Barrel has 36 textured triangles and two CI4 textures.
+Slicer's eight triangles use an untextured fallback: the editor does not support
+its native generated texture coordinates. These previews stop before movement
+or further emissions, and do not admit edited or foreign contexts to export.
 
 Drag an actor card into the viewport or use **Place at origin**, then edit its
 position, native rotation and three unsigned payload words. Payload meanings
@@ -200,11 +207,17 @@ verified prototype, then retry. Keep the saved project for further editing.
 A save/reopen check or rendered preview confirms editor behavior. Compile and
 package checks confirm the build path; gameplay needs a separate check.
 
-The desktop smoke cloned House 465 into room 621 and confirmed rejection of
-camera actor 0x308 and progression controller 0x34E. It removed each through the
-inspector, preserved the remaining graph, then generated C/H and compiled `.nrm`.
-You must resolve or remove actors named in export diagnostics before retrying;
-export keeps them in the project until you choose to remove them.
+A House 465 clone can preserve all eight native actors through guarded static
+resource contracts for camera actor 0x308 and progression controller 0x34E.
+Their nonvisual status does not mean they have no dependencies. The desktop authoring smoke retained all eight in a room 621 clone, verified
+File96 in its inventory, and exported C/H and `.nrm`. The compiled full-roster
+room 620 handoff includes their resources and a native coin, copied House
+geometry/BSP and reciprocal checker doors. Test the camera and progression
+behavior in your save; static closure does not establish gameplay parity.
+
+Other unresolved contexts still reject export with a diagnostic. Resolve the
+reported dependency or remove the actor through the inspector before retrying.
+Export keeps rejected actors in the project until you choose to remove them.
 
 Build the app, then run the authoring integration check with your own ROM:
 

@@ -1,4 +1,5 @@
 import type {Vec3} from "../../shared/types";
+import {createHash} from "node:crypto";
 import {RomReader} from "./binary";
 import type {RomFile} from "./decompress";
 import type {RenderWaves} from "./waves";
@@ -31,11 +32,69 @@ export interface NativeActorInitResult {
   diagnostics:string[];instructionCount:number;
   /** All selected constructor/deferred/child calls returned without an unresolved dependency path. */
   completed?:boolean;
+  timedPreview?:{kind:"timed-child-prefix";callbackCount:number;initialCounter:number;childEntry:number};
   failureKind?:"scene-gated"|"unresolved";
   branches:{pc:number;taken:boolean;target:number}[];
   deferredCallbacks:number[];
   syntheticMemory:{address:number;bytes:Uint8Array;conditional?:boolean;codeFile?:number}[];
   readonlyMemory:{address:number;fileId:number;byteLength:number}[];
+}
+export interface NativeControllerResourceContract {
+  kind:"verified-controller-closure";
+  resourceFileIds:number[];
+  provenance:string[];
+  warnings:string[];
+}
+
+/** A static resource proof is separate from executing or completing the CPU. */
+export function nativeControllerResourceContract(reader:RomReader,files:Map<number,RomFile>,actorId:number):NativeControllerResourceContract|undefined {
+  const contract=actorId===0x308?{overlay:27,entry:0x080020f4,start:0x6af410,end:0x6b2fa0,length:0x50,hash:"e87911e696977b8c4096aa422a893ccaa6f4004972f5194df565f0b00d81653c"}:
+    actorId===0x34e?{overlay:61,entry:0x0800098c,start:0x7208d0,end:0x721620,length:0x64,hash:"1814198742678a03a59f45aa771b00c8f6f2ba37ea08acc6603204075cfa9410"}:undefined;
+  if(!contract)return undefined;
+  try {
+    if(reader.u32(0x5e3c8c+actorId*4)!==contract.entry||reader.i16(0x5e4ca6+actorId*2)!==contract.overlay)throw new Error("initializer entry/overlay identity changed");
+    const plainFile=(id:number,start:number,end:number)=>{
+      const file=files.get(id);if(!file||file.compressed||file.start!==start||file.end!==end)throw new Error(`File${id} canonical bounds changed`);
+      reader.check(start,end-start);
+      if(reader.u32(0x556c4+id*8)!==0x08000000||reader.u32(0x556c4+id*8+4)!==0x08000000+end-start)throw new Error(`File${id} native allocation changed`);
+      // All three files are native plain copies with the canonical empty parts
+      // list, not render waves or a guessed adjacent-ROM allocation.
+      if(reader.u32(0x6a51c+id*4)!==0x80065798||reader.u32(0x66398)!==0)throw new Error(`File${id} plain-file parts semantics changed`);
+      return file;
+    };
+    const file=plainFile(contract.overlay,contract.start,contract.end),at=reader.check(file.start+(contract.entry&0xffffff),contract.length,file.end);
+    if(createHash("sha256").update(reader.bytes.subarray(at,at+contract.length)).digest("hex")!==contract.hash)throw new Error("constructor byte hash changed");
+    const provenance=[`Static native constructor resource contract: actor0x${actorId.toString(16)}, File${contract.overlay}, entry${hex(contract.entry)}, SHA256 ${contract.hash}. CPU completion is not asserted.`];
+    if(actorId===0x308)return {kind:"verified-controller-closure",resourceFileIds:[27],provenance,warnings:["Actor0x308's finite constructor retains File27 and makes no child, model or dynamic resource request. Later camera callbacks require live camera/player/partner pointers, successful room-arena allocation and nonzero measured camera distance; they are not executed or certified by this contract."]};
+    const pointerAt=0x785a0+0x137*4,fileAt=0x79208+0x137*2,pointer=reader.u32(pointerAt);
+    if(pointer!==0x0800aa4c||reader.i16(fileAt)!==96)throw new Error("scenario0x137 pointer/resource table identity changed");
+    // Native 80001E50 selects byte+3 from the FIRST interval upper bound
+    // above the resource ID; 80001DF4 uses byte+2 from that SAME record.
+    let previous=0,mapping=-1;
+    for(let at=0x55510;at<0x556c4;at+=4){const upper=reader.u16(at);if(upper<=previous)throw new Error("native resource interval table changed");if(96<upper){mapping=at;break;}previous=upper;}
+    if(mapping!==0x5552c||previous!==82||reader.u16(mapping)!==123||reader.bytes[mapping+3]!==8||reader.bytes[mapping+2]!==0)throw new Error("File96 native segment/alignment mapping changed");
+    const script=plainFile(96,0x74ece0,0x759df0),offset=pointer-0x08000000;
+    reader.check(script.start+offset,4,script.end);
+    if(pointer<0x08000000||pointer+4>0x0800b110)throw new Error("scenario0x137 script pointer exceeds File96 allocation");
+    provenance.push(`Canonical scenario0x137 tables ROM${hex(pointerAt)}/${hex(fileAt)} select pointer${hex(pointer)} in plain File96 ROM0x74ECE0..0x759DF0, allocation0x08000000..0x0800B110, native interval[82,123) segment8 and alignment0 at ROM0x5552C. Resource96 is retained conservatively for either initial flag0x199 state.`);
+    return {kind:"verified-controller-closure",resourceFileIds:[61,96],provenance,warnings:["Actor0x34E is not resource-free: its flag0x199-clear branch starts scenario0x137 using File96 before removal; the set branch omits startup. Both states retain resource96 conservatively. The CPU interpreter did not execute scenario startup, and later scenario VM actions and gameplay remain unverified."]};
+  }catch(error){throw new Error(`Actor0x${actorId.toString(16)} guarded native controller resource contract rejected: ${error instanceof Error?error.message:String(error)}.`);}
+}
+interface NativeTimedPreviewPolicy {overlay:number;callback:number;spawnCallback?:number;childEntry:number;cpuMaterialOffset?:number}
+export function verifiedTimedSlicerSoundCall(call:{codeFile:number;callback:number;returnAddress:number;soundId:number;statePointer:number;objectPointer:number;parentObjectPointer:number;radiusBits:number}):boolean {
+  return call.codeFile===30&&call.callback===0x08004594&&call.returnAddress===0x080045f8&&call.soundId===0x271&&call.statePointer===0x8020cbf0&&call.objectPointer===call.parentObjectPointer&&call.parentObjectPointer>=0x81000000&&call.parentObjectPointer<0x81200000&&call.radiusBits===0x43c80000;
+}
+/** Only verified initial countdown prefixes; callbacks change their own counters. */
+function nativeTimedPreviewPolicy(reader:RomReader,files:Map<number,RomFile>,input:NativeActorInitInput):NativeTimedPreviewPolicy|undefined {
+  const barrel=input.actorId===0x19a&&(input.parameters[1]>>>24)===1,slicer=input.actorId===0x19d;
+  if(!barrel&&!slicer)return undefined;
+  const overlay=barrel?34:30,entry=barrel?0x080006ec:0x0800447c,start=barrel?0x6d4340:0x6bf750,end=barrel?0x6d5f50:0x6c8210,file=files.get(overlay),name=barrel?"19A":"19D";
+  if(reader.u32(0x5e3c8c+input.actorId*4)!==entry||reader.i16(0x5e4ca6+input.actorId*2)!==overlay||!file||file.compressed||file.start!==start||file.end!==end)throw new Error(`Timed actor${name} native entry/overlay/file identity changed.`);
+  const slices:readonly (readonly [number,number,string])[]=barrel?
+    [[0x6ec,0xf0,"7d61ffaa555ffb96673ba6c5368ccbb0e4e26f136cd85e50ea29085a04dd93ec"],[0x594,0x94,"aeafbf2ec9b147cd819ac0d1458beb718b808e3be43cafe3b125dfaf2dacfbbe"],[0xf50,0x12c,"c78803cd9430e77b08a673792ace421cb1cdb72d71bc78bf8bc4805de536e640"]]:
+    [[0x447c,0xd4,"b12300be7ca9fac17e87ef058b2237d0e0064ffd429490ac6013e7f0e8c027f4"],[0x4550,0x44,"9b0d8f05113a18129880deab463a14699b1dbbb08f43a0a3a6e87d7a2e357375"],[0x4594,0xc0,"37d2e25e4dea7ae6dfb7afd24d8ab6d52e0e41dda3621d3620da60f17ef86f03"],[0x4694,0x1f8,"222a33c87e2c0819c21eebb4399c9c91259034408cfd32024a0c927cb05f23ec"],[0x7c30,0x90,"67e77856e772fba00e4e76bac243fc102673b82e96820d3467fa779d3cf59ea3"]];
+  for(const [offset,size,hash] of slices){const at=reader.check(file.start+offset,size,file.end);if(createHash("sha256").update(reader.bytes.subarray(at,at+size)).digest("hex")!==hash)throw new Error(`Timed actor${name} constructor/callback/material byte hash changed.`);}
+  return barrel?{overlay,callback:0x08000594,childEntry:0x08000f50}:{overlay,callback:0x08004550,spawnCallback:0x08004594,childEntry:0x08004694,cpuMaterialOffset:0x7c30};
 }
 interface Region {start:number;bytes:Uint8Array;readonly?:boolean;conditional?:boolean;codeFile?:number}
 interface ObjectState {address:number;task:number;index:number;identity?:number;slot?:number;segments:Map<number,{fileId:number;offset:number}>;rotationMask:{x:boolean;y:boolean;z:boolean};provenance:string[]}
@@ -148,6 +207,7 @@ export class ActorInitializer {
     const result:NativeActorInitResult={bindings,status:"unsupported",diagnostics,instructionCount:0,branches:[],deferredCallbacks:callbacks,syntheticMemory:[],readonlyMemory:[]};
     const memory=new ActorMemory(this.reader,this.files),objects:ObjectState[]=[],sceneObjects=new Map<number,ObjectState>(),multiObjectBodies=new Set<number>();
     let currentTask=0,allocationCount=0,removed=false;
+    let timedPolicy:NativeTimedPreviewPolicy|undefined;
     const children:{task:number;entry:number;codeFile:number}[]=[];
     const cpu=new InitMachine(memory,{instructions:instructionLimit,callDepth:64},(pc,machine)=>intercept(pc,machine));
     const word=(at:number)=>cpu.u32(at),half=(at:number)=>cpu.u16(at),put=(at:number,value:number,size=4)=>cpu.store(at,value,size);
@@ -205,6 +265,12 @@ export class ActorInitializer {
         if(a>0x7ff)throw new Error("Unverified progression flag index outside the native byte-array domain.");
         observedFlags.add(a);m.registers[2]=memory.read(0x8015c608+(a>>>3),1)[0]&(1<<(a&7));
         if(!diagnostics.some(value=>value.startsWith("Native progression predicates")))diagnostics.push("Native progression predicates use a coherent preview assignment; actual save-state visibility is unknown.");
+      }
+      else if(pc===0x8000f420&&timedPolicy?.overlay===30){
+        if(!verifiedTimedSlicerSoundCall({codeFile:memory.codeFile,callback:word(currentTask+0xc),returnAddress:m.registers[31],soundId:a,statePointer:b,objectPointer:c,parentObjectPointer:objectFor(currentTask).address,radiusBits:d}))throw new Error("Unverified timed slicer spatial audio call.");
+        // Verified void presentation event only. Preserve V0 and all native
+        // task/object assignments after this call; no audio queue is simulated.
+        diagnostics.push("Omitted verified sound0x271 spatial presentation event at File30:0x4594; audio queue/camera-distance playback is not simulated.");
       }
       else if(pc===0x80001e50)m.registers[2]=segmentFor(a);
       else if(pc===0x800141c4){m.registers[2]=a?memory.wave(a,segmentFor(a),resource(a)):0;}
@@ -344,6 +410,7 @@ export class ActorInitializer {
     };
     try {
       if(!Number.isInteger(input.actorId)||input.actorId<0||input.actorId>0x405||input.parameters.length!==3||input.parameters.some(v=>!Number.isInteger(v)||v<0||v>0xffffffff))throw new Error("Actor initializer input must come from a validated native actor record.");
+      timedPolicy=nativeTimedPreviewPolicy(this.reader,this.files,input);
       for(const vector of [input.position,input.rotation])if(AXES.some(axis=>!Number.isFinite(vector[axis])))throw new Error("Native actor transform is not finite.");
       if(input.priorScene){
         const prior=input.priorScene;if(!prior.completed||prior.failureKind==="unresolved")throw new Error("Required native sibling initialization did not complete.");
@@ -436,24 +503,44 @@ export class ActorInitializer {
         object.provenance.push("evaluated native first-material builder File56:0x56C before recurring UV/movement callback 0x978; constructor originally installed an END-only list");
         diagnostics.push("Preview evaluates the verified first generated-material frame before recurring UV scrolling or movement.");
       }
+      if(timedPolicy){
+        const initialCounter=half(task+0x8a);let count=0,countdown=0;
+        while(count<128&&!children.length){
+          const callback=word(task+0xc);if((callback!==timedPolicy.callback&&callback!==timedPolicy.spawnCallback)||memory.codeFile!==timedPolicy.overlay)throw new Error("Timed preview callback/code context changed before the first child.");
+          cpu.run(callback,[task,object.address],STOP);count++;if(callback===timedPolicy.callback)countdown++;
+        }
+        if(children.length!==1||children[0].entry!==timedPolicy.childEntry||children[0].codeFile!==timedPolicy.overlay)throw new Error("Timed child preview ended at its 128-call bound without the verified first child; counters were not fast-forwarded.");
+        result.timedPreview={kind:"timed-child-prefix",callbackCount:count,initialCounter,childEntry:timedPolicy.childEntry};
+        result.failureKind="scene-gated";
+        diagnostics.push(`Preview-only timed native child prefix: ${count} actual native timed callbacks (${countdown} countdown, ${count-countdown} separate spawn) from counter${initialCounter}; timer/heap state was not forced. Stops after the first child initializer, before movement/physics or further emissions; constructor dependency completion is not asserted.`);
+      }
       // An extra direct object can be a shadow before the primary deferred
       // body is bound. Its declaration never suppresses pending setup stages.
-      for(let stage=0;stage<4&&object.identity===undefined&&callbacks.length;stage++){
+      for(let stage=0;!timedPolicy&&stage<4&&object.identity===undefined&&callbacks.length;stage++){
         const callback=callbacks[callbacks.length-1];if(!callback)break;
         callbacks.pop();object.provenance.push(`advanced deferred initializer ${hex(callback)}`);cpu.run(callback,[task,object.address],STOP);
       }
-      if(object.identity===undefined&&callbacks.length){result.failureKind="unresolved";diagnostics.push("Primary deferred initializer remains unresolved after the advancement budget, even if a linked object declared a model.");}
+      if(!timedPolicy&&object.identity===undefined&&callbacks.length){result.failureKind="unresolved";diagnostics.push("Primary deferred initializer remains unresolved after the advancement budget, even if a linked object declared a model.");}
       for(let index=0;index<children.length;index++){
         const child=children[index],childObject=objectFor(child.task);currentTask=child.task;memory.codeFile=child.codeFile;put(0x8016dab4,child.task);
         const entry=word(child.task+0xc);if(!entry)throw new Error("Native child task callback is null; visual behavior remains unresolved.");
         childObject.provenance.push(`executed configured native child callback ${hex(entry)} after parent setup`);cpu.run(entry,[child.task,childObject.address],STOP);
-        for(let stage=0;stage<4&&childObject.identity===undefined&&!multiObjectBodies.has(child.task);stage++){
+        for(let stage=0;!timedPolicy&&stage<4&&childObject.identity===undefined&&!multiObjectBodies.has(child.task);stage++){
           const callback=word(child.task+0xc);if(!callback||callback===entry)break;
           childObject.provenance.push(`advanced native child deferred initializer ${hex(callback)}`);cpu.run(callback,[child.task,childObject.address],STOP);
         }
         if(childObject.identity===undefined&&!multiObjectBodies.has(child.task)){result.failureKind="unresolved";diagnostics.push(`Native child callback ${hex(child.entry)} completed without a bound model; later behavior remains unresolved.`);}
       }
-      result.completed=result.failureKind!=="unresolved";
+      if(timedPolicy?.cpuMaterialOffset!==undefined){
+        const file=this.files.get(timedPolicy.overlay)!,base=memory.resourceBases.get(timedPolicy.overlay),offset=timedPolicy.cpuMaterialOffset;
+        if(base===undefined||offset+0x90>file.end-file.start)throw new Error("Verified timed CPU material has no bounded loaded File30 allocation.");
+        for(const value of objects)if(value.identity===0x19d){
+          if(word(value.address+0x30)!==0x28007c30)throw new Error("Timed slicer material relocation source changed.");
+          put(value.address+0x30,((base+offset)|0x20000000)>>>0);
+          value.provenance.push("Relocated CPU material root File30 loaded section base+0x7C30|0x20000000; FD09001000 remains RSP segment9 File384, not CPU segment8 or model File470.");
+        }
+      }
+      result.completed=!result.timedPreview&&result.failureKind!=="unresolved";
       if(objects.some(value=>value.identity!==undefined))result.status="resolved";
       else throw new Error(callbacks.length?"Deferred initializer budget ended with an unresolved callback; visual absence is not established.":"Constructor completed without a model declaration; child/deferred visual behavior is not established.");
     }catch(error){if(result.failureKind!=="unresolved")result.failureKind=removed||error instanceof NativeSceneStateError?"scene-gated":"unresolved";diagnostics.push(`${error instanceof Error?error.message:String(error)} [initializer PC ${hex(cpu.pc)}]`);}

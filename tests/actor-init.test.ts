@@ -1,8 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import {createHash} from "node:crypto";
+import {NativeTextureMemory} from "../core/rom/textures";
 import {readFileSync} from "node:fs";
 import {InitMachine,type InitMemory} from "../core/rom/actor-init-machine";
-import {ActorInitializer,nativeActorRoomContext} from "../core/rom/actor-init";
+import {ActorInitializer,nativeActorRoomContext,nativeControllerResourceContract,verifiedTimedSlicerSoundCall} from "../core/rom/actor-init";
+import {ActorVisuals} from "../core/rom/actors";
 import {RomReader} from "../core/rom/binary";
 import {readFileTable} from "../core/rom/decompress";
 import {RenderWaves} from "../core/rom/waves";
@@ -179,4 +182,88 @@ test("native conditional camera/player contexts use distinct objects and authore
   const cameraObject=read(0x801fc628,4).getUint32(0),cameraTask=read(0x801fc624,4).getUint32(0),playerObject=read(0x801fc60c,4).getUint32(0),playerTask=read(0x801fc604,4).getUint32(0);
   assert.notEqual(cameraTask,cameraObject);assert.notEqual(playerTask,playerObject);assert.equal(read(cameraTask+0x18,4).getUint32(0),cameraObject);assert.equal(read(cameraObject+0x2c,4).getUint32(0),0xa020cbf0);assert.equal(read(0x8015cd60,4).getUint32(0),playerObject);assert.equal(read(playerTask+0x18,4).getUint32(0),playerObject);
   assert.equal(result.syntheticMemory.find(span=>span.address===0x8020cbf0)?.bytes.length,0x60);
+});
+
+
+test("controller resource proofs are separate from CPU completion and reject changed native prerequisites",{skip:!process.env.MNSG_TEST_ROM},()=>{
+  const {rom,initializer}=native(),reader=new RomReader(rom.bytes),files=new Map(readFileTable(rom.bytes).map(file=>[file.id,file]));
+  assert.equal(nativeControllerResourceContract(reader,files,0x193),undefined);
+  const service=new ActorVisuals(reader,files,new RenderWaves(reader,files,id=>{for(let at=0x55510;at<0x55910;at+=4)if(id<reader.u16(at))return reader.bytes[at+3];throw Error("No segment");}));
+  for(const [actorId,expected] of [[0x308,[27]],[0x34e,[61,96]]] as const){
+    const contract=nativeControllerResourceContract(reader,files,actorId)!;
+    assert.equal(contract.kind,"verified-controller-closure");assert.deepEqual(contract.resourceFileIds,expected);
+    assert.match(contract.provenance.join(" "),/CPU completion is not asserted/);
+    const result=initializer.resolve({...input0,actorId,roomId:621,templateRoomId:465});
+    assert.equal(result.status,"nonvisual");assert.equal(result.completed,false);assert.equal(result.instructionCount,0);
+    assert.deepEqual(result.bindings,[]);assert.deepEqual(result.syntheticMemory,[]);assert.deepEqual(result.readonlyMemory,[]);
+    for(const parameters of [[0,0,0],[0xffffffff,0xffffffff,0xffffffff]]){const dependency=service.dependencies({...input0,actorId,parameters,roomId:621,templateRoomId:465});assert.equal(dependency.completed,false);assert.equal(dependency.proofKind,"verified-controller-closure");assert.deepEqual(dependency.fileIds,expected);assert.equal(dependency.status,"nonvisual");assert.match(dependency.provenance!.join(" "),/CPU completion is not asserted/);}
+  }
+  assert.match(nativeControllerResourceContract(reader,files,0x308)!.warnings.join(" "),/camera\/player\/partner/);
+  assert.match(nativeControllerResourceContract(reader,files,0x34e)!.warnings.join(" "),/not resource-free.*Both states.*CPU interpreter did not execute.*VM/);
+  const rejectByte=(actorId:number,offset:number,label:string)=>{const old=rom.bytes[offset];rom.bytes[offset]^=1;try{assert.throws(()=>nativeControllerResourceContract(reader,files,actorId),/guarded native controller resource contract rejected/,label);}finally{rom.bytes[offset]=old;}};
+  for(const actorId of [0x308,0x34e]){
+    const id=actorId===0x308?27:61,offset=actorId===0x308?0x20f4:0x98c,file=files.get(id)!;
+    for(const [at,label] of [[0x5e3c8c+actorId*4,"entry"],[0x5e4ca6+actorId*2+1,"overlay"],[file.start+offset,"constructor bytes"],[0x556c4+id*8,"allocation start"],[0x556c4+id*8+7,"allocation end"],[0x6a51c+id*4,"parts pointer"],[0x66398,"parts terminator"]] as const)rejectByte(actorId,at,label);
+    for(const change of [{start:file.start+16},{end:file.end-16},{compressed:true}]){files.set(id,{...file,...change});try{assert.throws(()=>nativeControllerResourceContract(reader,files,actorId),/canonical bounds changed/);}finally{files.set(id,file);}}
+  }
+  for(const [at,label] of [[0x785a0+0x137*4+3,"scenario pointer"],[0x79208+0x137*2+1,"scenario file"],[0x556c4+96*8,"script allocation start"],[0x556c4+96*8+7,"script allocation end"],[0x6a51c+96*4,"script parts pointer"],[0x5552f,"native resource segment"],[0x5552e,"native resource alignment"],[0x5552d,"native upper bound"],[0x55529,"native lower bound"]] as const)rejectByte(0x34e,at,label);
+  const script=files.get(96)!;files.set(96,{...script,compressed:true});assert.throws(()=>nativeControllerResourceContract(reader,files,0x34e),/File96 canonical bounds/);files.set(96,script);
+  assert.deepEqual(nativeControllerResourceContract(reader,files,0x34e)!.resourceFileIds,[61,96]);
+});
+
+test("19A timed child preview runs native old-zero countdown and first child once without completing dependencies",{skip:!process.env.MNSG_TEST_ROM},()=>{
+  const {rom,initializer}=native(),actor=rom.loadRoom(91).actors.find(a=>a.actorId===0x19a)!;
+  for(const [parameters1,counter,calls] of [[0x01000000,1,2],[0x01010000,50,51],[0x01020000,100,101]]){
+    const result=initializer.resolve({actorId:actor.actorId,parameters:[actor.parameters[0],parameters1,actor.parameters[2]],position:actor.position,rotation:actor.rotation,roomId:91});
+    assert.equal(result.status,"conditional");assert.equal(result.completed,false);assert.equal(result.failureKind,"scene-gated");
+    assert.deepEqual(result.timedPreview,{kind:"timed-child-prefix",callbackCount:calls,initialCounter:counter,childEntry:0x08000f50});
+    assert.equal(result.bindings.length,1);const child=result.bindings[0];assert.equal(child.identity,0x1a4);assert.equal(child.slot,0);assert.equal(child.objectIndex,1);assert.deepEqual(child.position,actor.position);
+    assert.ok(child.segments.some(s=>s.fileId===476)&&child.segments.some(s=>s.fileId===352));assert.ok(result.instructionCount<12000);
+    assert.equal(child.provenance.filter(p=>p.includes("executed configured native child callback")).length,1);assert.ok(!child.provenance.some(p=>p.includes("advanced native child")));
+    assert.match(result.diagnostics.join(" "),/timer\/heap state was not forced.*before movement\/physics/);
+  }
+  for(const at of [0x5e3c8c+0x19a*4,0x5e4ca6+0x19a*2+1,0x6d4340+0x6ec,0x6d4340+0x594,0x6d4340+0xf50]){
+    const old=rom.bytes[at];rom.bytes[at]^=1;try{const result=initializer.resolve({actorId:0x19a,parameters:actor.parameters,position:actor.position,rotation:actor.rotation,roomId:91});assert.equal(result.status,"unsupported");assert.equal(result.instructionCount,0);assert.equal(result.bindings.length,0);assert.match(result.diagnostics.join(" "),/Timed actor19A/);}finally{rom.bytes[at]=old;}
+  }
+});
+
+
+test("timed slicer sound omission requires exact void caller, arguments and validated parent object",()=>{
+  const call={codeFile:30,callback:0x08004594,returnAddress:0x080045f8,soundId:0x271,statePointer:0x8020cbf0,objectPointer:0x81000400,parentObjectPointer:0x81000400,radiusBits:0x43c80000};
+  assert.equal(verifiedTimedSlicerSoundCall(call),true);
+  for(const key of Object.keys(call) as (keyof typeof call)[])assert.equal(verifiedTimedSlicerSoundCall({...call,[key]:call[key]+1}),false,key);
+  assert.equal(verifiedTimedSlicerSoundCall({...call,objectPointer:0x80001000,parentObjectPointer:0x80001000}),false);
+});
+test("19D native new-zero countdown preserves authored parent pose and typed CPU material without completing dependencies",{skip:!process.env.MNSG_TEST_ROM},()=>{
+  const {rom,initializer}=native(),actor=rom.loadRoom(171).actors.find(a=>a.actorId===0x19d)!;
+  const run=(counter:number)=>initializer.resolve({actorId:actor.actorId,parameters:[(actor.parameters[0]&0xffff00ff)|(counter<<8),actor.parameters[1],actor.parameters[2]],position:actor.position,rotation:actor.rotation,roomId:171});
+  for(const [counter,calls] of [[120,61],[2,2],[254,128]]){
+    const result=run(counter);assert.equal(result.status,"conditional");assert.equal(result.completed,false);assert.equal(result.failureKind,"scene-gated");
+    assert.deepEqual(result.timedPreview,{kind:"timed-child-prefix",callbackCount:calls,initialCounter:counter,childEntry:0x08004694});assert.equal(result.bindings.length,1);assert.ok(result.instructionCount<12000);
+    const child=result.bindings[0];assert.equal(child.identity,0x19d);assert.equal(child.slot,0);assert.deepEqual(child.position,{x:-40,y:18,z:-190});assert.equal(child.rotation.x,75);assert.deepEqual(child.positionOffset,{x:0,y:8,z:40});
+    assert.ok(child.segments.some(s=>s.segment===8&&s.fileId===470)&&child.segments.some(s=>s.segment===9&&s.fileId===384));
+    const mapping=result.readonlyMemory.find(m=>m.fileId===30)!;assert.ok(mapping);assert.equal(child.materialPointer,((mapping.address+0x7c30)|0x20000000)>>>0);
+    assert.ok(child.provenance.some(p=>p.includes("Relocated CPU material root File30")));assert.ok(result.diagnostics.some(p=>p.includes("Omitted verified sound0x271")));
+    assert.equal(child.provenance.filter(p=>p.includes("executed configured native child callback")).length,1);assert.ok(!child.provenance.some(p=>p.includes("advanced native child")));
+  }
+  for(const counter of [0,1,127,255]){const result=run(counter);assert.equal(result.bindings.length,0);assert.equal(result.status,"unsupported");assert.notEqual(result.completed,true);assert.ok(result.instructionCount<12000);assert.match(result.diagnostics.join(" "),/128-call bound.*not fast-forwarded/);}
+  for(const at of [0x5e3c8c+0x19d*4,0x5e4ca6+0x19d*2+1,...[0x447c,0x4550,0x4594,0x4694,0x7c30].map(offset=>0x6bf750+offset)]){
+    const old=rom.bytes[at];rom.bytes[at]^=1;try{const result=run(120);assert.equal(result.status,"unsupported");assert.equal(result.instructionCount,0);assert.equal(result.bindings.length,0);assert.match(result.diagnostics.join(" "),/Timed actor19D/);}finally{rom.bytes[at]=old;}
+  }
+});
+
+
+test("timed slicer material reads physical CPU File30 while FD texture remains GPU File384",{skip:!process.env.MNSG_TEST_ROM},()=>{
+  const {rom,initializer}=native(),reader=new RomReader(rom.bytes),files=new Map(readFileTable(rom.bytes).map(file=>[file.id,file])),waves=new RenderWaves(reader,files,id=>{for(let at=0x55510;at<0x55910;at+=4)if(id<reader.u16(at))return reader.bytes[at+3];throw Error("No segment");}),service=new ActorVisuals(reader,files,waves),actor=rom.loadRoom(171).actors.find(a=>a.actorId===0x19d)!;
+  const result=initializer.resolve({actorId:actor.actorId,parameters:actor.parameters,position:actor.position,rotation:actor.rotation,roomId:171}),binding=result.bindings[0];
+  const internal=service as unknown as {read:(sourceBinding:typeof binding,address:number,size:number,synthetic:typeof result.syntheticMemory,readonly:typeof result.readonlyMemory)=>Uint8Array};
+  const read=(address:number,size:number)=>internal.read(binding,address,size,result.syntheticMemory,result.readonlyMemory),material=read((binding.materialPointer&0x8fffffff)>>>0,0x90),original=reader.bytes.subarray(files.get(30)!.start+0x7c30,files.get(30)!.start+0x7cc0);
+  assert.deepEqual(material,original);assert.equal(createHash("sha256").update(material).digest("hex"),"67e77856e772fba00e4e76bac243fc102673b82e96820d3467fa779d3cf59ea3");
+  assert.throws(()=>read(0x08007c30,0x90),/bounds|exceeds|allocation/i);assert.deepEqual(read(0x09001000,16),waves.wave(384).subarray(0x1000,0x1010));
+  const textureMemory=new NativeTextureMemory(read),view=new DataView(material.buffer,material.byteOffset,material.byteLength);
+  for(let offset=0;offset<material.length;offset+=8){const w0=view.getUint32(offset),w1=view.getUint32(offset+4),opcode=w0>>>24;if(opcode===0xb8)break;if(opcode===0xfd)textureMemory.setImage(w0,w1);else if(opcode===0xf5)textureMemory.setTile(w0,w1);else if(opcode===0xf2)textureMemory.setTileSize(w0,w1);else if([0xf0,0xf3,0xf4].includes(opcode))textureMemory.load(opcode,w0,w1);}
+  const bitmap=textureMemory.decode(0,0);assert.equal(bitmap.format,"RGBA16");assert.equal(bitmap.width,32);assert.equal(bitmap.height,64);assert.equal(Buffer.from(bitmap.rgbaBase64,"base64").length,32*64*4);
+  // The decoded source image is valid; the renderer deliberately does not bind
+  // it to unsupported generated UVs or claim a textured slicer preview.
+  const preview=service.preview({actorId:actor.actorId,parameters:actor.parameters,position:actor.position,rotation:actor.rotation,roomId:171},actor.id);assert.equal(preview.actorModels[0].textures.length,0);assert.match(preview.actorModels[0].warnings.join(" "),/generated texture coordinates are unsupported/);
 });

@@ -226,8 +226,8 @@ try {
   assert.equal(await page.locator(".dirty-state").count(), 0);
   await record("primary Tilt/Pan gestures and focused WASD preserve project", { tiltBefore, tiltAfter, panBefore, panAfter, walkBefore, walkAfter });
 
-  // Preserve House465's complete native roster before exercising the explicit
-  // foreign-room controller admission gate at export. Room0 remains the
+  // Preserve House465's complete native roster for foreign-room export.
+  // Guarded controller contracts must retain both308 and34E. Room0 remains the
   // navigation/promotion fixture, not a full authored actor replacement donor.
   await room(cloneDonorId);
   let graph = await newRoom("Smoke blank A");
@@ -244,7 +244,9 @@ try {
   const cloned = graph.authoredRooms[cloneId];
   assert.equal(await host.getAttribute("data-primary-drag"), "pan", "Primary drag choice must persist across native/authored room switches");
   await page.getByTestId("camera-tilt").click();
+  assert.equal(canonical.actors.length, 8, "House465 full-roster fixture must contain all eight native actors");
   assert(cloned.meshes.length > 0 && cloned.actors.length === canonical.actors.length);
+  const clonedActorRoster = structuredClone(cloned.actors);
   assert.equal(cloned.templateRoomId, cloneDonorId);
   assert.equal(cloned.collisionMode, "template");
   assert.equal(cloned.collision.length, 0);
@@ -522,43 +524,10 @@ try {
     await record("editor checkpoint only; export remains pending");
   } else {
     // These are compilation handoffs only. Nothing installs or starts the game.
-    let exportProject = reopened;
-    // Only these two independently reproduced blockers have reviewed fixture
-    // removals. Any other actor or diagnostic fails instead of being skipped.
-    const reviewedBlockers = [
-      { actorId: 0x308, reason: "Native camera-controller allocator has no intrinsic 3D model." },
-      { actorId: 0x34e, reason: "Native progression/script removal controller has no intrinsic 3D model." },
-    ];
-    for (const { actorId, reason } of reviewedBlockers) {
-      const hex = actorId.toString(16);
-      const blockedControllers = exportProject.authoredRooms[cloneId].actors.filter(actor =>
-        catalog.actorPrototypes.find(prototype => prototype.id === actor.prototypeId)?.actorId === actorId);
-      assert.equal(blockedControllers.length, 1, `Native clone must retain exactly one reviewed${hex} controller before its export admission check`);
-      const blocked = await page.evaluate(async value => {
-        try { await window.mnsg.exportPatch(value); return { accepted: true }; }
-        catch (error) { return { accepted: false, diagnostic: error.message }; }
-      }, exportProject);
-      assert.equal(blocked.accepted, false, `Foreign House${hex} controller must fail the unresolved dependency gate`);
-      assert(blocked.diagnostic.includes(`Actor0x${hex} has an unresolved resource dependency path for the edited or destination-room context: ${reason}`), blocked.diagnostic);
-      assert.equal(fingerprint((await page.evaluate(() => window.mnsg.getStatus())).project), fingerprint(exportProject), "Rejected export must preserve the complete project");
-      await record(`native clone export rejects unresolved${hex} controller`, { roomId: cloneId, actor: blockedControllers[0], diagnostic: blocked.diagnostic });
-
-      // Use the actual outliner and inspector, not a project replacement API.
-      await room(cloneId);
-      await page.locator("#actors-tab").click();
-      await page.getByLabel("Search records", { exact: true }).fill(hex);
-      const controllerRows = page.getByTestId("actor-list").getByRole("button");
-      assert.equal(await controllerRows.count(), 1, `Search${hex} must isolate the reviewed controller placement`);
-      await controllerRows.click();
-      assert.equal(await field("Actor prototype").inputValue(), blockedControllers[0].prototypeId);
-      await button("Remove actor", inspector()).click(); await idle();
-      const expected = structuredClone(exportProject);
-      expected.authoredRooms[cloneId].actors = expected.authoredRooms[cloneId].actors.filter(actor => actor.id !== blockedControllers[0].id);
-      exportProject = await saved();
-      assert.equal(fingerprint(exportProject), fingerprint(expected), `Reviewed removal must change only the one cloned${hex} actor`);
-      await page.getByLabel("Search records", { exact: true }).fill("");
-      await record(`reviewed${hex} removal through inspector preserves remaining authored graph`, { roomId: cloneId, removedActorId: blockedControllers[0].id, actorId, remainingActors: exportProject.authoredRooms[cloneId].actors.length });
-    }
+    const exportProject = reopened;
+    assert.deepEqual(exportProject.authoredRooms[cloneId].actors, clonedActorRoster, "All eight cloned actors must preserve their order, parameters, transforms and spawn policies");
+    const clonedTypes = clonedActorRoster.map(actor => catalog.actorPrototypes.find(prototype => prototype.id === actor.prototypeId)?.actorId);
+    assert(clonedTypes.includes(0x308) && clonedTypes.includes(0x34e), "Full-roster export must retain the native camera and progression controllers");
 
     await app.evaluate((_electron, value) => globalThis.__authoringSmoke.save.push(value), bundlePath);
     const exported = await page.evaluate(value => window.mnsg.exportPatch(value), exportProject);
@@ -569,6 +538,15 @@ try {
     const sources = await Promise.all(exported.outputPaths.filter(file => /\.(c|h|json)$/.test(file)).map(file => readFile(file, "utf8")));
     assert(sources.join("\n").includes(String(blankId)) && sources.join("\n").includes(String(cloneId)));
     assert(exported.changes.some(change => /doors/.test(change)));
+    const inventoryPath = exported.outputPaths.find(file => path.basename(file) === "authoring-inventory.json");
+    assert(inventoryPath, "Native export must expose its actual room and resource inventory");
+    const inventory = JSON.parse(await readFile(inventoryPath, "utf8"));
+    const exportedClone = inventory.rooms.find(entry => entry.room.id === cloneId);
+    assert.deepEqual(exportedClone?.room.actors, clonedActorRoster, "Compiler inventory must retain every cloned actor unchanged");
+    const scenarioResource = exportedClone.resourceAllocations.find(file => file.fileId === 96);
+    assert.equal(scenarioResource?.byteLength, 0xb110, "Full House controller closure must include canonical File96 scenario allocation");
+    assert.equal(fingerprint((await page.evaluate(() => window.mnsg.getStatus())).project), fingerprint(exportProject), "Export must not remove or rewrite cloned controllers");
+    await record("full eight-actor clone export retains controller roster and File96", { roomId: cloneId, templateRoomId: cloneDonorId, actorTypes: clonedTypes, actorRoster: clonedActorRoster, scenarioResource, inventoryPath, runtime: "Constructor resource contracts only; live camera/player inputs and subsequent script/gameplay behavior are unverified." });
     await record("authored C/H export", { outputPaths: exported.outputPaths, roomIds: exported.roomIds, changes: exported.changes, warnings: exported.warnings });
     if (env.MNSG_TEST_TEMPLATE) {
       await app.evaluate((_electron, value) => globalThis.__authoringSmoke.open.push([value]), env.MNSG_TEST_TEMPLATE);

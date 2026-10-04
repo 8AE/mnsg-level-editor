@@ -917,3 +917,221 @@ on allocation failure. File29 actor `0x0CE` passes this result to
 `800133E0_13FE0`, which writes three float words at +0x60/+0x6C/+0x78.
 A null result caused by an incomplete offline allocator cannot be interpreted
 as an authored zero model or a legitimate arbitrary live-state pointer.
+
+### Exact house-controller constructor closure: 0x308 and 0x34E
+
+These findings use the canonical decompressed ROM hash stated above and exact
+overlay identities; an actor ID or a nonvisual label alone is insufficient.
+
+`0x308` selects File27 entry `080020F4_6B1504` (size `0x50`).
+Its only state read is signed word task +0xE0. It increments that word once,
+and a second time when the previous value is below ten. Otherwise it calls
+`8003521C_35E1C` with callback `08002144_6B1554`. There are no constructor
+child, wave, model or table-resource requests. This proves bounded constructor
+resource closure with its existing File27 code dependency. This finite
+constructor-closure classification is defensible for an authored room 621
+retaining donor 465's roster, because the inspected constructor and camera
+callbacks introduce no actual-room-indexed resource access. It must remain
+identified as a static constructor proof, rather than a claim that the
+offline interpreter executed every future camera callback.
+
+The installed callback allocates room-arena camera work through `80012940`,
+reads source object XYZ, the live player at `801FC60C`, and camera object
+`801FC628 +0x2C`, then installs `08002388` and paired callback `08002814`.
+Inspected follow-up callbacks `08002388`, `0800246C`, `08002644` and
+`0800284C` manipulate camera work and the native player/partner-task chain.
+They contain no actual-room-ID indexed resource lookup. This avoids an
+inferred room-621 table failure, but does not eliminate native scene inputs:
+camera/player pointers, camera-work allocation success, and a valid partner
+task are required. The partner-camera path divides by the measured camera
+distance without a zero-distance guard. Constructor closure does not certify
+later camera behavior or replace those live inputs with fabricated tasks.
+
+`0x34E` selects File61 entry `0800098C_72125C` (size `0x64`).
+It tests native flag `0x199`; when clear it sets that flag and calls
+`8003D310_3DF10(0x137)`. Both branches then call current-task removal
+`80034ED4_35AD4` at `080009D8`, returning to `080009E0` and the epilogue.
+There are no deferred actor callbacks or child tasks from this constructor.
+It is **not resource-free**: scenario startup can request a dynamic script
+resource before removal.
+
+Canonical scenario tables at ROM `0x785A0 + scenario*4` and
+`0x79208 + scenario*2` map scenario `0x137` to script pointer `0x0800AA4C`
+and resource **96 (0x60)**. File96 spans ROM `0x74ECE0…0x759DF0`, with native
+allocation `0x08000000…0x0800B110`; the script pointer lies within it.
+Fresh `80001E50_2A50` disassembly independently confirms File96's native
+segment is **8**: record ROM `0x55528` has exclusive upper bound 82 and
+segment 9, which does not match 96; the next record at `0x5552C` has exclusive
+upper bound 123 and segment 8, which does. The function compares the current
+record's own boundary before returning its byte +3. Advancing a boundary
+without advancing its associated segment would produce an incorrect result.
+Consequently, `3DDC4` resolves `0x0800AA4C` as loaded File96 base plus
+`0xAA4C`, within extent `0xB110`. Native `01DF4(96)` returns zero, so this
+resource does not use the code-tag 4 KiB destination alignment policy.
+`8003D468_3E068` checks the scenario-manager task at `80077860`, then uses
+`141C4`/`13B14` to obtain that exact resource if absent. `8003DDC4_3E9C4`
+repeats the same-resource lookup when needed. `8003CFA0_3DBA0` is a pointer
+table lookup, and `8003DE48_3EA48` translates the selected script pointer.
+Stopping an existing script and `8000C838_D438` only clear/free existing
+room-arena work in these inspected startup callees; they add no wave request.
+
+A finite completion rule must retain File61, the actual flag branch, canonical
+scenario-table provenance, and a captured File96 request when the clear-flag
+path runs. Returning zero for scenario startup or accepting terminal removal
+without capturing that request would miss the constructor's dependency.
+The running scenario virtual machine may perform later native actions; that
+future execution and gameplay remain outside this constructor proof.
+
+A conservative declaration may include resource 96 for either initial flag
+state, keyed to this exact constructor and the two canonical scenario-table
+entries. Such a declaration is a **statically verified dependency contract**:
+it must not say the CPU interpreter executed scenario startup or mark that
+helper as a resource-free no-op. If interpreted-path completion is required,
+the interpreter must handle the verified scenario-start ABI, capture that
+request, retain branch provenance, and stop future script execution outside
+its supported scope. An unavailable scenario-manager task is a scene-state
+limitation, not evidence that the resource dependency disappears in-game.
+
+Constructor byte hashes provide an additional identity guard:
+
+| Entry | SHA-256 of its canonical byte range |
+|---|---|
+| File27 `080020F4`, size `0x50` | `e87911e696977b8c4096aa422a893ccaa6f4004972f5194df565f0b00d81653c` |
+| File61 `0800098C`, size `0x64` | `1814198742678a03a59f45aa771b00c8f6f2ba37ea08acc6603204075cfa9410` |
+
+This evidence was read with explicit-program Ghidra `decompile_function` and
+`disassemble_function` calls for both entries and their named callees, plus
+bounded Python `struct`/`hashlib` reads of the canonical ROM tables and byte
+ranges. The constructor slices in both pinned Ghidra ELF inputs were compared
+against their canonical ROM ranges through the ELF load segments and match
+byte for byte. Symbol identity was also checked against `.file_27` and
+`.file_61` in `Goemon64RecompSyms/mnsg.syms.toml`. The current shared API has
+the actor-entry registry and flag/removal helpers, but does not document these
+two constructors or scenario startup's resource-96 contract. No native
+callbacks or game process were executed.
+
+### Delayed first-model previews: 0x19A and 0x19D
+
+This is a bounded preview contract for two native delayed visual prefixes.
+It does not establish complete foreign-room resource closure or later
+gameplay. The original task bodies, callback assignments and child binders
+must execute in the bounded interpreter; no actor-ID-to-model shortcut is
+justified by this evidence.
+
+`0x19A` selects File34 constructor `080006EC_6D4A2C`. Its mode byte is
+task `+D4`, taken from parameter-word 1's most significant byte. Mode 1
+installs `08000594_6D48D4`; subtype byte `+D5` selects an initial unsigned
+halfword counter at `+8A`: 1 for subtype 0, 50 for subtype 1, otherwise
+100. The callback reads the **old** counter with `lhu`, stores its decrement
+modulo 65536, and creates a child only when the old value equals zero.
+The room91 placement `[00000000,01020000,00000000]` therefore requires
+101 total callbacks, or 100 additional callbacks after the existing first
+preview callback. A synthetic forced zero would bypass native timing.
+
+The callback calls `802171A8_5D2678(parent,08000F50,0x0C)`. After a
+successful allocation it writes the child's code-file identity 34 and wave
+base and restores the parent's saved yaw. Child initializer
+`08000F50_6D5290` assigns model identity `0x1A4`, then calls
+`8021664C_5D1B1C` with slot 0, step `0.1f`, loop byte 1. The actual
+descriptor at `80235358` selects files 476/352 and slot pointer
+`08000058`. The native binder also requests baseline file 338. The child
+inherits the parent's XYZ `(120,100,-400)` through the native allocator;
+the allocator does not copy definition words into child `+D0/+D4/+D8`.
+Mode 0 uses actor `0x191` through `80217360_5D2830` instead; mode 2
+uses child `08001388_6D56C8`, identity `0x1A4`, slot 3 and scale `0.3f`.
+These are distinct native paths, not substitutes for mode 1.
+
+`0x19D` selects File30 constructor `0800447C_6C3BCC`. It initializes
+unsigned counter `+8A` from parameter-word 0's byte at task `+D2` and
+installs `08004550_6C3CA0`. Each countdown callback subtracts two,
+masks to 16 bits, and changes the callback to `08004594_6C3CE4` only
+when the **new** masked value is zero. Canonical room171 parameter
+`00787800` yields 120: 60 countdown calls plus one birth callback. After
+the existing first call, 59 countdown calls and one birth call remain.
+Positive even byte values have at most 127 countdown calls; odd values
+never reach zero by this recurrence. An initial zero needs 32768
+decrements and is outside this short preview contract.
+
+Mode 0 explicitly changes the Slicer parent position to `(-40,18,-190)`
+and X rotation to 75 native units; mode 1 uses `(-40,5,-190)`. These are
+constructor writes, so copying the original placement `(-40,10,-230)`
+into the delayed child would be wrong. Birth callback `4594` calls
+`8021DDE8_5D92B8(parent,08004694,owner=1,offset=(0,0,0),last=0)`.
+The helper rotates the offset, adds parent XYZ, creates the child through
+`171A8`, and stores its last argument at `+88`. After the helper returns,
+the parent callback plays sound `0x271`, writes child code-file 30/wave
+base, and sets child `+DC` to the parent task. The interpreter must finish
+these assignments before running the queued child.
+
+Child `08004694_6C3DE4` assigns identity `0x19D` and binds slot 0,
+step `1.0f`, loop byte 0, with scales `0.1f`. Descriptor `802352F8`
+selects files 470/384, slot pointer `0800001C`, plus baseline file 338.
+Velocity depends on the parent's `+D3` byte, not copied child definition
+data. Owner selection is native: owner 1 uses manager `8015CCD0`;
+Barrel's owner `0x0C` uses `8015CCD4` and its native quota. Allocation
+failure must remain a failure rather than a fabricated child object.
+
+Slicer's material is a relocated **CPU File30** command stream. Both
+constructor and child write the pointer with bit `0x20000000` set.
+HI16/LO16 relocations at `08004484/0800448C` and
+`080046A8/080046AC` target File30 local `0x7C30`. Recomp's generated
+HI16/LO16 expressions use `section_addresses[section]+offset`, so the
+runtime pointer is `(loaded File30 base+7C30)|20000000`, not RSP
+segment 8 in model file470. Main `800196F0_1A2F0` masks
+`0x8FFFFFFF` and, when that tag is present, CPU-copies material commands
+inline until `B8000000/00000000`. The finite material spans `7C30…7CC0`
+(`0x90` bytes), with END at `7CB8`. It has no nested DL/VTX commands
+or material-range data relocations. Its sole address-bearing command is
+`SETTIMG` at `7C78` with `09001000`, which remains a segment-9
+texture in descriptor secondary file384. The span SHA-256 is
+`67e77856e772fba00e4e76bac243fc102673b82e96820d3467fa779d3cf59ea3`.
+
+Relevant upstream evidence is `N64Recomp/src/recompilation.cpp:164`,
+`N64Recomp/src/cgenerator.cpp:109`, and `N64Recomp/include/recomp.h:461`
+under `Goemon64Recomp/lib/N64ModernRuntime`. `patches/required.c:38`
+loads an overlay then applies relocation entries; `patches/overlay_reloc.c`
+handles `R_MIPS_32`, while recompiled HI16/LO16 instructions use the
+section-aware expressions above. A blanket CPU-segment-8/model-segment-8
+alias would select the wrong resource.
+
+The exact `4594` sound call may be recorded and omitted in a silent
+preview. Shared API `8000F420_10020` has signature
+`void(u16,const sound_state*,const object*,f32 radius)`. Fresh main
+disassembly confirms XYZ reads at object `+8/+C/+10` and float bits in
+GPR `a3`. `F420→F6E8→FE1C` computes spatial pan/volume and calls
+`80038C30_39830`, which writes only the eight-entry sound queue at
+`801C0A00`, count byte `801C09FD`, and audio byte `801C09C9`.
+It does not load model waves or mutate the parent/child task. This narrow
+presentation omission does not license ignoring other unknown helpers.
+
+The first installed post-bind callbacks were also inspected: Barrel
+`08000EE0`/`08001318` enter native ground queries and later switch
+callbacks; Slicer `0800488C_6C3FDC` enters native movement/removal
+behavior using parent state. Those later physics paths, resource requests
+and task lifetimes have not been fully traced. Stop the model preview after
+the genuine child initialization; retain incomplete export dependency
+status unless a separate full closure proof exists.
+
+Canonical byte guards for the implemented mode-1 Barrel and Slicer paths:
+
+| File / local range | SHA-256 |
+|---|---|
+| 34 `6EC`, size `F0` | `7d61ffaa555ffb96673ba6c5368ccbb0e4e26f136cd85e50ea29085a04dd93ec` |
+| 34 `594`, size `94` | `aeafbf2ec9b147cd819ac0d1458beb718b808e3be43cafe3b125dfaf2dacfbbe` |
+| 34 `F50`, size `12C` | `c78803cd9430e77b08a673792ace421cb1cdb72d71bc78bf8bc4805de536e640` |
+| 30 `447C`, size `D4` | `b12300be7ca9fac17e87ef058b2237d0e0064ffd429490ac6013e7f0e8c027f4` |
+| 30 `4550`, size `44` | `9b0d8f05113a18129880deab463a14699b1dbbb08f43a0a3a6e87d7a2e357375` |
+| 30 `4594`, size `C0` | `37d2e25e4dea7ae6dfb7afd24d8ab6d52e0e41dda3621d3620da60f17ef86f03` |
+| 30 `4694`, size `1F8` | `222a33c87e2c0819c21eebb4399c9c91259034408cfd32024a0c927cb05f23ec` |
+
+Evidence came from explicit-program Ghidra `decompile_function` and
+`disassemble_function` calls against `world_file_34.elf`,
+`world_file_30.elf`, `mnsg_player_file_11.elf`, and `mnsg_main_static.elf`,
+plus canonical-ROM `struct`/`hashlib` reads of those file ranges, registry
+descriptors, and material commands. The private pure counter census
+verified unsigned wraparound and the canonical call counts. The loaded
+Ghidra programs remain available but their original temporary ELF paths
+have expired; this timed proof makes no fresh on-disk ELF comparison claim.
+The shared API documents the general binder/allocation/audio helpers but
+does not contain these exact timed actor contracts. No game callbacks or
+game process were executed.

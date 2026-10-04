@@ -129,3 +129,50 @@ test("actual US ROM authoring catalog, native previews, materials, source proven
   assert.equal(createHash("sha256").update(rom.bytes).digest("hex"),before);assert.ok(rom.listRooms().every(r=>!("textures" in r)&&!("actorModels" in r)));
   assert.throws(()=>rom.loadGeometryAsset("geometry:forged"),/Unknown/);assert.throws(()=>rom.resolveAuthoringMaterial("material:forged"),/Unknown/);
 });
+
+
+test("complete House465 roster retains guarded controller File96 closure in authored621 without claiming CPU execution",{skip:!process.env.MNSG_TEST_ROM},()=>{
+  const rom=importRomBytes(readFileSync(process.env.MNSG_TEST_ROM!)),hash=()=>createHash("sha256").update(rom.bytes).digest("hex"),before=hash();
+  const catalog=rom.getAuthoringCatalog(),house=rom.loadRoom(465),reader=new RomReader(rom.bytes);
+  assert.equal(house.actors.length,8);
+  const siblings=house.actors.map(actor=>({prototypeId:prototypeId(actor.actorId,actor.parameters as [number,number,number],actor.definitionSource?reader.u16(actor.definitionSource.romOffset+2):0),parameters:[...actor.parameters] as [number,number,number],position:{...actor.position},rotation:{...actor.rotation}}));
+  const context={roomId:621,templateRoomId:465,siblings},exports=rom.authoringExportContext(),resources=new Set<number>();
+  const declarations=siblings.map((input,index)=>{
+    const source=house.actors[index],prototype=catalog.actorPrototypes.find(p=>p.id===input.prototypeId)!;assert.ok(prototype);
+    const value=exports.prototype(input.prototypeId,input,context);
+    assert.equal(value.actorId,source.actorId);assert.deepEqual(value.parameters,source.parameters);assert.equal(value.unknownHalfword,source.definitionSource?reader.u16(source.definitionSource.romOffset+2):0);
+    assert.equal(value.sourceKind,prototype.sourceKind);value.resourceFileIds.forEach(id=>resources.add(id));return value;
+  });
+  assert.deepEqual(declarations.map(d=>d.actorId),house.actors.map(a=>a.actorId));
+  for(const actorId of [0x308,0x34e]){
+    const index=house.actors.findIndex(a=>a.actorId===actorId);assert.ok(index>=0);
+    const declaration=declarations[index];assert.equal(declaration.dependencyClosure,"verified-controller-closure");
+    assert.match(declaration.dependencyProvenance.join(" "),/CPU completion is not asserted/);
+    assert.ok(!declaration.dependencyProvenance.some(p=>p.includes("All selected native constructor")));
+    const visual=rom.loadActorPrototypeForRoom(siblings[index].prototypeId,{parameters:siblings[index].parameters,position:siblings[index].position,rotation:siblings[index].rotation},context).actorVisuals[0];assert.equal(visual.status,"nonvisual");assert.deepEqual(visual.parts,[]);
+  }
+  const script=declarations.find(d=>d.actorId===0x34e)!;assert.ok(script.resourceFileIds.includes(61)&&script.resourceFileIds.includes(96));assert.match(script.warnings.join(" "),/not resource-free.*CPU interpreter did not execute.*VM/);
+  const budget=exports.resourceFileBytes([...resources]);assert.equal(budget.files.find(f=>f.fileId===96)?.byteLength,0xb110);
+  const unknown=catalog.actorPrototypes.find(p=>p.actorId===0x193)!;assert.throws(()=>exports.prototype(unknown.id,{},context),/unresolved resource dependency/);
+  // Even a previously cached/canonical prototype must recheck static proof guards.
+  const scriptIndex=house.actors.findIndex(a=>a.actorId===0x34e),at=0x79208+0x137*2+1,old=rom.bytes[at];rom.bytes[at]^=1;
+  try{assert.throws(()=>exports.prototype(siblings[scriptIndex].prototypeId,siblings[scriptIndex],context),/scenario0x137 pointer\/resource table identity changed/);}finally{rom.bytes[at]=old;}
+  assert.equal(hash(),before);
+});
+
+
+test("timed library children have real native models while foreign dependency completion remains rejected",{skip:!process.env.MNSG_TEST_ROM},()=>{
+  const rom=importRomBytes(readFileSync(process.env.MNSG_TEST_ROM!)),hash=()=>createHash("sha256").update(rom.bytes).digest("hex"),before=hash(),catalog=rom.getAuthoringCatalog();
+  for(const [roomId,actorId,triangles] of [[91,0x19a,36],[171,0x19d,8]]){
+    const actor=rom.loadRoom(roomId).actors.find(a=>a.actorId===actorId)!,unknown=actor.definitionSource?new RomReader(rom.bytes).u16(actor.definitionSource.romOffset+2):0,id=prototypeId(actorId,actor.parameters as [number,number,number],unknown),edits={parameters:actor.parameters as [number,number,number],position:actor.position,rotation:actor.rotation};
+    assert.ok(catalog.actorPrototypes.some(p=>p.id===id));const preview=rom.loadActorPrototype(id,edits),visual=preview.actorVisuals[0];assert.equal(visual.status,"conditional");assert.equal(visual.parts.length,1);assert.equal(preview.actorModels.length,1);
+    const model=preview.actorModels[0];assert.equal(model.meshes.reduce((n,m)=>n+m.indices.length/3,0),triangles);
+    if(actorId===0x19a){assert.equal(model.textures.length,2);assert.ok(model.textures.every(t=>t.format==="CI4/TLUTRGBA16"&&t.width===64&&t.height===64));}
+    else {assert.equal(model.textures.length,0);assert.ok(model.warnings.some(w=>w.includes("generated texture coordinates are unsupported")));assert.ok(model.warnings.some(w=>w.includes("8 actor triangles use an unsupported native appearance state")));}
+    assert.match(visual.warnings.join(" "),/Preview-only timed native child prefix/);
+    const target={roomId:621,templateRoomId:465,siblings:[{prototypeId:id,...edits}]};assert.equal(rom.loadActorPrototypeForRoom(id,edits,target).actorVisuals[0].parts.length,1);
+    assert.throws(()=>rom.authoringExportContext().prototype(id,edits,target),/unresolved resource dependency path.*dependency completion is not asserted/);
+    assert.equal(rom.authoringExportContext().prototype(id,edits).dependencyClosure,"canonical-context");
+  }
+  assert.equal(hash(),before);
+});
