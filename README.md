@@ -19,11 +19,16 @@ without selecting the ROM again.
 
 ## Editing scope
 
+Version 0.2.0 adds version 2 projects, authored-room controls and C/H or `.nrm`
+export. Local checks cover the source build, native mod compilation, desktop authoring
+smoke and a signed macOS ARM64 package. The installed app passed a normal launch
+with its cached ROM. Gameplay testing in Goemon64Recomp remains open.
+
 - **Rooms:** browse 383 native room records, including 378 with decoded visual
   geometry. View original static textures, UVs, indexed palettes and supported
   material alpha. Toggle geometry, textures, wireframe and record markers.
-- **Actors:** inspect source records and edit position, raw rotation values,
-  actor type and three unsigned 32-bit payload words. Choose replacement types
+- **Native actor edits:** inspect source records and edit position, raw rotation
+  values, actor type and three unsigned 32-bit payload words. Choose replacement types
   from the room's original actor roster. Proximity actors can move within their
   verified original spawn cell; cross-cell moves require a future grid migration.
 - **Actor previews:** inspect meshes and textures from your ROM, native model
@@ -36,14 +41,31 @@ without selecting the ROM again.
   other classified triggers. Follow each event to its source actor to edit its
   placement. Event descriptions are read-only; this view covers the verified
   classifications, not a complete room-script inventory.
+- **Room authoring:** create a blank room, clone the current room into a new ID,
+  or choose **Make editable copy** to replace an existing room. Edit meshes,
+  vertex positions, triangle indices, UVs and RGBA colors. Apply mesh
+  translation, rotation and scale, or move a mesh, vertex or face with the
+  translation gizmo.
+- **Asset libraries:** browse actor prototypes, room geometry/components and
+  native sky imagery from your ROM. Inspect thumbnail status, then drag a card
+  into an authored room or use **Place at origin**. Choose actor loading,
+  named entrances and custom door destinations in the inspector.
+- **Collision and sky:** clones retain template physics until you choose
+  **Generate collision from geometry**. Blank rooms start with empty authored
+  collision. Choose inherited sky, no sky, or a native background. Preview
+  camera projection differs from native scrolling.
 - **Room translation:** move supported static visual geometry and collision
   together by an integer offset within the inspector's bounds. Rooms sharing
   a source receive the same translation. Actors, entrances and camera paths
-  retain their positions. Vertex deformation and topology editing remain future
-  work.
-- **Projects:** save sparse edits and the ROM identity in `.mnsgproj` files.
-  Reopen projects, undo or redo changes, and reset records against the imported
-  ROM. Projects contain no complete ROM.
+  retain their positions. Use an editable replacement for vertex or topology
+  changes.
+- **Projects:** save sparse edits, authored rooms and the ROM identity in
+  `.mnsgproj` files. Open version 1 projects through the version 2 migration,
+  undo or redo edits, revert an authored room to its saved state, or restore its
+  native source. Projects contain no complete ROM.
+
+Follow the [room-authoring guide](docs/room-authoring.md) for creation, geometry,
+collision, entrances and recovery controls.
 
 Read the actor inspector's preview status before treating a model as evidence
 of game behavior:
@@ -55,6 +77,11 @@ of game behavior:
 | Partial | Known parts from a path or material state the decoder cannot finish. An amber origin marker identifies the uncertainty. |
 | Unavailable | A placement marker and diagnostic details for an unresolved model. |
 | Nonvisual controller | A hollow placement marker for a verified controller without a primary mesh. |
+
+The actor library includes 361 candidate IDs: 74 supported, 168 conditional,
+11 nonvisual and 108 unresolved. The unresolved group includes seven partial
+previews. These counts describe bounded decoder results; they do not establish
+later gameplay behavior or export admission for each candidate.
 
 Some initial poses sit behind room surfaces. Geometry is visible by default.
 Turn **Geometry** off below the viewport to inspect those models; this view
@@ -71,9 +98,10 @@ Changing a payload word requires understanding that actor's native behavior.
 
 ## Viewport controls
 
-Click the viewport to focus it, then hold **W/A/S/D** to move the camera. Drag to
-orbit, right-drag to pan, and scroll to zoom. Camera movement leaves project
-data untouched.
+Click the viewport to focus it, then hold **W/A/S/D** to move the camera.
+Choose **Pan** or **Tilt** below the viewport: left-drag pans in Pan mode and
+orbits in Tilt mode. Right-drag pans in either mode. Scroll or middle-drag to
+zoom. Camera movement leaves project data untouched.
 
 | Control | Action |
 | --- | --- |
@@ -91,6 +119,13 @@ gizmo drag discards its preview. A normal drop commits one edit that you can und
 
 ## Export a mod
 
+Export sparse actor edits, supported room translations, authored replacements
+and new rooms as C/H source or an optional `.nrm`. Authored exports include
+geometry, collision, validated native actor dependencies, entrances, custom
+doors and sky selection. The exporter rejects unresolved or unsafe native
+contexts with a diagnostic. A saved project or preview does not establish
+gameplay correctness.
+
 **C/H export** creates a dedicated patch bundle with `mnsg_level_patch.c`,
 `mnsg_level_patch.h`, standalone build files and integration instructions.
 Copy the C/H pair into your compatible MNSG mod and retain your mod's manifest.
@@ -105,8 +140,7 @@ You need no compiler to generate these source files.
 - `RecompModTool` for packaging the linked mod.
 
 Choose **Configure toolchain** in the export dialog to select the template and
-any tools the editor cannot find. The exporter compiles your actor edits and
-supported room translations into a `.nrm` file. You install and test that file
+any tools the editor cannot find. The exporter compiles the validated project into a `.nrm` file. Install and test that file
 in Goemon64Recomp.
 
 Generated patches check native source bytes and geometry dependencies before
@@ -151,6 +185,9 @@ MNSG_TEST_ROM=/path/to/us-rom.z64 \
 MNSG_TEST_ROM=/path/to/us-rom.z64 \
   MNSG_TEST_TEMPLATE=/path/to/initialized/template npm run test:desktop
 
+MNSG_TEST_ROM=/path/to/us-rom.z64 \
+  MNSG_TEST_TEMPLATE=/path/to/initialized/template npm run test:authoring
+
 # Optional renderer fixture; requires an installed Google Chrome.
 MNSG_GPU_TEST=1 node --import tsx --test tests/editor-textures.test.ts
 ```
@@ -160,6 +197,11 @@ validation failures, textured rendering, actor model refresh, camera controls
 and source export. Set
 `MNSG_TEST_TEMPLATE` to include `.nrm` compilation. Build the app before running
 this smoke test.
+
+`npm run test:authoring` checks the authored-room editor workflow and requires
+C/H export by default. Set `MNSG_TEST_TEMPLATE` to include `.nrm` compile/link
+checks. `MNSG_SMOKE_UI_ONLY=1` selects an editor checkpoint that leaves export
+verification pending; it does not count as the full authoring check.
 
 ## Package and validation status
 
@@ -186,26 +228,33 @@ Developer ID release, override `mac.identity` with your certificate identity and
 configure notarization credentials in electron-builder. Windows distribution
 builds need code-signing credentials.
 
-| Platform | Current evidence |
-| --- | --- |
-| Apple Silicon macOS | Source and an ad hoc signed package passed native editor checks with a user-supplied ROM. The package passed textured-room and actor previews, selector refresh, Geometry visibility, WASD and unchanged project/cache checks. |
-| Intel macOS | The actor-preview revision passed public CI and ZIP packaging. Native runtime testing remains open. |
-| Windows x64 | The actor-preview revision passed public CI and NSIS packaging. Native runtime testing remains open. |
+Current 0.2.0 local validation passed:
 
-The frozen source passed typecheck and the production build. In the test suite,
-102 tests passed; five optional GPU/toolchain checks skipped. Native desktop
-smoke passed with the ROM. That run generated no `.nrm` and launched no
-Goemon64Recomp game.
+- Typecheck, the test suite with the supported US ROM and native LLVM/NRM
+  template, and the production build.
+- All 25 GPU authoring and texture checks.
+- macOS ARM64 DMG and ZIP packaging, followed by strict code-signature
+  verification of the signed app.
+- A visible packaged-app smoke check using an isolated ROM cache: four textured
+  rooms, native body and door-selector previews, WASD and unchanged cache data.
+- C/H generation, MIPS compilation, linking and `.nrm` packaging for a House 465
+  replacement with eight native actors and a new room 620 containing a coin,
+  copied native BSP and reciprocal A-button checker doors.
 
-The actor-preview revision passed all three CI build targets. The local macOS
-ARM64 package passed `codesign --verify --deep --strict` and a visible-window
-smoke test with an isolated copy of the ROM cache. That test covered four
-textured rooms, conditional native body parts and distinct door-selector assets.
-It left the existing ROM cache unchanged. The installed app passed signature
-verification and restored the cached ROM on a normal launch, including the
-textured house and native actor previews. Build current source or download the
-desktop workflow artifacts for actor previews; consult the workflow for each
-revision's status.
+The desktop authoring smoke passed 18 milestones, including mesh transforms,
+UV/RGBA and topology, native thumbnail drag/drop, collision, reciprocal doors,
+sky, reset/history, save/reopen and hostile IPC rejection. It confirmed export
+diagnostics for camera actor 0x308 and progression controller 0x34E in a full
+House 465 clone into room 621. After removing each through the inspector while
+preserving the remaining graph, the smoke generated C/H and compiled `.nrm`.
+It recorded no page/console errors or renderer/child crashes, and left the ROM
+unchanged. Export reports these unresolved actors rather than dropping them.
+
+The installed 0.2.0 app passed strict signature verification and a normal visible
+launch with its cached ROM: 383 rooms, the textured House and Pan mode across
+room changes. The cache hash remained unchanged. Consult the linked desktop
+workflow for each revision's macOS ARM64, macOS x64 and Windows x64 build results.
+Intel macOS and Windows runtime checks remain open.
 
 Compile, link, package and editor checks do not establish in-game collision,
 reload behavior or compatibility with other mods. Test the affected rooms and
@@ -216,7 +265,7 @@ their shared sources in Goemon64Recomp before releasing an export.
 | Directory | Contents |
 | --- | --- |
 | `core/rom/` | ROM identification, decompression, native records, geometry/textures and bounded actor initializer/model decoding. |
-| `core/project.ts` | Project schema and native edit validation. |
+| `core/project.ts`, `core/authoring/` | Project migration, authored-room validation, ROM libraries and collision compilation. |
 | `core/export/` | Patch generation and the optional `.nrm` toolchain. |
 | `electron/` | Sandboxed IPC, file dialogs, ROM cache and atomic project writes. |
 | `app/`, `components/` | Once UI workspace and Three.js viewport. |

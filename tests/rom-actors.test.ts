@@ -100,11 +100,12 @@ import {readFileSync} from "node:fs";
 import {createHash} from "node:crypto";
 import {importRomBytes} from "../core/rom";
 import {actorTextureColorVariant,actorTextureProductVariant,actorPrimitiveAlphaTexture,nativeCombinerClamp} from "../core/rom/actors-colors";
-import {readNativeActorMemory} from "../core/rom/actors-memory";
+import {readNativeActorMemory,graphicsActorMemory,type NativeActorMemorySpan} from "../core/rom/actors-memory";
 import {ActorVisuals} from "../core/rom/actors";
 import {RomReader} from "../core/rom/binary";
-import type {RenderWaves} from "../core/rom/waves";
-import type {NativeActorBinding} from "../core/rom/actor-init";
+import {RenderWaves} from "../core/rom/waves";
+import {ActorInitializer,type NativeActorBinding} from "../core/rom/actor-init";
+import {readFileTable} from "../core/rom/decompress";
 import type {ActorModel} from "../shared/types";
 test("readonly native resource aliases participate in asset cache identity",()=>{
   const f=graphFixture();let at=0x200;const command=(a:number,b=0)=>{f.v.setUint32(at,a);f.v.setUint32(at+4,b);at+=8;};
@@ -126,6 +127,29 @@ test("private native material snapshots overlay partial commands and adjacent sp
   assert.deepEqual([...readNativeActorMemory(base,0x81000000,4,adjacent)],[1,2,3,4]);
   assert.deepEqual([...readNativeActorMemory(base,0x80001000,8,[{address:0x80001000,bytes:canonical},red])],[0xfa,0,0,0,255,0,0,255]);
   assert.throws(()=>readNativeActorMemory(base,0x81000000,5,adjacent),/Unmapped/);assert.deepEqual([...canonical],[0xfa,0,0,0,255,255,255,255]);
+});
+test("CPU overlay memory cannot shadow another RSP file and matching physical-file mappings retain private writes",()=>{
+  const spans=[{address:0x08000e70,bytes:Uint8Array.from([1,2]),codeFile:24},{address:0x81000000,bytes:Uint8Array.from([3,4])}];
+  const other=graphicsActorMemory(spans,[{segment:8,fileId:450,offset:0}]);assert.deepEqual(other,[spans[1]]);
+  const same=graphicsActorMemory(spans,[{segment:9,fileId:24,offset:0x100}]);assert.equal(same[0].address,0x09000d70);assert.deepEqual([...same[0].bytes],[1,2]);
+  const suffix=graphicsActorMemory([{address:0x08000e70,bytes:Uint8Array.from({length:256},(_,i)=>i),codeFile:24}],[{segment:9,fileId:24,offset:0xf00}]);assert.equal(suffix[0].address,0x09000000);assert.equal(suffix[0].bytes.length,112);assert.equal(suffix[0].bytes[0],144);
+  const canonical=()=>Uint8Array.from([7,8]);assert.deepEqual([...readNativeActorMemory(canonical,0x08000e70,2,other)],[7,8]);assert.deepEqual([...readNativeActorMemory(canonical,0x09000d70,2,same)],[1,2]);
+  assert.equal(graphicsActorMemory([{address:0x08000e70,bytes:Uint8Array.from([1,2])}],[{segment:8,fileId:450,offset:0}]).length,0);
+});
+
+test("actual overlay24 BSS stays CPU-only while287 copied private material remains readable",{skip:!process.env.MNSG_TEST_ROM},()=>{
+  const rom=importRomBytes(readFileSync(process.env.MNSG_TEST_ROM!)),reader=new RomReader(rom.bytes),files=new Map(readFileTable(rom.bytes).map(f=>[f.id,f]));
+  const segment=(id:number)=>{for(let at=0x55510;at<0x55910;at+=4)if(id<reader.u16(at))return reader.bytes[at+3];throw Error("No native resource segment");},waves=new RenderWaves(reader,files,segment),initializer=new ActorInitializer(reader,files,waves),service=new ActorVisuals(reader,files,waves);
+  const read=(service as unknown as {read:(binding:NativeActorBinding,address:number,size:number,synthetic:NativeActorMemorySpan[],readonly:[])=>Uint8Array}).read.bind(service),zero={x:0,y:0,z:0};
+  const result=initializer.resolve({actorId:0x134,parameters:[0,0,0],position:zero,rotation:zero,roomId:0}),binding=result.bindings[0];assert.ok(binding);assert.equal(binding.segments.find(s=>s.segment===8)?.fileId,450);
+  assert.ok(result.syntheticMemory.some(s=>s.address===0x08000e70&&s.codeFile===24));
+  const expected=waves.wave(450).subarray(0xe70,0xe80);assert.notDeepEqual([...expected],Array(16).fill(0));assert.deepEqual(read(binding,0x08000e70,16,result.syntheticMemory,[]),expected);
+  const placement=rom.loadRoom(341).actors.find(actor=>actor.actorId===0x287)!;
+  const dragon=initializer.resolve({actorId:0x287,parameters:placement.parameters,position:placement.position,rotation:placement.rotation,roomId:341}),body=dragon.bindings.find(binding=>binding.identity!==1)!;assert.ok(body);
+  const material=(body.materialPointer&0x8fffffff)>>>0,span=dragon.syntheticMemory.find(s=>material>=s.address&&material+8<=s.address+s.bytes.length)!;assert.ok(span);assert.ok(material>=0x81000000);
+  assert.deepEqual(read(body,material,8,dragon.syntheticMemory,[]),span.bytes.subarray(material-span.address,material-span.address+8));assert.ok(dragon.syntheticMemory.some(s=>s.address===0x08003f30&&s.codeFile===56));
+  const words=new DataView(span.bytes.buffer,span.bytes.byteOffset,span.bytes.length),tags=Array.from({length:span.bytes.length/8},(_,index)=>words.getUint32(index*8)>>>24);assert.ok(tags.includes(0xfa)&&tags.includes(0xfd));
+  const asset=(service as unknown as {asset:(binding:NativeActorBinding,synthetic:NativeActorMemorySpan[],readonly:typeof dragon.readonlyMemory)=>ActorModel}).asset.call(service,body,dragon.syntheticMemory,dragon.readonlyMemory);assert.ok(asset.meshes.length);assert.ok(asset.textures.length);
 });
 test("native actor environment color variants preserve source alpha and signed combiner wrap",()=>{
   const source={id:"fixture",format:"RGBA32",width:2,height:1,rgbaBase64:Buffer.from([64,128,192,17,255,0,0,201]).toString("base64")};

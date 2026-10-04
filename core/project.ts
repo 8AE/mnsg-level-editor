@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type { ActorOverride, EditorProject, RomIdentity, RoomData, RoomOverride, Vec3 } from "../shared/types";
+import type { ActorOverride, EditorProjectV2, RomIdentity, RoomData, RoomOverride, Vec3 } from "../shared/types";
 import { nativePartitionCell } from "./rom/partition";
 import type { GeometryTranslation } from "./rom/translation";
+import { validateAuthoredRooms, type AuthoringLookup } from "./authoring/project";
+import { assertProjectBytes } from "./authoring/limits";
 export type GeometryTranslationLookup = (roomId:number,translation:Vec3)=>GeometryTranslation;
 
 function object(input: unknown, label: string): Record<string, unknown> {
@@ -25,19 +27,25 @@ function vector(input: unknown, label: string,min=-32768,max=32767): Vec3 {
   return { x: integer(v.x, min, max, `${label}.x`), y: integer(v.y, min, max, `${label}.y`), z: integer(v.z, min, max, `${label}.z`) };
 }
 
-export function createProject(name: string, rom: RomIdentity): EditorProject {
+export function createProject(name: string, rom: RomIdentity): EditorProjectV2 {
   const now = new Date().toISOString();
-  return { format: "mnsg-level-project", version: 1, id: randomUUID(), name: text(name, 120, "Project name"),
-    createdAt: now, updatedAt: now, rom: structuredClone(rom), roomOverrides: {} };
+  return { format: "mnsg-level-project", version: 2, id: randomUUID(), name: text(name, 120, "Project name"),
+    createdAt: now, updatedAt: now, rom: structuredClone(rom), roomOverrides: {}, authoredRooms: {} };
 }
 
 /** Validates sparse edits against current ROM records, with no project-controlled pointers. */
-export function validateProject(input: unknown, rom: RomIdentity, loadRoom: (id: number) => RoomData,getTranslation?:GeometryTranslationLookup): EditorProject {
+export function validateProject(input: unknown, rom: RomIdentity, loadRoom: (id: number) => RoomData,getTranslation?:GeometryTranslationLookup,authoring?:AuthoringLookup): EditorProjectV2 {
+  assertProjectBytes(input);
   const value = object(input, "Project");
-  keys(value, ["format", "version", "id", "name", "createdAt", "updatedAt", "rom", "roomOverrides"], "Project");
-  if (value.format !== "mnsg-level-project" || value.version !== 1) throw new Error("Unsupported project format/version.");
+  if (value.format !== "mnsg-level-project" || (value.version !== 1 && value.version !== 2)) throw new Error("Unsupported project format/version.");
+  keys(value, ["format", "version", "id", "name", "createdAt", "updatedAt", "rom", "roomOverrides", ...(value.version === 2 ? ["authoredRooms"] : [])], "Project");
   const projectRom = object(value.rom, "Project ROM");
+  keys(projectRom, ["sha256", "normalizedSha256", "title", "gameCode", "region", "byteLength", "decompressed"], "Project ROM");
   if (projectRom.normalizedSha256 !== rom.normalizedSha256) throw new Error("Project requires a different ROM checksum.");
+  if (typeof projectRom.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(projectRom.sha256) || projectRom.region !== "US" || typeof projectRom.decompressed !== "boolean") throw new Error("Project ROM identity is invalid.");
+  integer(projectRom.byteLength, 1, 128 * 1024 * 1024, "Project ROM byte length");
+  text(projectRom.title, 128, "Project ROM title"); text(projectRom.gameCode, 16, "Project ROM game code");
+  if (authoring && authoring.catalog.romHash !== rom.normalizedSha256) throw new Error("Authoring catalog belongs to a different ROM checksum.");
   const id = text(value.id, 128, "Project ID"), name = text(value.name, 120, "Project name");
   const timestamp = (v: unknown) => {
     const s = text(v, 64, "Project timestamp");
@@ -145,5 +153,10 @@ export function validateProject(input: unknown, rom: RomIdentity, loadRoom: (id:
     }
     roomOverrides[roomKey] = validated;
   }
-  return { format: "mnsg-level-project", version: 1, id, name, createdAt, updatedAt, rom: structuredClone(rom), roomOverrides };
+  const authoredRooms = validateAuthoredRooms(value.version === 1 ? {} : value.authoredRooms, authoring, getTranslation);
+  if (Object.keys(roomOverrides).length + Object.keys(authoredRooms).length > 800) throw new Error("Project contains too many combined room records.");
+  for (const key of Object.keys(authoredRooms)) if (Object.hasOwn(roomOverrides, key)) throw new Error("A full authored room cannot also contain sparse overrides; convert the edits explicitly.");
+  const result: EditorProjectV2 = { format: "mnsg-level-project", version: 2, id, name, createdAt, updatedAt, rom: structuredClone(projectRom) as unknown as RomIdentity, roomOverrides, authoredRooms };
+  assertProjectBytes(result);
+  return result;
 }

@@ -45,9 +45,12 @@ export interface EventData {
 }
 export interface GeometryMesh {
   id: string;
+  /** Stable ROM-backed material library ID; never a native pointer. */
+  materialId?: string;
   positions: number[];
   indices: number[];
   colors?: number[];
+  colorItemSize?: 3 | 4;
   uvs?: number[];
   normals?: number[];
   material?: {
@@ -143,7 +146,7 @@ export interface RoomOverride {
   events: Record<string, EventOverride>;
   geometry?: { translation: Vec3 };
 }
-export interface EditorProject {
+export interface LegacyEditorProject {
   format: "mnsg-level-project";
   version: 1;
   id: string;
@@ -152,6 +155,159 @@ export interface EditorProject {
   updatedAt: string;
   rom: RomIdentity;
   roomOverrides: Record<string, RoomOverride>;
+}
+export type NativeActorParameters = [number, number, number];
+export interface AuthoredVertex {
+  position: Vec3;
+  /** Normalized texture coordinates, including tiling outside 0..1. */
+  uv: [number, number];
+  color: [number, number, number, number];
+}
+export interface AuthoredMesh {
+  id: string;
+  vertices: AuthoredVertex[];
+  indices: number[];
+  materialId: string;
+  sourceAssetId?: string;
+}
+export interface AuthoredMaterial { id: string; sourceMaterialId: string }
+export interface AuthoredCollisionTriangle {
+  id: string;
+  vertices: [Vec3, Vec3, Vec3];
+  /** Opaque native plane-side classifier, not a named gameplay material. */
+  classifier: number;
+  /** Opaque native cell/surface value. */
+  surface: number;
+  surfaceId?: string;
+  sourceMeshId?: string;
+}
+export interface AuthoredActor {
+  id: string;
+  prototypeId: string;
+  position: Vec3;
+  rotation: Vec3;
+  parameters: NativeActorParameters;
+  /** Resident list or distance-grid spawning; omitted uses the prototype default. */
+  spawnPolicy?: "resident" | "proximity";
+}
+export interface AuthoredDoor {
+  id: string;
+  position: Vec3;
+  rotation: Vec3;
+  dimensions: Vec3;
+  activation: "interact" | "touch";
+  appearancePrototypeId?: string;
+  destination: { roomId: number; entranceId: string };
+}
+export interface AuthoredEntrance {
+  id: string;
+  name: string;
+  position: Vec3;
+  /** Native body heading and camera baseline, in 1024 units per turn. */
+  baseYaw: number;
+  /** Native startup-behavior index and three direction bits, not Euler yaw. */
+  entryParameter: number;
+}
+export interface AuthoredRoom {
+  id: number;
+  name: string;
+  kind: "replacement" | "new";
+  /** Verified vanilla donor for native room staging/service metadata. */
+  templateRoomId: number;
+  meshes: AuthoredMesh[];
+  materials: AuthoredMaterial[];
+  /** Template keeps the donor's exact native BSP; authored uses explicit triangles. */
+  collisionMode: "template" | "authored";
+  /** Private donor BSP translation, allowed only with template collision. */
+  collisionTranslation?: Vec3;
+  collision: AuthoredCollisionTriangle[];
+  actors: AuthoredActor[];
+  doors: AuthoredDoor[];
+  entrances: AuthoredEntrance[];
+  /** Undefined inherits the donor background; null explicitly removes it. */
+  skyboxId?: string | null;
+}
+export interface EditorProjectV2 extends Omit<LegacyEditorProject, "version"> {
+  version: 2;
+  authoredRooms: Record<string, AuthoredRoom>;
+}
+/** Disk input supports V1; create/open/save canonicalize to V2. */
+export type EditorProject = LegacyEditorProject | EditorProjectV2;
+export interface ActorCatalogEntry {
+  actorId: number;
+  name: string;
+  prototypeIds: string[];
+  warnings: string[];
+}
+export interface ActorPrototype {
+  id: string;
+  actorId: number;
+  name: string;
+  parameters: NativeActorParameters;
+  unknownHalfword: number;
+  sourceRoomId?: number;
+  sourceActorRef?: string;
+  /** Canonical exemplar policy; individual authored placements may differ. */
+  sourceKind?: "resident" | "normal" | "partition";
+  resourceFileIds: number[];
+  warnings: string[];
+}
+export interface GeometryAssetEntry {
+  id: string;
+  name: string;
+  roomIds: number[];
+  meshCount: number;
+  vertexCount: number;
+  triangleCount: number;
+  warnings: string[];
+}
+export interface MaterialAssetEntry {
+  id: string;
+  name: string;
+  material: NonNullable<GeometryMesh["material"]>;
+  textureIds: string[];
+}
+export interface CollisionSurfaceEntry { id: string; classifier: number; surface: number }
+export interface NativeEntranceEntry extends AuthoredEntrance { roomId: number }
+export interface SkyboxAssetEntry { id: string; name: string; nativeIndex: number; fileId: number; warnings: string[] }
+export interface AuthoringCatalog {
+  romHash: string;
+  actors: ActorCatalogEntry[];
+  actorPrototypes: ActorPrototype[];
+  geometry: GeometryAssetEntry[];
+  materials: MaterialAssetEntry[];
+  surfaces: CollisionSurfaceEntry[];
+  nativeEntrances: NativeEntranceEntry[];
+  skyboxes: SkyboxAssetEntry[];
+  roomAdmission: { minId: 620; maxId: 799; supported: boolean; reason?: string };
+}
+export interface GeometryAssetPayload {
+  id: string;
+  meshes: GeometryMesh[];
+  textures: GeometryTexture[];
+  vertexRefs: string[][];
+  vertexSources: { id: string; position: Vec3; source: SourceRecord }[];
+  collision: AuthoredCollisionTriangle[];
+  warnings: string[];
+}
+/** Native scrolling background texture; not a cubemap or a simulated game sky. */
+export interface SkyboxAssetPayload { id: string; texture: GeometryTexture; warnings: string[]; projection?: "native-scroll" }
+export interface ActorPrototypeEdits { parameters?: NativeActorParameters; position?: Vec3; rotation?: Vec3 }
+export interface ProjectSceneActor extends Omit<ActorData, "source"> { source?: SourceRecord; prototypeId?: string }
+export interface ProjectSceneEvent extends Omit<EventData, "source"> { source?: SourceRecord }
+export interface ProjectRoomScene extends Omit<RoomData, "source" | "actors" | "events"> {
+  kind: "native" | "replacement" | "new";
+  source?: SourceRecord;
+  actors: ProjectSceneActor[];
+  events: ProjectSceneEvent[];
+  authoredMeshes: AuthoredMesh[];
+  collisionMode: "template" | "authored";
+  /** Effective native alias translation, or the authored donor BSP delta. */
+  collisionTranslation?: Vec3;
+  collision: AuthoredCollisionTriangle[];
+  doors: AuthoredDoor[];
+  entrances: AuthoredEntrance[];
+  skybox?: SkyboxAssetPayload;
 }
 export interface ToolchainStatus {
   configured: boolean;
@@ -169,10 +325,13 @@ export interface AppStatus {
   toolchain: ToolchainStatus;
   warnings: string[];
 }
-export interface ProjectSaveResult { project: EditorProject; fileName: string }
+export interface ProjectSaveResult { project: EditorProjectV2; fileName: string }
 export interface ExportResult {
   kind: "patch" | "nrm";
   fileNames: string[];
+  outputPaths?: string[];
+  roomIds?: number[];
+  changes?: string[];
   warnings: string[];
   buildLog?: string;
 }
@@ -182,8 +341,15 @@ export interface AppApi {
   listRooms(): Promise<RoomSummary[]>;
   loadRoom(roomId: number): Promise<RoomData>;
   loadActorVisuals(roomId:number,actorOverrides:Record<string,ActorOverride>):Promise<ActorVisualPayload>;
-  newProject(name: string): Promise<EditorProject>;
-  openProject(): Promise<EditorProject | null>;
+  getAuthoringCatalog(): Promise<AuthoringCatalog>;
+  loadGeometryAsset(assetId: string): Promise<GeometryAssetPayload>;
+  loadActorPrototype(prototypeId: string, edits?: ActorPrototypeEdits): Promise<ActorVisualPayload>;
+  loadSkyboxAsset(assetId: string): Promise<SkyboxAssetPayload>;
+  listProjectRooms(project: EditorProject): Promise<RoomSummary[]>;
+  loadProjectRoom(project: EditorProject, roomId: number): Promise<ProjectRoomScene>;
+  loadProjectActorVisuals(project: EditorProject, roomId: number): Promise<ActorVisualPayload>;
+  newProject(name: string): Promise<EditorProjectV2>;
+  openProject(): Promise<EditorProjectV2 | null>;
   saveProject(project: EditorProject): Promise<ProjectSaveResult | null>;
   exportPatch(project: EditorProject): Promise<ExportResult | null>;
   exportNrm(project: EditorProject): Promise<ExportResult | null>;

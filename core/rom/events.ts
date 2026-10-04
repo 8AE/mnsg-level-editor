@@ -1,7 +1,7 @@
 import type { ActorData, EventData } from "../../shared/types";
 
 /** Native call paths verified in Ghidra; this is deliberately a partial catalog. */
-export function actorEvent(actor: ActorData): EventData | undefined {
+export function actorEventDetails(actor:Pick<ActorData,"actorId"|"parameters">):{name:string;kind:string}|undefined {
   let name: string, kind: string;
   switch (actor.actorId) {
     case 0x226: {
@@ -19,7 +19,7 @@ export function actorEvent(actor: ActorData): EventData | undefined {
       if (actor.actorId === 0x23c && subtype > 1) return undefined;
       if (actor.actorId === 0x242 && (subtype > 11 || (actor.parameters[0] & 255) === 1)) return undefined;
       if (actor.actorId === 0x23f && subtype > 4) return undefined;
-      name = `Travel door · destination room 0x${(actor.parameters[2] >>> 16).toString(16).toUpperCase()}`;
+      name = `Travel door · selector 0x${(actor.parameters[2] >>> 16).toString(16).toUpperCase()}`;
       kind = "room-transition"; break;
     }
     case 0x34a:
@@ -40,7 +40,13 @@ export function actorEvent(actor: ActorData): EventData | undefined {
       name = "Silver Doll container · hit/contact, save flag 0xEE / temporary flag 2"; kind = "hit-trigger"; break;
     default: return undefined;
   }
-  if (!actor.definitionSource) return undefined;
+  return {name,kind};
+}
+
+export function actorEvent(actor:ActorData):EventData|undefined {
+  const details=actorEventDetails(actor);
+  if(!details||!actor.definitionSource)return undefined;
+  const {name,kind}=details;
   return { id: `event:${actor.id}`, actorRef: actor.id, index: actor.index, name, kind,
     position: { ...actor.position }, values: [...actor.parameters], source: { ...actor.definitionSource }, editable: false };
 }

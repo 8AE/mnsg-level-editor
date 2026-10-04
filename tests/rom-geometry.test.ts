@@ -49,7 +49,8 @@ test("event classification preserves native barrier subtype exclusions", () => {
   actor.actorId=0x242;actor.parameters=[0x01000001,0,0x00300000];
   assert.equal(actorEvent(actor),undefined);
   actor.parameters[0]=0x01000000;
-  assert.match(actorEvent(actor)!.name,/destination room 0x30/);
+  assert.match(actorEvent(actor)!.name,/selector 0x30/);
+  assert.doesNotMatch(actorEvent(actor)!.name,/destination room/);
   actor.actorId=0x226;actor.parameters=[0x00a40000,0x01000000,0];
   assert.match(actorEvent(actor)!.name,/save flag 0xA4/);
   actor.parameters[1]=0x02000000;

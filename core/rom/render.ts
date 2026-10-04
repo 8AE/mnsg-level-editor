@@ -6,12 +6,12 @@ import {NativeTextureMemory,textureCoordinate,type TextureTile} from "./textures
 import {RenderWaves} from "./waves";
 import {actorTextureColorVariant,actorTextureProductVariant,actorPrimitiveAlphaTexture,nativeCombinerClamp,type ActorTextureColor} from "./actors-colors";
 
-interface RenderVertex {position:number[];uv:number[];color:number[];normal:number[];lighting:boolean;texgen:boolean;loadRoot:number}
+interface RenderVertex {position:number[];uv:number[];color:number[];normal:number[];lighting:boolean;texgen:boolean;loadRoot:number;sourceAddress:number}
 export interface RenderCoverage {triangles:number;textured:number;untextured:number;unsupported:number;formats:Record<string,number>}
-export interface RenderedRoom {meshes:GeometryMesh[];textures:GeometryTexture[];warnings:string[];coverage:RenderCoverage;complete:boolean}
+export interface RenderedRoom {meshes:GeometryMesh[];textures:GeometryTexture[];warnings:string[];coverage:RenderCoverage;complete:boolean;vertexAddresses?:number[][];materialCommands?:number[][][];materialStates?:RenderTriangleState[]}
 export interface ModelDisplayRoot {displayList:number;material?:number;label?:string;matrix?:number[];preserveVertexCache?:boolean}
 export interface RenderTriangleState {combine0:number;combine1:number;otherH:number;otherL:number;tile:number;tiles:TextureTile[]}
-export interface ModelRenderOptions {inheritedTextureFallback?:boolean}
+export interface ModelRenderOptions {inheritedTextureFallback?:boolean;vertexProvenance?:boolean;materialProvenance?:boolean}
 interface Combiner {texture:boolean;shade:boolean;primitive:boolean;alphaPrimitive:boolean;alphaEnvironment?:boolean;environment?:"constant-add"|"shade-add"|ActorTextureColor;cycle?:number;environmentAfterShade?:boolean;secondTexture?:boolean}
 const COMBINERS:Record<string,Combiner>={
   "fc127e24:fffff3f9":{texture:true,shade:true,primitive:false,alphaPrimitive:false},
@@ -37,6 +37,9 @@ const COMBINERS:Record<string,Combiner>={
 /** Read-only presentation parser; structural translation proof never consumes this state. */
 export function renderModelLists(read:(address:number,size:number)=>Uint8Array,roots:ModelDisplayRoot[],roomId=0,onTriangle?:(loadRoots:number[],drawRoot:number,state:RenderTriangleState)=>void,options:ModelRenderOptions={}):RenderedRoom {
   const result:RenderedRoom={meshes:[],textures:[],warnings:[],coverage:{triangles:0,textured:0,untextured:0,unsupported:0,formats:{}},complete:true};
+  if(options.vertexProvenance)result.vertexAddresses=[];
+  if(options.materialProvenance){result.materialCommands=[];result.materialStates=[];}
+  const stateCommands:number[][]=[];
   const warnings=new Set<string>(),images=new Map<string,GeometryTexture>(),textureCache=new Map<string,GeometryTexture|Error>(),variants=new Map<string,GeometryTexture>(),failedProducts=new Set<string>();
   const memory=new NativeTextureMemory(read);
   let mode=0,otherH=0,otherL=0,tile=0,textureOn=false,scaleS=1,scaleT=1,primitive=[1,1,1,1],environment=[0,0,0,1],blendAlpha=0;
@@ -97,8 +100,10 @@ export function renderModelLists(read:(address:number,size:number)=>Uint8Array,r
     const key=JSON.stringify([material,combine0,combine1,primitive,environment]);
     let mesh=result.meshes[result.meshes.length-1];
     if(key!==currentKey||!mesh){if(result.meshes.length>=1024)throw new Error("Room material batch budget exceeded.");currentKey=key;mesh={id:`${rootLabel}:${roomId}:${result.meshes.length}`,source:"display-list",positions:[],indices:[],material,
-      uvs:texture?[]:undefined,colors:material.vertexColors?[]:undefined,normals:lighting?[]:undefined};result.meshes.push(mesh);}
+      uvs:texture?[]:undefined,colors:material.vertexColors?[]:undefined,normals:lighting?[]:undefined};result.meshes.push(mesh);result.vertexAddresses?.push([]);
+      result.materialCommands?.push(stateCommands.map(command=>[...command]));result.materialStates?.push(structuredClone({combine0,combine1,otherH,otherL,tile,tiles:memory.tiles}));}
     for(const vertex of rows){mesh.indices.push(mesh.positions.length/3);mesh.positions.push(...vertex.position);
+      result.vertexAddresses?.[result.meshes.length-1].push(vertex.sourceAddress);
       if(mesh.uvs&&texture)mesh.uvs.push(textureCoordinate(vertex.uv[0],descriptor.shifts,descriptor.uls,texture.width,filter),textureCoordinate(vertex.uv[1],descriptor.shiftt,descriptor.ult,texture.height,filter));
       mesh.colors?.push(...(combiner?.environment==="shade-add"?vertex.color.map((shade,i)=>nativeCombinerClamp(primitive[i]*shade+environment[i])):vertex.color));mesh.normals?.push(...vertex.normal);}
     if(texture){result.coverage.textured++;result.coverage.formats[texture.format]=(result.coverage.formats[texture.format]??0)+1;}else result.coverage.untextured++;
@@ -107,13 +112,14 @@ export function renderModelLists(read:(address:number,size:number)=>Uint8Array,r
   const run=(pointer:number,depth:number)=>{
     if(!pointer)return;if(depth>64||active.has(pointer))throw new Error("Material display-list cycle or depth limit.");active.add(pointer);
     try{for(let offset=0;offset<1024*1024;offset+=8){if(++commands>200000)throw new Error("Room material command budget exceeded.");const bytes=resolve(pointer+offset,8),view=new DataView(bytes.buffer,bytes.byteOffset,8),w0=view.getUint32(0),w1=view.getUint32(4),op=w0>>>24;
+      if(options.materialProvenance&&![0x04,0x06,0xb8,0xbf,0xb1].includes(op)){if(stateCommands.length>=32768)throw new Error("Material provenance command budget exceeded.");stateCommands.push([w0,w1]);}
       if(op===0xb8)return;
       if(op===0x06){run(w1,depth+1);if(((w0>>>16)&255)===1)return;}
       else if(op===0x04){const count=(w0>>>10)&63,first=((w0>>>16)&255)/2;if(!count||!Number.isInteger(first)||first+count>64)throw new Error("Invalid render vertex range.");const data=resolve(w1,count*16),dv=new DataView(data.buffer,data.byteOffset,data.length);
         for(let i=0;i<count;i++){const at=i*16,lighting=(mode&0x20000)!==0;const signed=(n:number)=>n>=128?n-256:n;
           const p=[dv.getInt16(at),dv.getInt16(at+2),dv.getInt16(at+4)],m=rootMatrix;
           const position=m?[m[0]*p[0]+m[4]*p[1]+m[8]*p[2]+m[12],m[1]*p[0]+m[5]*p[1]+m[9]*p[2]+m[13],m[2]*p[0]+m[6]*p[1]+m[10]*p[2]+m[14]]:p;
-          vertexCache.set(first+i,{position,uv:[dv.getInt16(at+8)/32*scaleS,dv.getInt16(at+10)/32*scaleT],loadRoot:drawRoot,
+          vertexCache.set(first+i,{position,uv:[dv.getInt16(at+8)/32*scaleS,dv.getInt16(at+10)/32*scaleT],loadRoot:drawRoot,sourceAddress:w1+at,
             color:[data[at+12]/255,data[at+13]/255,data[at+14]/255],normal:[signed(data[at+12])/127,signed(data[at+13])/127,signed(data[at+14])/127],lighting,texgen:(mode&0xc0000)!==0});}}
       else if(op===0xbf)triangle([((w1>>>16)&255)/2,((w1>>>8)&255)/2,(w1&255)/2]);
       else if(op===0xb1){triangle([((w0>>>16)&255)/2,((w0>>>8)&255)/2,(w0&255)/2]);triangle([((w1>>>16)&255)/2,((w1>>>8)&255)/2,(w1&255)/2]);}
@@ -140,7 +146,7 @@ export function renderModelLists(read:(address:number,size:number)=>Uint8Array,r
 }
 
 /** Native room wrapper retains exactly the original resource and root order. */
-export function renderRoom(r:RomReader,roomId:number,files:Map<number,RomFile>,segment:(id:number)=>number,waves:RenderWaves):RenderedRoom {
+export function renderRoom(r:RomReader,roomId:number,files:Map<number,RomFile>,segment:(id:number)=>number,waves:RenderWaves,options:ModelRenderOptions={}):RenderedRoom {
   const location=graphicsLocation(r,roomId);
   if(!location)return {meshes:[],textures:[],warnings:[],coverage:{triangles:0,textured:0,untextured:0,unsupported:0,formats:{}},complete:true};
   const segments=new Map<number,number>();for(const field of [8,12,16]){const id=r.u32(location.record+field)&0xffff;if(id&&files.has(id))segments.set(segment(id),id);}
@@ -150,5 +156,5 @@ export function renderRoom(r:RomReader,roomId:number,files:Map<number,RomFile>,s
   };
   const secondary=geometryAuxiliaryRecord(r,0x5c5804,location.group,location.index,8);
   const roots=[location.record,secondary].map(record=>({displayList:(r.u32(record)&0x8ffffffe)>>>0,material:(r.u32(record+4)&0xbfffffff)>>>0,label:record===secondary?"secondary":"render"}));
-  return renderModelLists(read,roots,roomId);
+  return renderModelLists(read,roots,roomId,undefined,options);
 }

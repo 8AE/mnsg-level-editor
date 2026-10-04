@@ -2,9 +2,12 @@ import { app, BrowserWindow, dialog, ipcMain, protocol, session, type IpcMainInv
 import { createHash } from "node:crypto";
 import { readFile, stat, mkdir } from "node:fs/promises";
 import { basename, extname, join, resolve, sep } from "node:path";
-import type { AppStatus, EditorProject, RomIdentity } from "../shared/types";
+import type { AppStatus, EditorProjectV2, RomIdentity } from "../shared/types";
 import { importRomBytes, type ImportedRom } from "../core/rom";
 import { createProject, validateProject } from "../core/project";
+import { type AuthoringLookup, resourceId, validatePrototypeEdits } from "../core/authoring/project";
+import { assertProjectBytes, MAX_PROJECT_BYTES } from "../core/authoring/limits";
+import { assertDecodedBudget, composeProjectActorVisuals, composeProjectRoom, listProjectRooms } from "../core/authoring/scene";
 import { generatePatch, exportNrm, inspectToolchain, type ToolchainConfig } from "../core/export";
 import { atomicWrite, readJson } from "./storage";
 
@@ -14,17 +17,49 @@ const devUrl = !app.isPackaged && process.env.MNSG_DEV_URL === "http://127.0.0.1
 let window: BrowserWindow | null = null;
 let database: ImportedRom | null = null;
 let romIdentity: RomIdentity | null = null;
-let project: EditorProject | null = null;
+let project: EditorProjectV2 | null = null;
 let projectPath: string | null = null;
 let toolchain: ToolchainConfig | undefined;
 let busy = false;
 const startupWarnings: string[] = [];
 const dataPath = (...parts: string[]) => join(app.getPath("userData"), ...parts);
 const requireDatabase = () => { if (!database || !romIdentity) throw new Error("Import your US MNSG ROM first."); return database; };
-const validate = (value: unknown) => {
+let authoringCache: { db: ImportedRom; lookup: AuthoringLookup } | undefined;
+function authoringLookup(): AuthoringLookup {
   const db = requireDatabase();
-  return validateProject(value, romIdentity!, db.loadRoom.bind(db), db.geometryTranslation.bind(db));
+  if (authoringCache?.db === db) return authoringCache.lookup;
+  const lookup: AuthoringLookup = { catalog: db.getAuthoringCatalog(), nativeRooms: db.listRooms(), loadRoom: db.loadAuthoringRoom.bind(db), resolveMaterial: db.resolveAuthoringMaterial.bind(db), loadActorPrototype: db.loadActorPrototype.bind(db), loadActorPrototypeForRoom: db.loadActorPrototypeForRoom.bind(db), loadSkyboxAsset: db.loadSkyboxAsset.bind(db), nativeRoomSkyboxId: db.nativeRoomSkyboxId.bind(db) };
+  authoringCache = { db, lookup }; return lookup;
+}
+const validate = (value: unknown) => {
+  assertProjectBytes(value);
+  const db = requireDatabase();
+  const authored = value && typeof value === "object" && "authoredRooms" in value ? (value as Record<string, unknown>).authoredRooms : undefined;
+  const lookup = authored && typeof authored === "object" && Object.keys(authored).length ? authoringLookup() : undefined;
+  return validateProject(value, romIdentity!, db.loadRoom.bind(db), db.geometryTranslation.bind(db), lookup);
 };
+function roomId(value: unknown): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 799) throw new Error("Invalid room ID.");
+  return value;
+}
+function exportDetails(value: EditorProjectV2) {
+  const ids = new Set<number>(), changes: string[] = [];
+  for (const [key, edits] of Object.entries(value.roomOverrides)) {
+    ids.add(Number(key));
+    if (edits.geometry) {
+      for (const affected of requireDatabase().geometryTranslation(Number(key), edits.geometry.translation).affectedRoomIds) ids.add(affected);
+      changes.push(`Room ${key} shared geometry translation ${JSON.stringify(edits.geometry.translation)}`);
+    }
+    for (const [actor, edit] of Object.entries(edits.actors)) if (Object.keys(edit).length) changes.push(`Room ${key} actor ${actor}: ${JSON.stringify(edit)}`);
+  }
+  for (const room of Object.values(value.authoredRooms)) {
+    ids.add(room.id);
+    changes.push(`Room ${room.id} ${room.kind}, template ${room.templateRoomId}: ${room.meshes.length} meshes/${room.meshes.reduce((count, mesh) => count + mesh.indices.length / 3, 0)} triangles, ${room.collisionMode} collision (${room.collision.length} authored triangles${room.collisionTranslation ? `, donor delta ${JSON.stringify(room.collisionTranslation)}` : ""}), ${room.actors.length} actors, ${room.doors.length} doors, ${room.entrances.length} entrances, skybox ${room.skyboxId === undefined ? "inherit-template" : room.skyboxId === null ? "none" : room.skyboxId}. Complete authored records are in the exported source/manifest.`);
+    for (const door of room.doors) changes.push(`Room ${room.id} door ${door.id}: ${JSON.stringify(door)}`);
+    for (const entrance of room.entrances) changes.push(`Room ${room.id} entrance ${entrance.id}: ${JSON.stringify(entrance)}`);
+  }
+  return { roomIds: [...ids].sort((a, b) => a - b), changes };
+}
 
 function assertSender(event: IpcMainInvokeEvent) {
   const url = event.senderFrame?.url ?? "";
@@ -40,7 +75,7 @@ function handle(name: string, operation: (...args: unknown[]) => unknown, mutati
   });
 }
 async function status(): Promise<AppStatus> {
-  return { desktop: true, appVersion: app.getVersion(), rom: romIdentity, roomCount: database?.listRooms().length ?? 0, project, toolchain: await inspectToolchain(toolchain), warnings: [...startupWarnings, ...(database?.warnings ?? [])] };
+  return { desktop: true, appVersion: app.getVersion(), rom: romIdentity, roomCount: database ? (project ? listProjectRooms(project, authoringLookup()).length : database.listRooms().length) : 0, project, toolchain: await inspectToolchain(toolchain), warnings: [...startupWarnings, ...(database?.warnings ?? [])] };
 }
 async function restore() {
   try {
@@ -59,7 +94,23 @@ async function restore() {
 function registerOperations() {
   handle("get-status", status);
   handle("list-rooms", () => requireDatabase().listRooms());
-  handle("load-room", (id) => { if (!Number.isInteger(id) || (id as number) < 0) throw new Error("Invalid room ID."); return requireDatabase().loadRoom(id as number); });
+  handle("load-room", (id) => requireDatabase().loadRoom(roomId(id)));
+  handle("get-authoring-catalog", () => authoringLookup().catalog);
+  handle("load-geometry-asset", id => {
+    const asset = requireDatabase().loadGeometryAsset(resourceId(id, "Geometry asset ID"));
+    assertDecodedBudget(asset.meshes, asset.textures); return asset;
+  });
+  handle("load-skybox-asset", id => {
+    const asset = requireDatabase().loadSkyboxAsset(resourceId(id, "Skybox asset ID"));
+    assertDecodedBudget([], [asset.texture]); return asset;
+  });
+  handle("load-actor-prototype", (id, edits) => {
+    const payload = requireDatabase().loadActorPrototype(resourceId(id, "Actor prototype ID"), validatePrototypeEdits(edits));
+    assertDecodedBudget([], [], payload.actorModels); return payload;
+  });
+  handle("list-project-rooms", value => listProjectRooms(validate(value), authoringLookup()));
+  handle("load-project-room", (value, id) => composeProjectRoom(validate(value), roomId(id), authoringLookup(), requireDatabase().geometryTranslation.bind(requireDatabase())));
+  handle("load-project-actor-visuals", (value, id) => composeProjectActorVisuals(validate(value), roomId(id), authoringLookup(), requireDatabase().loadActorVisuals.bind(requireDatabase())));
   handle("load-actor-visuals", (id, overrides) => {
     if (typeof id !== "number" || !Number.isInteger(id) || id < 0 || id > 799) throw new Error("Invalid room ID.");
     if (!overrides || typeof overrides !== "object" || Array.isArray(overrides) || ![Object.prototype, null].includes(Object.getPrototypeOf(overrides))) throw new Error("Actor visual overrides must be a plain object.");
@@ -96,7 +147,7 @@ function registerOperations() {
     requireDatabase();
     const choice = await dialog.showOpenDialog(window!, { title: "Open MNSG editor project", properties: ["openFile"], filters: [{ name: "MNSG project", extensions: ["mnsgproj", "json"] }] });
     if (choice.canceled) return null;
-    const parsed = validate(await readJson(choice.filePaths[0]));
+    const parsed = validate(await readJson(choice.filePaths[0], MAX_PROJECT_BYTES));
     project = parsed; projectPath = choice.filePaths[0]; return project;
   }, true);
   handle("save-project", async (value) => {
@@ -108,14 +159,17 @@ function registerOperations() {
       destination = choice.filePath;
     }
     parsed.updatedAt = new Date().toISOString();
-    await atomicWrite(destination, JSON.stringify(parsed, null, 2));
+    assertProjectBytes(parsed);
+    // The encoded budget above measures this exact compact representation.
+    // Pretty printing can expand a valid project beyond the reopen limit.
+    await atomicWrite(destination, JSON.stringify(parsed));
     project = parsed; projectPath = destination;
     return { project, fileName: basename(destination) };
   }, true);
   handle("export-patch", async (value) => {
     const parsed = validate(value);
     const db = requireDatabase();
-    const generated = await generatePatch(parsed, db.loadRoom.bind(db), db.geometryTranslation.bind(db));
+    const generated = await generatePatch(parsed, db.loadRoom.bind(db), db.geometryTranslation.bind(db), () => db.authoringExportContext());
     const choice = await dialog.showSaveDialog(window!, { title: "Choose a new folder for the patch bundle", defaultPath: "mnsg_level_patch" });
     if (choice.canceled || !choice.filePath) return null;
     // Exporter produces a fixed allowlisted bundle. Never accept traversal from project data.
@@ -127,7 +181,7 @@ function registerOperations() {
       if (basename(name) !== name || !/^[a-zA-Z0-9_.-]+$/.test(name)) throw new Error("Unsafe exporter file name.");
     }
     for (const [name, content] of Object.entries(generated.files)) await atomicWrite(join(destination, name), content);
-    return { kind: "patch", fileNames: Object.keys(generated.files).map((name) => `${basename(destination)}/${name}`), warnings: generated.warnings };
+    return { kind: "patch", fileNames: Object.keys(generated.files).map((name) => `${basename(destination)}/${name}`), outputPaths: Object.keys(generated.files).map(name => join(destination, name)), ...exportDetails(parsed), warnings: generated.warnings };
   }, true);
   handle("export-nrm", async (value) => {
     const parsed = validate(value);
@@ -136,9 +190,9 @@ function registerOperations() {
     const choice = await dialog.showSaveDialog(window!, { title: "Export prebuilt MNSG mod", defaultPath: "mnsg_level_patch.nrm", filters: [{ name: "Recomp mod", extensions: ["nrm"] }] });
     if (choice.canceled || !choice.filePath) return null;
     const db = requireDatabase();
-    const result = await exportNrm(parsed, db.loadRoom.bind(db), toolchain, db.geometryTranslation.bind(db));
+    const result = await exportNrm(parsed, db.loadRoom.bind(db), toolchain, db.geometryTranslation.bind(db), () => db.authoringExportContext());
     await atomicWrite(choice.filePath, result.bytes);
-    return { kind: "nrm", fileNames: [basename(choice.filePath)], warnings: result.warnings, buildLog: result.buildLog };
+    return { kind: "nrm", fileNames: [basename(choice.filePath)], outputPaths: [choice.filePath], ...exportDetails(parsed), warnings: result.warnings, buildLog: result.buildLog };
   }, true);
   handle("configure-toolchain", async () => {
     const choice = await dialog.showOpenDialog(window!, { title: "Choose MNSGRecompModTemplate folder", properties: ["openDirectory"] });

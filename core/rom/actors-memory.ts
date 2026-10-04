@@ -1,4 +1,17 @@
-export interface NativeActorMemorySpan {address:number;bytes:Uint8Array}
+export interface NativeActorMemorySpan {address:number;bytes:Uint8Array;codeFile?:number}
+
+/** CPU overlay08 and RSP segment08 are separate native address namespaces. */
+export function graphicsActorMemory(spans:NativeActorMemorySpan[],segments:{segment:number;fileId:number;offset:number}[]):NativeActorMemorySpan[] {
+  return spans.flatMap(span=>{
+    if(span.address<0x08000000||span.address>=0x09000000)return [span];
+    if(span.codeFile===undefined)return [];
+    if(!Number.isInteger(span.codeFile)||span.codeFile<=0)throw new Error("Private actor overlay has no valid source file.");
+    return segments.filter(mapping=>mapping.fileId===span.codeFile).flatMap(mapping=>{
+      const source=span.address&0xffffff,start=Math.max(source,mapping.offset),end=Math.min(source+span.bytes.length,mapping.offset+0x1000000);if(start>=end)return [];
+      return [{...span,address:mapping.segment*0x1000000+start-mapping.offset,bytes:span.bytes.subarray(start-source,end-source)}];
+    });
+  });
+}
 
 /** Private writes overlay ROM even when only part of a native command changed. */
 export function readNativeActorMemory(baseRead:(address:number,size:number)=>Uint8Array,address:number,size:number,spans:NativeActorMemorySpan[],onPrivateRead?:(address:number,bytes:Uint8Array)=>void):Uint8Array {

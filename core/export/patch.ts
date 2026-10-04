@@ -1,6 +1,9 @@
 import type { ActorData, ActorOverride, EditorProject, RoomData, Vec3 } from "../../shared/types";
 import { geometryOperation, geometrySource, validateGeometryWrites } from "./geometry";
 import type { ExportGeometryOperation, GetGeometryTranslation } from "./geometry";
+import {compileAuthoredRoom,resolveAuthoredDoorDestinations,type CompiledAuthoredRoom,type GetAuthoringExportContext} from "./authoring";
+
+import {authoringDataSource,authoringMapperSource,authoringAdmissionSource,authoringGeometryRuntimeSource,authoringSkySource,authoringDoorSource,authoringAddressModeSource} from "./authoring-runtime";
 
 export interface PatchExport { files: Record<string, string>; warnings: string[]; modId: string }
 function uint(value: number, max: number, label: string): number {
@@ -63,10 +66,20 @@ function actorPatch(room: number, actor: ActorData, override: ActorOverride): Re
   return { room, file, direct, address, romOffset: actor.source.romOffset, definition, original, edited, originalDefinition, editedDefinition, definitionChanged };
 }
 
-export async function generatePatch(project: EditorProject, loadRoom: (id: number) => RoomData | Promise<RoomData>, getTranslation?: GetGeometryTranslation): Promise<PatchExport> {
-  if (project.format !== "mnsg-level-project" || project.version !== 1 || project.rom?.region !== "US" || !/^[0-9a-f]{64}$/i.test(project.rom.normalizedSha256)) throw new Error("Export requires a valid US-ROM project with its normalized ROM fingerprint.");
+export async function generatePatch(project: EditorProject, loadRoom: (id: number) => RoomData | Promise<RoomData>, getTranslation?: GetGeometryTranslation,getAuthoringContext?:GetAuthoringExportContext): Promise<PatchExport> {
+  if (project.format !== "mnsg-level-project" || ![1,2].includes(project.version) || project.rom?.region !== "US" || !/^[0-9a-f]{64}$/i.test(project.rom.normalizedSha256)) throw new Error("Export requires a valid US-ROM project with its normalized ROM fingerprint.");
   if (typeof project.id !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(project.id)) throw new Error("Project id must contain only letters, digits, underscores and hyphens.");
   if (typeof project.name !== "string" || project.name.length < 1 || project.name.length > 200) throw new Error("Project name must contain 1 to 200 characters.");
+  const authored: CompiledAuthoredRoom[] = [];
+  if(project.version===2&&Object.keys(project.authoredRooms).length){
+    if(!getAuthoringContext)throw new Error("Authored room export requires the trusted canonical ROM authoring backend.");
+    const context=await getAuthoringContext();
+    for(const [key,room] of Object.entries(project.authoredRooms)){
+      if(key!==String(room.id)||project.roomOverrides[key])throw new Error("Authored room IDs must be canonical and cannot also contain sparse overrides.");
+      authored.push(compileAuthoredRoom(room,context));
+    }
+    resolveAuthoredDoorDestinations(authored, context);
+  }
   const records: RecordPatch[] = [];
   const geometryOperations: ExportGeometryOperation[] = [];
   const seen = new Set<string>();
@@ -107,10 +120,14 @@ export async function generatePatch(project: EditorProject, loadRoom: (id: numbe
     for (const span of operation.spans) for (let index = 0; index < span.original.length; index++) if (actorSourceBytes.has(span.romOffset + index)) throw new Error("Geometry writes overlap edited actor sources. Independent native record types must not share patch bytes.");
     for (const guard of operation.guards) for (let index = 0; index < guard.expected.length; index++) if (actorSourceBytes.has(guard.romOffset + index)) throw new Error("Edited actor sources overlap read-only geometry dependency guards.");
   }
-  if (!records.length && !geometryOperations.length) throw new Error("The project has no supported changes to export.");
+  if (!records.length && !geometryOperations.length && !authored.length) throw new Error("The project has no supported changes to export.");
   if (records.length > 8192) throw new Error("Export exceeds the supported actor edit limit.");
+  const nativePayloadEstimate = authored.reduce((sum,room)=>sum+room.nativePayloadBytes,0) + records.length * 80 +
+    geometryOperations.reduce((sum,operation)=>sum + 16 + operation.spans.reduce((n,span)=>n+16+span.original.length*2,0) + operation.guards.reduce((n,guard)=>n+16+guard.expected.length,0),0) + 4096;
+  if (nativePayloadEstimate > 48 * 1024 * 1024)
+    throw new Error("Project exceeds the aggregate 48 MiB native data allocation budget, reserving 16 MiB for code/alignment in the 64 MiB mod linker region. Proximity grid pointer arrays count even though they emit into BSS. Split the rooms across mods or reduce grid extents.");
   const modId = `mnsg_level_${project.id.replace(/-/g, "_").toLowerCase()}`;
-  const warnings = ["Generated patches have been checked against the native loader; verify the exported mod in Goemon64Recomp before distributing it.", "Event data remains read-only. Actor movement preserves the original proximity partition membership."];
+  const warnings = ["Generated patches have been checked against the native loader; verify the exported mod in Goemon64Recomp before distributing it.", "Native event data remains read-only. Sparse actor edits retain existing proximity membership; authored rooms rebuild their own proximity grid."];
   if (geometryOperations.length) {
     warnings.push("Room translation moves static visual geometry and collision only. Actor placements, player entrances, cameras and transitions require separate edits.");
     warnings.push("Geometry edits persist in their loaded resources until unload. Shared geometry sources affect every room using those sources.");
@@ -122,9 +139,10 @@ export async function generatePatch(project: EditorProject, loadRoom: (id: numbe
   }
   if (records.some(record => (record.editedDefinition[0] >>> 16) !== (record.originalDefinition[0] >>> 16))) warnings.push("Actor substitutions are restricted to the room's original roster. Actor-specific parameter interpretation can differ; verify the new behavior in game.");
   if (records.some(record => record.editedDefinition.slice(1).some((value, index) => value !== record.originalDefinition[index + 1]))) warnings.push("Actor payload words are opaque native data. Some actors interpret them as pointers or resource IDs; verify the edited actor in game.");
+  for (const room of authored) warnings.push(...room.warnings.map(warning => `Room ${room.room.id}: ${warning}`));
   const rows = records.map(record => `    { ${record.room}u, ${record.file}u, ${record.direct}u, ${hex(record.address)}, ${hex(record.definition)}, { ${record.original.join(", ")} }, { ${record.edited.join(", ")} }, { ${record.originalDefinition.map(hex).join(", ")} }, { ${record.editedDefinition.map(hex).join(", ")} }, ${record.definitionChanged ? 1 : 0}u }`).join(",\n");
   const header = `/* Generated by MNSG Level Editor. Native pointers and list counts remain intact. */\n#ifndef MNSG_LEVEL_PATCH_H\n#define MNSG_LEVEL_PATCH_H\n${records.length ? "void mnsg_level_apply_room_edits(void);\n" : ""}${geometryOperations.length ? "void mnsg_level_apply_geometry_edits(void);\n" : ""}#endif\n`;
-  const source = `/* Generated from project ${project.id}. Normalized US ROM SHA256: ${project.rom.normalizedSha256}. */
+  let source = `/* Generated from project ${project.id}. Normalized US ROM SHA256: ${project.rom.normalizedSha256}. */
 #include "modding.h"
 #include "mnsg_level_patch.h"
 typedef unsigned int u32;
@@ -203,7 +221,9 @@ void mnsg_level_apply_room_edits(void) {
     }
 }
 ` : "") + geometrySource(geometryOperations);
+  if (authored.length) source += authoringDataSource(authored) + authoringMapperSource() + authoringAdmissionSource(authored) + authoringGeometryRuntimeSource() + authoringSkySource() + authoringDoorSource() + authoringAddressModeSource();
+  if (Buffer.byteLength(source, "utf8") > 32 * 1024 * 1024) throw new Error("Generated source exceeds the 32 MiB project payload budget. Split the authored rooms across mods.");
   const manifest = `[manifest]\nid = ${JSON.stringify(modId)}\nversion = "1.0.0"\ndisplay_name = ${JSON.stringify(project.name)}\ndescription = "Room edits generated by MNSG Level Editor"\nshort_description = "Custom room geometry and actor data"\nauthors = ["MNSG Level Editor user"]\ngame_id = "mnsg"\nminimum_recomp_version = "0.1.0"\ndependencies = []\nnative_libraries = []\n\n[inputs]\nelf_path = "build/mod.elf"\nmod_filename = ${JSON.stringify(modId)}\nfunc_reference_syms_file = "Goemon64RecompSyms/mnsg.syms.toml"\ndata_reference_syms_files = ["Goemon64RecompSyms/mnsg.datasyms.toml"]\nadditional_files = []\n`;
   const linker = `RAMBASE = 0x81000000;\nMEMORY { extram(ARWX) : ORIGIN = RAMBASE, LENGTH = 64M }\nSECTIONS { /DISCARD/ : { *(.got) *(.MIPS.abiflags) *(.reginfo) *(.pdr) *(.comment) } }\n`;
-  return { modId, warnings, files: { "mnsg_level_patch.c": source, "mnsg_level_patch.h": header, "mod.toml": manifest, "mod.ld": linker, "README.txt": `Place mnsg_level_patch.c in the mod's source directory and mnsg_level_patch.h beside it. Include the compatible template modding.h. Compile/link using the MNSGRecompModTemplate flags. The manifest and linker script included here build a standalone mod; do not replace another mod's manifest when integrating the C/H pair.\n\n${warnings.join("\n")}\n` } };
+  return { modId, warnings, files: { "mnsg_level_patch.c": source, "mnsg_level_patch.h": header, "mod.toml": manifest, "mod.ld": linker, ...(authored.length ? {"authoring-inventory.json": JSON.stringify({format:"mnsg-authored-export-inventory",version:1,rooms:authored.map(compiled=>({room:compiled.room,skyboxPolicy:compiled.room.skyboxId===undefined?"inherit":compiled.room.skyboxId===null?"none":"selected",nativeSkybox:compiled.skybox,environmentPolicy:{mapHeading:0,voidThreshold:-32768,lightRGB:[255,255,255],effectiveResidentDefinitions:compiled.actors.filter(actor=>actor.spawnPolicy==="resident"&&actor.prototype.actorId===0x8e),donorProvenance:compiled.donor.environmentDefinitions},resourceAllocations:compiled.resourceAllocations,nativePayloadBytes:compiled.nativePayloadBytes,warnings:compiled.warnings})),nativeAllocationBudget:{estimateBytes:nativePayloadEstimate,dataBudgetBytes:48*1024*1024,codeAndAlignmentReserveBytes:16*1024*1024,method:"Conservative estimate of persistent data and BSS, including sparse payloads"},cacheEndPolicy:"0x80594000",failureRecovery:"Restart or disable the mod after an authored resource failure."},null,2)} : {}), "README.txt": `Place mnsg_level_patch.c in the mod's source directory and mnsg_level_patch.h beside it. Include the compatible template modding.h. Compile/link using the MNSGRecompModTemplate flags. The manifest and linker script included here build a standalone mod; do not replace another mod's manifest when integrating the C/H pair.\n\n${warnings.join("\n")}\n` } };
 }

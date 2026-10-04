@@ -1,12 +1,19 @@
 import {createHash} from "node:crypto";
 import type {ActorModel,ActorOverride,ActorVisual,ActorVisualPayload,RoomData,Vec3} from "../../shared/types";
-import {ActorInitializer,type NativeActorBinding} from "./actor-init";
+import {ActorInitializer,type NativeActorBinding,type NativeActorInitInput,type NativeActorInitResult} from "./actor-init";
 import {decodeNativeModelGraph,multiplyNativeMatrices} from "./actors-models";
 import {renderModelLists} from "./render";
 import {RomReader} from "./binary";
 import type {RomFile} from "./decompress";
 import {RenderWaves} from "./waves";
-import {readNativeActorMemory} from "./actors-memory";
+import {readNativeActorMemory,graphicsActorMemory,type NativeActorMemorySpan} from "./actors-memory";
+import {nativePoseMatrix} from "./actors-pose";
+import type {NativeAuthoringMaterial} from "../authoring/catalog";
+
+export interface NativeDoorGeometry {
+  meshes:{vertices:{position:Vec3;uv:[number,number];colorRGBAu8:[number,number,number,number]}[];indices:number[];material:NativeAuthoringMaterial}[];
+  resourceFileIds:number[];warnings:string[];
+}
 
 const AXES=["x","y","z"] as const;
 interface ReadonlyResource {address:number;fileId:number;byteLength:number}
@@ -29,8 +36,8 @@ export class ActorVisuals {
   private readonly roomCache=new Map<string,ActorVisualPayload>();
   private cachedBytes=0;
   constructor(private readonly reader:RomReader,private readonly files:Map<number,RomFile>,private readonly waves:RenderWaves){this.initializer=new ActorInitializer(reader,files,waves);}
-  private read(binding:NativeActorBinding,address:number,size:number,synthetic:{address:number;bytes:Uint8Array}[]=[],readonly:ReadonlyResource[]=[]):Uint8Array {
-    return readNativeActorMemory((at,length)=>this.readBase(binding,at,length,readonly),address,size,synthetic);
+  private read(binding:NativeActorBinding,address:number,size:number,synthetic:NativeActorMemorySpan[]=[],readonly:ReadonlyResource[]=[]):Uint8Array {
+    return readNativeActorMemory((at,length)=>this.readBase(binding,at,length,readonly),address,size,graphicsActorMemory(synthetic,binding.segments));
   }
   private readBase(binding:NativeActorBinding,address:number,size:number,readonly:ReadonlyResource[]=[]):Uint8Array {
     if(!Number.isSafeInteger(size)||size<0||size>8*1024*1024)throw new Error("Actor asset read exceeds its byte budget.");
@@ -56,12 +63,13 @@ export class ActorVisuals {
     if(!Number.isSafeInteger(offset)||offset<0||offset+size>wave.length)throw new Error("Actor model exceeds its native wave allocation.");
     return wave.subarray(offset,offset+size);
   }
-  private asset(binding:NativeActorBinding,synthetic:{address:number;bytes:Uint8Array}[],readonly:ReadonlyResource[]):ActorModel {
+  private asset(binding:NativeActorBinding,synthetic:NativeActorMemorySpan[],readonly:ReadonlyResource[]):ActorModel {
     if(readonly.length>1024||readonly.some(span=>!Number.isSafeInteger(span.address)||span.address<0x82000000||!Number.isSafeInteger(span.byteLength)||span.byteLength<0||span.byteLength>16*1024*1024||span.address+span.byteLength>0xbf000000))throw new Error("Native readonly actor resource mapping exceeds its bounded arena.");
     const baseKey=digest([binding.modelPointer,binding.materialPointer,binding.segments,binding.animationFrame,binding.animationBlendCountdown,readonly]);
     for(const [key,cached] of this.assetCache){if(cached.baseKey===baseKey&&cached.dependencies.every(dep=>{try{return Buffer.from(this.read(binding,dep.address,dep.size,synthetic,readonly)).toString("hex")===dep.expectedHex;}catch{return false;}})){this.assetCache.delete(key);this.assetCache.set(key,cached);return cached.model;}}
     const dependencies=new Map<string,{address:number;size:number;expectedHex:string}>();let dependencyBytes=0;
-    const read=(address:number,size:number)=>readNativeActorMemory((at,length)=>this.readBase(binding,at,length,readonly),address,size,synthetic,(at,bytes)=>{const key=`${at}:${bytes.length}`;if(!dependencies.has(key)){if(dependencies.size>=4096||dependencyBytes+bytes.length>2*1024*1024)throw new Error("Actor material dependency budget exceeded.");dependencyBytes+=bytes.length;dependencies.set(key,{address:at,size:bytes.length,expectedHex:Buffer.from(bytes).toString("hex")});}});
+    const graphicsMemory=graphicsActorMemory(synthetic,binding.segments);
+    const read=(address:number,size:number)=>readNativeActorMemory((at,length)=>this.readBase(binding,at,length,readonly),address,size,graphicsMemory,(at,bytes)=>{const key=`${at}:${bytes.length}`;if(!dependencies.has(key)){if(dependencies.size>=4096||dependencyBytes+bytes.length>2*1024*1024)throw new Error("Actor material dependency budget exceeded.");dependencyBytes+=bytes.length;dependencies.set(key,{address:at,size:bytes.length,expectedHex:Buffer.from(bytes).toString("hex")});}});
     const graph=decodeNativeModelGraph(read,binding.modelPointer,binding.animationFrame,binding.animationBlendCountdown);
     // 800196F0 gates object material setup on 80168524: once at the first
     // drawable limb, then subsequent limbs inherit the native RDP state.
@@ -88,11 +96,69 @@ export class ActorVisuals {
   }
   load(room:RoomData,overrides:Record<string,ActorOverride>):ActorVisualPayload {
     const cacheKey=`${room.id}:${digest(overrides)}`,cached=this.roomCache.get(cacheKey);if(cached){this.roomCache.delete(cacheKey);this.roomCache.set(cacheKey,cached);return structuredClone(cached);}
+    const inputs:{actorRef:string;input:NativeActorInitInput}[]=room.actors.map(actor=>{const edit=overrides[actor.id]??{};return {actorRef:actor.id,input:{actorId:edit.actorId??actor.actorId,parameters:edit.parameters??actor.parameters,position:edit.position??actor.position,rotation:edit.rotation??actor.rotation,unknownHalfword:actor.definitionSource?this.reader.u16(actor.definitionSource.romOffset+2):0,roomId:room.id}};});
+    for(const [index,entry] of inputs.entries())if(entry.input.actorId===0x1b0){const sibling=inputs.slice(0,index).find(entry=>entry.input.actorId===0x287);if(sibling){const prior=this.initializer.resolve(sibling.input);if(prior.completed&&prior.failureKind!=="unresolved")entry.input.priorScene=prior;}if(!entry.input.priorScene)entry.input.requiredSiblingMissing=true;}
+    const payload=this.renderInputs(inputs);
+    while(this.roomCache.size>=4)this.roomCache.delete(this.roomCache.keys().next().value!);this.roomCache.set(cacheKey,payload);return structuredClone(payload);
+  }
+  /** Independent native prototypes never fabricate an original room placement. */
+  preview(input:NativeActorInitInput,actorRef:string):ActorVisualPayload {return structuredClone(this.renderInputs([{actorRef,input}]));}
+  resolveNative(input:NativeActorInitInput):NativeActorInitResult {return this.initializer.resolve(input);}
+  /** Trusted static initial-pose IR. No actor callbacks survive into the door. */
+  doorGeometry(input:NativeActorInitInput):NativeDoorGeometry {
+    const init=this.initializer.resolve(input);
+    if(!init.completed||init.failureKind==="unresolved"||!init.bindings.length)throw new Error(`Native door appearance has an unresolved initialization path: ${init.diagnostics.join(" ")}`);
+    const output:NativeDoorGeometry={meshes:[],resourceFileIds:[],warnings:[...init.diagnostics]},resources=new Set<number>();let vertexCount=0,triangleCount=0,commandCount=0,rounded=false;
+    for(const binding of init.bindings){
+      if(AXES.some(axis=>(binding.rotation[axis]&65535)===0x8000))throw new Error("Camera-aligned native actor roots cannot be flattened into a static door.");
+      const read=(address:number,size:number)=>this.read(binding,address,size,init.syntheticMemory,init.readonlyMemory);
+      const graph=decodeNativeModelGraph(read,binding.modelPointer,binding.animationFrame,binding.animationBlendCountdown);
+      if(graph.nodes.some(node=>node.billboardAxes&&Object.values(node.billboardAxes).some(Boolean)))throw new Error("Camera-aligned native actor nodes cannot be flattened into a static door.");
+      const rendered=renderModelLists(read,graph.roots.map((root,index)=>({...root,material:index===0?(binding.materialPointer&0x8fffffff)>>>0:undefined})),0,undefined,{vertexProvenance:true,materialProvenance:true});
+      if(!rendered.complete||rendered.coverage.unsupported)throw new Error(`Native door appearance has unsupported geometry or material state: ${rendered.warnings.join(" ")}`);
+      output.warnings.push(...graph.warnings,...rendered.warnings);
+      const matrix=nativePoseMatrix({translation:binding.position,rotation:{x:binding.rotation.x&1023,y:binding.rotation.y&1023,z:binding.rotation.z&1023},scale:binding.scale,cameraAlignedAxes:{x:0,y:0,z:0}});
+      for(const [index,mesh] of rendered.meshes.entries()){
+        const commands=rendered.materialCommands?.[index],state=rendered.materialStates?.[index];if(!commands||!state||!mesh.material)throw new Error("Native door material provenance is incomplete.");
+        vertexCount+=mesh.positions.length/3;triangleCount+=mesh.indices.length/3;commandCount+=commands.length;
+        if(vertexCount>65535||triangleCount>32768||commandCount>65536||output.meshes.length>=512)throw new Error("Native static door geometry exceeds its staging budget.");
+        const batchResources=new Set<number>(),relocations:NativeAuthoringMaterial["relocations"]=[];let scaleS=1,scaleT=1;
+        for(const [commandIndex,[word,pointer]] of commands.entries()){
+          const op=word>>>24;if(op===0xbb){scaleS=(pointer>>>16)/65536;scaleT=(pointer&65535)/65536;}
+          if(op!==0xfd&&op!==0x03)continue;
+          const allocation=init.readonlyMemory.find(span=>pointer>=span.address&&pointer<span.address+span.byteLength);
+          const mapping=pointer<0x80000000?binding.segments.find(span=>span.segment===pointer>>>24):undefined;
+          const fileId=allocation?.fileId??mapping?.fileId;
+          if(fileId===undefined){if(pointer<0x80000450||pointer>=0x8007e020)throw new Error("Native door material pointer has no immutable resource relocation.");read(pointer,op===0x03?16:1);continue;}
+          const offset=allocation?pointer-allocation.address:(pointer&0xffffff)+(mapping?.offset??0),wave=this.waves.wave(fileId);
+          if(offset<0||offset+(op===0x03?16:1)>wave.length)throw new Error("Native door material resource pointer is out of bounds.");
+          const start=this.reader.u32(0x556c4+fileId*8);batchResources.add(fileId);resources.add(fileId);relocations.push({offset:commandIndex*8+4,fileId,segmentedAddress:(start+offset)>>>0});
+        }
+        const texture=rendered.textures.find(texture=>texture.id===mesh.material!.textureId),tile=state.tiles[state.tile];
+        const material:NativeAuthoringMaterial={id:`actor-material:${digest([commands,state,relocations])}`,commands,resourceFileIds:[...batchResources].sort((a,b)=>a-b),relocations,textureWidth:texture?.width??1,textureHeight:texture?.height??1,state,material:mesh.material,uv:{scaleS,scaleT,shiftS:tile.shifts,shiftT:tile.shiftt,originS:tile.uls/4,originT:tile.ult/4,centerOffset:mesh.material.filter==="linear"?0.5:0}};
+        const vertices=Array.from({length:mesh.positions.length/3},(_,vertex)=>{
+          const point=transform(mesh.positions.slice(vertex*3,vertex*3+3),matrix),quantized=point.map(Math.round);
+          if(quantized.some(value=>!Number.isFinite(value)||value<-32768||value>32767))throw new Error("Native door pose exceeds signed16 geometry bounds.");
+          if(point.some((value,axis)=>Math.abs(value-quantized[axis])>1e-6))rounded=true;
+          const source=rendered.vertexAddresses?.[index][vertex];if(source===undefined)throw new Error("Native door vertex provenance is missing.");
+          const alpha=read(source+15,1)[0],rgb=mesh.colors?.slice(vertex*3,vertex*3+3)??[1,1,1];
+          return {position:{x:quantized[0],y:quantized[1],z:quantized[2]},uv:(mesh.uvs?.slice(vertex*2,vertex*2+2)??[0,0]) as [number,number],colorRGBAu8:[...rgb.map(value=>Math.max(0,Math.min(255,Math.round(value*255)))),alpha] as [number,number,number,number]};
+        });
+        output.meshes.push({vertices,indices:[...mesh.indices],material});
+      }
+    }
+    if(rounded)output.warnings.push("Native static initial-pose coordinates are rounded to signed16 vertex units for the authored door.");
+    output.resourceFileIds=[...resources].sort((a,b)=>a-b);output.warnings=[...new Set(output.warnings)];return output;
+  }
+  dependencies(input:NativeActorInitInput):{fileIds:number[];warnings:string[];completed:boolean;status:NativeActorInitResult["status"];failureKind:NativeActorInitResult["failureKind"]} {
+    const result=this.initializer.resolve(input),overlay=this.reader.i16(0x5e4ca6+input.actorId*2);
+    return {fileIds:[...new Set([...(overlay>0?[overlay]:[]),...result.bindings.flatMap(binding=>binding.segments.map(s=>s.fileId)),...(result.readonlyMemory??[]).map(s=>s.fileId)])].sort((a,b)=>a-b),warnings:[...result.diagnostics],completed:result.completed===true&&result.failureKind!=="unresolved",status:result.status,failureKind:result.failureKind};
+  }
+  private renderInputs(inputs:{actorRef:string;input:NativeActorInitInput}[]):ActorVisualPayload {
     const payload:ActorVisualPayload={actorVisuals:[],actorModels:[]},assets=new Map<string,ActorModel>();let bytes=0,triangles=0;
-    for(const actor of room.actors){
-      const edit=overrides[actor.id]??{},position=edit.position??actor.position,rotation=edit.rotation??actor.rotation;
-      const result=this.initializer.resolve({actorId:edit.actorId??actor.actorId,parameters:edit.parameters??actor.parameters,position,rotation,unknownHalfword:actor.definitionSource?this.reader.u16(actor.definitionSource.romOffset+2):0,roomId:room.id});
-      const visual:ActorVisual={actorRef:actor.id,status:result.failureKind==="unresolved"?"unsupported":result.status==="nonvisual"?"nonvisual":result.status==="resolved"?"supported":result.status==="conditional"?"conditional":"unsupported",parts:[],warnings:[...result.diagnostics]};
+    for(const {actorRef,input} of inputs){
+      const result=this.initializer.resolve(input);
+      const visual:ActorVisual={actorRef,status:result.failureKind==="unresolved"?"unsupported":result.status==="nonvisual"?"nonvisual":result.status==="resolved"?"supported":result.status==="conditional"?"conditional":"unsupported",parts:[],warnings:[...result.diagnostics]};
       for(const binding of result.bindings){try{const model=this.asset(binding,result.syntheticMemory??[],result.readonlyMemory??[]);
         if(!assets.has(model.id)){const size=bytesFor(model),count=model.meshes.reduce((sum,m)=>sum+m.indices.length/3,0);if(bytes+size>64*1024*1024||triangles+count>200000||assets.size>=256)throw new Error("Room actor assets exceed the bounded preview budget.");assets.set(model.id,model);bytes+=size;triangles+=count;}
         const rootMatrix=identity();rootMatrix[0]=binding.scale.x;rootMatrix[5]=binding.scale.y;rootMatrix[10]=binding.scale.z;
@@ -104,6 +170,6 @@ export class ActorVisuals {
       if(visual.status==="unsupported"||visual.status==="conditional")visual.reason=visual.warnings.join("; ")||"Native actor visual initialization is unresolved.";
       payload.actorVisuals.push(visual);
     }
-    payload.actorModels=[...assets.values()];while(this.roomCache.size>=4)this.roomCache.delete(this.roomCache.keys().next().value!);this.roomCache.set(cacheKey,payload);return structuredClone(payload);
+    payload.actorModels=[...assets.values()];return payload;
   }
 }

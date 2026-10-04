@@ -4,7 +4,19 @@ import type {RomFile} from "./decompress";
 import type {RenderWaves} from "./waves";
 import {InitMachine,type InitMemory} from "./actor-init-machine";
 
-export interface NativeActorInitInput {actorId:number;parameters:number[];position:Vec3;rotation:Vec3;unknownHalfword?:number;roomId?:number}
+export interface NativeActorSceneDeclaration {prototypeId:string;parameters:[number,number,number];position:Vec3;rotation:Vec3}
+export interface NativeActorContext {roomId:number;templateRoomId?:number;siblings?:NativeActorSceneDeclaration[]}
+export interface NativeActorInitInput {actorId:number;parameters:number[];position:Vec3;rotation:Vec3;unknownHalfword?:number;roomId?:number;templateRoomId?:number;priorScene?:NativeActorInitResult;requiredSiblingMissing?:boolean;thumbnailPlayerPosition?:Vec3}
+/** D_B3E4/File11 mapper. The active ID and its trusted native donor are distinct. */
+export function nativeActorRoomContext(reader:RomReader,context:NativeActorContext):{stage:number;local:number;group:number;index:number} {
+  const donor=context.templateRoomId??context.roomId;
+  if(!Number.isInteger(context.roomId)||context.roomId<0||context.roomId>799||!Number.isInteger(donor)||donor<0||donor>=620)throw new Error("Invalid native actor room context.");
+  let stage=0;while(stage<13&&donor>=reader.u16(0x5c610+(stage+1)*2))stage++;
+  const local=donor-reader.u16(0x5c610+stage*2);
+  const group=stage===0&&donor>127?5:stage===0&&donor>89?4:stage;
+  const index=stage===0&&donor>127?donor-128:stage===0&&donor>89?donor-90:local;
+  return {stage,local,group,index};
+}
 export interface NativeActorBinding {
   identity:number;slot:number;modelPointer:number;materialPointer:number;
   segments:{segment:number;fileId:number;offset:number}[];
@@ -17,13 +29,15 @@ export interface NativeActorInitResult {
   bindings:NativeActorBinding[];
   status:"resolved"|"conditional"|"nonvisual"|"unsupported";
   diagnostics:string[];instructionCount:number;
+  /** All selected constructor/deferred/child calls returned without an unresolved dependency path. */
+  completed?:boolean;
   failureKind?:"scene-gated"|"unresolved";
   branches:{pc:number;taken:boolean;target:number}[];
   deferredCallbacks:number[];
-  syntheticMemory:{address:number;bytes:Uint8Array}[];
+  syntheticMemory:{address:number;bytes:Uint8Array;conditional?:boolean;codeFile?:number}[];
   readonlyMemory:{address:number;fileId:number;byteLength:number}[];
 }
-interface Region {start:number;bytes:Uint8Array;readonly?:boolean}
+interface Region {start:number;bytes:Uint8Array;readonly?:boolean;conditional?:boolean;codeFile?:number}
 interface ObjectState {address:number;task:number;index:number;identity?:number;slot?:number;segments:Map<number,{fileId:number;offset:number}>;rotationMask:{x:boolean;y:boolean;z:boolean};provenance:string[]}
 const hex=(n:number)=>`0x${(n>>>0).toString(16)}`;
 const AXES=["x","y","z"] as const;
@@ -31,9 +45,9 @@ const STOP=0xfffffff0;
 class NativeSceneStateError extends Error {}
 // Independently traced complete controller bodies, not actor→model guesses.
 // Entry+overlay checks keep classification tied to the canonical implementation.
-const MESH_FREE_CONTROLLERS=new Map<number,{entry:number;overlay:number;reason:string}>([
-  [0x8c,{entry:0x802151e0,overlay:0,reason:"Native destination/transition trigger has no 3D model declaration."}],
-  [0x8e,{entry:0x80215a74,overlay:0,reason:"Native room camera/start-state initializer removes its task without a 3D model."}],
+const MESH_FREE_CONTROLLERS=new Map<number,{entry:number;overlay:number;reason:string;completed?:boolean}>([
+  [0x8c,{entry:0x802151e0,overlay:0,completed:true,reason:"Native destination/transition trigger initializes fields and schedules its callback without a resource request or 3D model declaration; later transitions are not evaluated."}],
+  [0x8e,{entry:0x80215a74,overlay:0,completed:true,reason:"Native room camera/start-state initializer performs resource-free environment writes and removes its task without a 3D model."}],
   [0x90,{entry:0x80215b8c,overlay:0,reason:"Native camera/trigger table initializer removes its task without a 3D model."}],
   [0x31d,{entry:0x80221894,overlay:0,reason:"Native timer/speech controller has no intrinsic 3D model."}],
   [0x2ee,{entry:0x80221964,overlay:0,reason:"Native conditional speech-controller wrapper has no intrinsic 3D model."}],
@@ -49,8 +63,10 @@ const MESH_FREE_CONTROLLERS=new Map<number,{entry:number;overlay:number;reason:s
 class ActorMemory implements InitMemory {
   readonly regions:Region[]=[];
   readonly privateBytes=new Map<number,number>();
+  readonly overlayBytes=new Map<number,Map<number,number>>();
   readonly unknownReads=new Set<number>();
   next=0x81000000;phase=false;codeFile=0;
+  fixedCodeFile=0;
   readonly resourceBases=new Map<number,number>();
   readonly resourceSegments=new Map<number,number>();
   nextWave=0x82000000;
@@ -69,6 +85,7 @@ class ActorMemory implements InitMemory {
   }
   romOffset(address:number,size:number):number|undefined {
     if(address>=0x80000400&&address+size<=0x8007e020)return this.reader.check(address-0x80000000+0xc00,size);
+    if(this.fixedCodeFile===15){const file=this.files.get(15);if(file&&address>=0x801cb460&&address+size<=0x801cb460+file.end-file.start)return this.reader.check(file.start+address-0x801cb460,size,file.end);}
     for(const [fileId,base] of [[11,0x801cb460],[12,0x8020d2a0]]) {
       const file=this.files.get(fileId);if(file&&address>=base&&address+size<=base+file.end-file.start)return this.reader.check(file.start+address-base,size,file.end);
     }
@@ -79,10 +96,10 @@ class ActorMemory implements InitMemory {
     if(!Number.isSafeInteger(address)||!Number.isSafeInteger(size)||size<0||address<0||address+size>0x100000000)throw new Error("Invalid offline native memory read.");
     const output=new Uint8Array(size);
     for(let i=0;i<size;i++){
-      const at=address+i,privateValue=this.privateBytes.get(at);
+      const at=address+i,privateValue=at>=0x08000000&&at<0x09000000?this.overlayBytes.get(this.codeFile)?.get(at):this.privateBytes.get(at);
       if(privateValue!==undefined){output[i]=privateValue;continue;}
-      const region=this.regions.find(region=>at>=region.start&&at<region.start+region.bytes.length);
-      if(region){output[i]=region.bytes[at-region.start];continue;}
+      const region=this.regions.find(region=>(region.codeFile===undefined||region.codeFile===this.codeFile)&&at>=region.start&&at<region.start+region.bytes.length);
+      if(region){if(region.conditional)this.unknownReads.add(at);output[i]=region.bytes[at-region.start];continue;}
       const offset=this.romOffset(at,1);
       if(offset!==undefined){output[i]=this.reader.bytes[offset];continue;}
       // Live engine/save/player BSS has no canonical ROM initial value. The
@@ -93,11 +110,11 @@ class ActorMemory implements InitMemory {
     return output;
   }
   write(address:number,bytes:Uint8Array):void {
-    if((address<0x80000400||address+bytes.length>0x81400000)&&!this.regions.some(r=>!r.readonly&&address>=r.start&&address+bytes.length<=r.start+r.bytes.length)&&!(this.codeFile&&address>=0x08000000&&address+bytes.length<=0x09000000&&this.romOffset(address,bytes.length)!==undefined))throw new Error(`Unmapped offline native write at ${hex(address)}.`);
-    if(this.privateBytes.size+bytes.length>2*1024*1024)throw new Error("Synthetic native write budget exceeded.");
+    if((address<0x80000400||address+bytes.length>0x81400000)&&!this.regions.some(r=>(r.codeFile===undefined||r.codeFile===this.codeFile)&&!r.readonly&&address>=r.start&&address+bytes.length<=r.start+r.bytes.length)&&!(this.codeFile&&address>=0x08000000&&address+bytes.length<=0x09000000&&this.romOffset(address,bytes.length)!==undefined))throw new Error(`Unmapped offline native write at ${hex(address)}.`);
+    if(this.privateBytes.size+[...this.overlayBytes.values()].reduce((sum,bytes)=>sum+bytes.size,0)+bytes.length>2*1024*1024)throw new Error("Synthetic native write budget exceeded.");
     for(let i=0;i<bytes.length;i++){
-      const at=address+i,region=this.regions.find(region=>at>=region.start&&at<region.start+region.bytes.length);
-      if(region)region.bytes[at-region.start]=bytes[i];else this.privateBytes.set(at,bytes[i]);
+      const at=address+i,region=this.regions.find(region=>(region.codeFile===undefined||region.codeFile===this.codeFile)&&at>=region.start&&at<region.start+region.bytes.length);
+      if(region)region.bytes[at-region.start]=bytes[i];else if(at>=0x08000000&&at<0x09000000){let writes=this.overlayBytes.get(this.codeFile);if(!writes){writes=new Map();this.overlayBytes.set(this.codeFile,writes);}writes.set(at,bytes[i]);}else this.privateBytes.set(at,bytes[i]);
     }
     if(this.phase)this.onWrite?.(address,bytes.length);
   }
@@ -129,13 +146,13 @@ export class ActorInitializer {
   private evaluate(input:NativeActorInitInput,progression:Map<number,boolean>,observedFlags:Set<number>,instructionLimit:number):NativeActorInitResult {
     const diagnostics:string[]=[],bindings:NativeActorBinding[]=[],callbacks:number[]=[];
     const result:NativeActorInitResult={bindings,status:"unsupported",diagnostics,instructionCount:0,branches:[],deferredCallbacks:callbacks,syntheticMemory:[],readonlyMemory:[]};
-    const memory=new ActorMemory(this.reader,this.files),objects:ObjectState[]=[];
+    const memory=new ActorMemory(this.reader,this.files),objects:ObjectState[]=[],sceneObjects=new Map<number,ObjectState>(),multiObjectBodies=new Set<number>();
     let currentTask=0,allocationCount=0,removed=false;
     const children:{task:number;entry:number;codeFile:number}[]=[];
     const cpu=new InitMachine(memory,{instructions:instructionLimit,callDepth:64},(pc,machine)=>intercept(pc,machine));
     const word=(at:number)=>cpu.u32(at),half=(at:number)=>cpu.u16(at),put=(at:number,value:number,size=4)=>cpu.store(at,value,size);
     const float=(at:number)=>cpu.fromBits(word(at)),setFloat=(at:number,value:number)=>put(at,cpu.floatBits(value));
-    const objectFor=(task:number)=>{const address=word(task+0x18);const object=objects.find(object=>object.address===address);if(!object)throw new Error("Native helper requires a validated synthetic task/object.");return object;};
+    const objectFor=(task:number)=>{const address=word(task+0x18);const object=objects.find(object=>object.address===address)??sceneObjects.get(address);if(!object)throw new Error("Native helper requires a validated synthetic task/object.");return object;};
     const createObject=(task:number,defaults=true):ObjectState=>{
       if(++allocationCount>64)throw new Error("Native constructor object budget exceeded.");
       const address=memory.allocate(0x100),object:ObjectState={address,task,index:objects.length,segments:new Map(),rotationMask:{x:false,y:false,z:false},provenance:[]};objects.push(object);
@@ -208,7 +225,13 @@ export class ActorInitializer {
       else if(pc===0x8003521c){put(currentTask+0xc,a);callbacks.push(a);}
       else if(pc===0x80035214)put(a+8,b);
       else if(pc===0x80035244)put(a+0x10,b);
-      else if(pc===0x80034ed4||pc===0x80035020){removed=true;throw new Error(`Native actor removal/suspension at ${hex(pc)} depends on scene state.`);}
+      else if(pc===0x80034ed4||pc===0x80035020){
+        // Fresh File54 C18/F18 paths bind first, then gate on flag97. Their
+        // clear branches call through t9 at C9C/F9C and jump to the epilogue;
+        // no resource request follows this terminal removal path.
+        if(pc===0x80034ed4&&memory.codeFile===54&&((input.actorId===0x2d3&&m.registers[31]===0x08000ca4)||(input.actorId===0x2d4&&m.registers[31]===0x08000fa4)))result.completed=true;
+        removed=true;throw new Error(`Native actor removal/suspension at ${hex(pc)} depends on scene state.`);
+      }
       else if(pc===0x8021664c||pc===0x80221c0c){const object=objectFor(a);animated(a,object,b,c,d);if(pc===0x80221c0c)put(a+0xa8,c);}
       else if(pc===0x80216ce0){const object=objects.find(value=>value.address===b);if(!object)throw new Error("Direct bind refers to an unknown object.");bind(a,object,half(a+0x5e),c,0x40000000);}
       else if([0x80216df8,0x80216e1c,0x80216ed0,0x80216ffc].includes(pc)){
@@ -220,6 +243,14 @@ export class ActorInitializer {
         if((b|0)<=0||b>65536)throw new Error("Native arena allocation request exceeds the bounded preview domain.");
         memory.next=Math.ceil(memory.next/64)*64;m.registers[2]=memory.allocate(((b+0x4f)&~0x3f)-0x10);
         if(!diagnostics.includes("Native arena preview assumes zeroed allocation succeeds; memory-pressure failure is not simulated."))diagnostics.push("Native arena preview assumes zeroed allocation succeeds; memory-pressure failure is not simulated.");
+      }
+      else if(pc===0x80024670){
+        // Fresh native 25270 allocates 0x80 bytes, then 246BC initializes this
+        // exact UI/controller work record. No file request occurs in the builder.
+        const work=memory.allocate(0x80);
+        for(const [offset,value] of [[0,1],[4,15],[8,15],[12,0x2000],[16,0x2000],[20,0x3ca3d70a],[24,0x3d23d70a],[28,0],[32,0],[40,0],[44,0],[48,0],[56,0x3f800000],[60,0x3f800000]])put(work+offset,value);
+        for(const [offset,value] of [[36,0],[37,0],[38,0x60],[39,0x80]])put(work+offset,value,1);
+        m.registers[2]=work;diagnostics.push("Native UI work preview assumes the verified 0x80-byte arena allocation succeeds.");
       }
       else if(pc===0x80040620){/* Verified cache maintenance has no offline presentation side effect. */}
       else if(pc===0x8021c654){
@@ -287,8 +318,10 @@ export class ActorInitializer {
       else if(pc===0x80035eec){let first=0;for(let i=0;i<(c&255);i++){const object=createObject(a,false);if(!first)first=object.address;}m.registers[2]=first;}
       else if(pc===0x80216e54||pc===0x80216838){
         const parent=objectFor(a),object=createObject(a);
-        for(const [offset,size] of [[8,4],[12,4],[16,4],[20,2],[22,2],[24,2],[28,4],[32,4],[36,4],[48,4]])memory.write(object.address+offset,memory.read(parent.address+offset,size));
-        if(pc===0x80216e54){resetScale(object);bind(a,object,half(a+0x5e),b,0x40000000);}else animated(a,object,b,c,d);
+        if(pc===0x80216e54){resetScale(object);bind(a,object,half(a+0x5e),b,0x40000000);multiObjectBodies.add(a);
+          result.failureKind??="scene-gated";const message="Unwritten native pool transforms for extra-object allocation are provisional zero; explicit constructor writes replace them, and parent transforms are not inherited.";if(!diagnostics.includes(message))diagnostics.push(message);
+        }
+        else {for(const [offset,size] of [[8,4],[12,4],[16,4],[20,2],[22,2],[24,2],[28,4],[32,4],[36,4],[48,4]])memory.write(object.address+offset,memory.read(parent.address+offset,size));animated(a,object,b,c,d);}
         m.registers[2]=object.address;
       }else if(pc===0x8021a764){
         const object=objectFor(a),sourceSegment=d===2?8:d===1?9:d===0?10:-1,targetSegment=8+c,source=object.segments.get(sourceSegment);
@@ -312,16 +345,64 @@ export class ActorInitializer {
     try {
       if(!Number.isInteger(input.actorId)||input.actorId<0||input.actorId>0x405||input.parameters.length!==3||input.parameters.some(v=>!Number.isInteger(v)||v<0||v>0xffffffff))throw new Error("Actor initializer input must come from a validated native actor record.");
       for(const vector of [input.position,input.rotation])if(AXES.some(axis=>!Number.isFinite(vector[axis])))throw new Error("Native actor transform is not finite.");
+      if(input.priorScene){
+        const prior=input.priorScene;if(!prior.completed||prior.failureKind==="unresolved")throw new Error("Required native sibling initialization did not complete.");
+        let bytes=0;for(const span of prior.syntheticMemory){bytes+=span.bytes.length;if(bytes>2*1024*1024||span.address+span.bytes.length>0x81200000||span.address<0x08000000)throw new Error("Native sibling snapshot exceeds its bounded private arena.");
+          memory.regions.push({start:span.address,bytes:span.bytes.slice(),conditional:span.conditional,codeFile:span.codeFile});
+          if(span.address>=0x81000000)memory.next=Math.max(memory.next,Math.ceil((span.address+span.bytes.length)/16)*16);
+        }
+        for(const mapping of prior.readonlyMemory){const wave=resource(mapping.fileId),base=memory.wave(mapping.fileId,segmentFor(mapping.fileId),wave);if(base!==mapping.address||wave.length!==mapping.byteLength)throw new Error("Native sibling resource lifetime changed.");}
+        diagnostics.push("Preview preserves the completed native actor287 sibling constructor state in spawn order; live scene visibility remains conditional.");result.failureKind="scene-gated";
+      }
+      if(input.actorId===0x7d&&this.reader.u32(0x5e3c8c+input.actorId*4)===0x801cc978){
+        const file=this.files.get(15);if(!file||file.start!==0x65e310||file.end!==0x667b90)throw new Error("Fixed File15 actor initializer does not match the verified native CPU layout.");
+        memory.fixedCodeFile=15;diagnostics.push("Preview uses the verified native fixed File15 minigame CPU context; foreign-room loader admission is unverified.");result.failureKind="scene-gated";
+      }
       const knownController=MESH_FREE_CONTROLLERS.get(input.actorId);
-      if(knownController&&this.reader.u32(0x5e3c8c+input.actorId*4)===knownController.entry&&this.reader.i16(0x5e4ca6+input.actorId*2)===knownController.overlay){result.status="nonvisual";diagnostics.push(knownController.reason);return result;}
+      if(knownController&&this.reader.u32(0x5e3c8c+input.actorId*4)===knownController.entry&&this.reader.i16(0x5e4ca6+input.actorId*2)===knownController.overlay){result.status="nonvisual";result.completed=knownController.completed===true;diagnostics.push(knownController.reason);return result;}
       const task=memory.allocate(0xf0);currentTask=task;
       const object=createObject(task);
+      // File11 D23D4 creates a kind2 camera object, whose tagged model points
+      // to a 0x60-byte Camera record. D25EC copies these canonical stage presets.
+      // Its live pose remains a conditional scene context, not an actor model.
+      const roomId=input.roomId??0,{stage,local,group,index}=nativeActorRoomContext(this.reader,{roomId,templateRoomId:input.templateRoomId});
+      const cameraPreset=stage===0||stage===3?0x801fc7e8:stage===2?0x801fc848:0x801fc8a8,presetOffset=memory.romOffset(cameraPreset,0x60);
+      if(presetOffset!==undefined){
+        const cameraObject=memory.allocate(0x100),cameraTask=memory.allocate(0xf0);
+        memory.regions.push({start:0x8020cbf0,bytes:this.reader.bytes.slice(presetOffset,presetOffset+0x60),conditional:true});
+        put(cameraObject+0x2c,0xa020cbf0);put(cameraTask+0x18,cameraObject);put(0x801fc628,cameraObject);put(0x801fc624,cameraTask);
+        [250,15,250].forEach((value,index)=>setFloat(cameraObject+8+index*4,value));
+        // D848 seeds CD60 with the player OBJECT; 1928C copies it into
+        // actor.task+84. Player TASK/OBJECT globals are distinct. Its initial
+        // donor arrival is a conditional stand-in for a player's live pose.
+        const playerTask=memory.allocate(0x200),playerObject=memory.allocate(0x100),playerWork=memory.allocate(2),arrival=memory.romOffset(0x8006b780+(input.templateRoomId??roomId)*10,10);
+        if(arrival!==undefined){const region=memory.regions.find(region=>region.start===playerObject)!;const view=new DataView(region.bytes.buffer);for(let i=0;i<3;i++)view.setFloat32(8+i*4,this.reader.i16(arrival+i*2));view.setInt16(0x16,this.reader.i16(arrival+6));}
+        if(input.actorId===0x147&&input.thumbnailPlayerPosition){
+          const view=new DataView(memory.regions.find(region=>region.start===playerObject)!.bytes.buffer);AXES.forEach((axis,index)=>{const value=input.thumbnailPlayerPosition![axis];if(!Number.isFinite(value)||value<-32768||value>32767)throw new Error("Invalid conditional thumbnail player pose.");view.setFloat32(8+index*4,value);});
+          diagnostics.push("Library thumbnail evaluates native actor147's verified distance gate with a nearby conditional player pose; room previews and exports retain the actual donor arrival context.");result.failureKind="scene-gated";
+        }
+        memory.regions.find(region=>region.start===playerObject)!.conditional=true;memory.regions.find(region=>region.start===playerTask)!.conditional=true;
+        put(playerTask+0x18,playerObject);put(playerTask+0x64,cameraTask);put(playerTask+0x5c,playerWork);put(0x801fc604,playerTask);put(0x801fc60c,playerObject);put(0x8015cd60,playerObject);
+        // File11 D724 creates the manager TASK stored in CCBC. Native335
+        // passes that task to 171A8 rather than using itself as the parent.
+        const managerTask=memory.allocate(0xf0),managerObject=memory.allocate(0x100);
+        memory.regions.find(region=>region.start===managerObject)!.conditional=true;put(managerTask+0x18,managerObject);put(0x8015ccbc,managerTask);
+        sceneObjects.set(managerObject,{address:managerObject,task:managerTask,index:-1,segments:new Map(),rotationMask:{x:false,y:false,z:false},provenance:["conditional native room manager context"]});
+      }
       memory.regions.push({start:0x813e0000,bytes:new Uint8Array(0x20000)});cpu.registers[29]=0x813fff00;
       memory.codeFile=this.reader.i16(0x5e4ca6+input.actorId*2);
       if(memory.codeFile<0)throw new Error("Actor registry code file is not a verified overlay.");
+      // Native 01C00 zeroes the overlay's allocation tail after loading its
+      // canonical file. Those bytes are valid BSS, never adjacent ROM bytes.
+      for(const [fileId,base] of [[memory.codeFile,0x08000000],[memory.fixedCodeFile,0x801cb460]]){
+        const file=this.files.get(fileId);if(!fileId||!file)continue;
+        const start=this.reader.u32(0x556c4+fileId*8),end=this.reader.u32(0x556c4+fileId*8+4),allocated=end-start,length=file.end-file.start;
+        if((start>>>24)!==(end>>>24)||allocated<length||allocated>2*1024*1024)throw new Error("Native overlay allocation tail is outside the bounded code context.");
+        if(allocated>length)memory.regions.push({start:base+length,bytes:new Uint8Array(allocated-length),...(base===0x08000000?{codeFile:fileId}:{})});
+      }
       // File56 declares a writable generated-material scratch list immediately
       // after its ROM-backed code. 20A60 overwrites all consumed command words.
-      if(memory.codeFile===56&&this.files.get(56)!.end-this.files.get(56)!.start===0x3f30)memory.regions.push({start:0x08003f30,bytes:new Uint8Array(0x88)});
+      if(memory.codeFile===56&&this.files.get(56)!.end-this.files.get(56)!.start===0x3f30)memory.regions.push({start:0x08003f30,bytes:new Uint8Array(0x88),codeFile:56});
       put(task+0x28,memory.codeFile,2);
       for(const offset of [0x5c,0x5e])put(task+offset,input.actorId,2);
       input.parameters.forEach((value,index)=>put(task+0xd0+index*4,value));
@@ -333,7 +414,16 @@ export class ActorInitializer {
       // remain private and subsequent queries see those actual writes.
       const initialFlags=new Map<number,number>();for(const [index,set] of progression)if(set){const byte=index>>>3;initialFlags.set(byte,(initialFlags.get(byte)??0)|(1<<(index&7)));}
       for(const [byte,value] of initialFlags)put(0x8015c608+byte,value,1);
-      put(0x8016dab4,task);if(input.roomId!==undefined)put(0x800c7ab2,input.roomId,2);
+      // Native D848 seeds this fixed prepared-system base before actor init.
+      // Individual live fields remain unknown and are still marked conditional.
+      put(0x8015c5c8,0x8008ccc0);
+      put(0x8016dab4,task);
+      // Prepared-system offsets 3ADF2/3ADE4/3ADF4/3ADF6/3ADF8. Preserve
+      // the authored active ID while ancillary tables use the verified donor.
+      put(0x800c7ab2,roomId,2);put(0x800c7aa4,stage,1);put(0x800c7ab4,local,2);put(0x800c7ab6,group,1);put(0x800c7ab8,index,2);
+      // Native common 18A54 -> 1928C initializes this target OBJECT before
+      // the placed actor constructor; child inheritance remains its own path.
+      put(task+0x84,word(0x8015cd60));
       memory.onWrite=(address,size)=>{for(const object of objects)for(const [index,axis] of AXES.entries()){const at=object.address+0x14+index*2;if(address<at+2&&address+size>at)object.rotationMask[axis]=true;}};
       memory.phase=true;
       const entry=this.reader.u32(0x5e3c8c+input.actorId*4);
@@ -346,6 +436,8 @@ export class ActorInitializer {
         object.provenance.push("evaluated native first-material builder File56:0x56C before recurring UV/movement callback 0x978; constructor originally installed an END-only list");
         diagnostics.push("Preview evaluates the verified first generated-material frame before recurring UV scrolling or movement.");
       }
+      // An extra direct object can be a shadow before the primary deferred
+      // body is bound. Its declaration never suppresses pending setup stages.
       for(let stage=0;stage<4&&object.identity===undefined&&callbacks.length;stage++){
         const callback=callbacks[callbacks.length-1];if(!callback)break;
         callbacks.pop();object.provenance.push(`advanced deferred initializer ${hex(callback)}`);cpu.run(callback,[task,object.address],STOP);
@@ -355,12 +447,13 @@ export class ActorInitializer {
         const child=children[index],childObject=objectFor(child.task);currentTask=child.task;memory.codeFile=child.codeFile;put(0x8016dab4,child.task);
         const entry=word(child.task+0xc);if(!entry)throw new Error("Native child task callback is null; visual behavior remains unresolved.");
         childObject.provenance.push(`executed configured native child callback ${hex(entry)} after parent setup`);cpu.run(entry,[child.task,childObject.address],STOP);
-        for(let stage=0;stage<4&&childObject.identity===undefined;stage++){
+        for(let stage=0;stage<4&&childObject.identity===undefined&&!multiObjectBodies.has(child.task);stage++){
           const callback=word(child.task+0xc);if(!callback||callback===entry)break;
           childObject.provenance.push(`advanced native child deferred initializer ${hex(callback)}`);cpu.run(callback,[child.task,childObject.address],STOP);
         }
-        if(childObject.identity===undefined){result.failureKind="unresolved";diagnostics.push(`Native child callback ${hex(child.entry)} completed without a bound model; later behavior remains unresolved.`);}
+        if(childObject.identity===undefined&&!multiObjectBodies.has(child.task)){result.failureKind="unresolved";diagnostics.push(`Native child callback ${hex(child.entry)} completed without a bound model; later behavior remains unresolved.`);}
       }
+      result.completed=result.failureKind!=="unresolved";
       if(objects.some(value=>value.identity!==undefined))result.status="resolved";
       else throw new Error(callbacks.length?"Deferred initializer budget ended with an unresolved callback; visual absence is not established.":"Constructor completed without a model declaration; child/deferred visual behavior is not established.");
     }catch(error){if(result.failureKind!=="unresolved")result.failureKind=removed||error instanceof NativeSceneStateError?"scene-gated":"unresolved";diagnostics.push(`${error instanceof Error?error.message:String(error)} [initializer PC ${hex(cpu.pc)}]`);}
@@ -382,11 +475,14 @@ export class ActorInitializer {
       bindings.push({identity:object.identity,slot:object.slot,modelPointer:word(object.address+0x2c),materialPointer:word(object.address+0x30),segments:[...object.segments].map(([segment,value])=>({segment,...value})),scale,rotation,position,positionOffset:{x:position.x-input.position.x,y:position.y-input.position.y,z:position.z-input.position.z},rotationOverrideMask:object.rotationMask,animationFrame:float(object.address+0x28),animationBlendCountdown:float(object.address+0x70),provenance:object.provenance,objectIndex:object.index});
     }
     if(diagnostics.length)result.status=bindings.length?"conditional":"unsupported";
+    if(input.requiredSiblingMissing){result.completed=false;result.failureKind="unresolved";result.status=bindings.length?"conditional":"unsupported";diagnostics.push("Native actor1B0 requires actor287 earlier in the actual target room spawn roster; the required sibling is absent or has not completed initialization.");}
     result.readonlyMemory=[...memory.resourceBases].map(([fileId,address])=>({address,fileId,byteLength:memory.regions.find(r=>r.start===address)!.bytes.length}));
-    result.syntheticMemory=memory.regions.filter(region=>(region.start>=0x81000000&&region.start<0x81200000)||region.start===0x08003f30).map(region=>({address:region.start,bytes:region.bytes.slice()}));
-    const privateAddresses=[...memory.privateBytes.keys()].sort((a,b)=>a-b);
-    for(let start=0;start<privateAddresses.length;){let end=start+1;while(end<privateAddresses.length&&privateAddresses[end]===privateAddresses[end-1]+1)end++;
-      result.syntheticMemory.push({address:privateAddresses[start],bytes:Uint8Array.from(privateAddresses.slice(start,end).map(at=>memory.privateBytes.get(at)!))});start=end;
+    result.syntheticMemory=memory.regions.filter(region=>!region.readonly&&region.start!==0x813e0000).map(region=>({address:region.start,bytes:region.bytes.slice(),...(region.conditional?{conditional:true}:{}),...(region.codeFile===undefined?{}:{codeFile:region.codeFile})}));
+    for(const [codeFile,writes] of [[undefined,memory.privateBytes],...memory.overlayBytes] as [number|undefined,Map<number,number>][]){
+      const privateAddresses=[...writes.keys()].sort((a,b)=>a-b);
+      for(let start=0;start<privateAddresses.length;){let end=start+1;while(end<privateAddresses.length&&privateAddresses[end]===privateAddresses[end-1]+1)end++;
+        result.syntheticMemory.push({address:privateAddresses[start],bytes:Uint8Array.from(privateAddresses.slice(start,end).map(at=>writes.get(at)!)),...(codeFile===undefined?{}:{codeFile})});start=end;
+      }
     }
     result.instructionCount=cpu.instructions;result.branches=cpu.branches.slice(0,2048);return result;
   }

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {InitMachine,type InitMemory} from "../core/rom/actor-init-machine";
-import {ActorInitializer} from "../core/rom/actor-init";
+import {ActorInitializer,nativeActorRoomContext} from "../core/rom/actor-init";
 import {RomReader} from "../core/rom/binary";
 import {readFileTable} from "../core/rom/decompress";
 import {RenderWaves} from "../core/rom/waves";
@@ -60,6 +60,13 @@ test("initializer rejects untrusted IDs and malformed payloads without native ex
   const init=new ActorInitializer(new RomReader(new Uint8Array(0x600000)),new Map(),{wave:()=>new Uint8Array()}),zero={x:0,y:0,z:0};
   for(const input of [{actorId:0x407,parameters:[0,0,0]},{actorId:1,parameters:[-1,0,0]},{actorId:1,parameters:[0,0]}]){const result=init.resolve({...input,position:zero,rotation:zero});assert.equal(result.status,"unsupported");assert.equal(result.instructionCount,0);assert.match(result.diagnostics.join(" "),/validated native actor record/);}
 });
+test("verified resource-free environment initializer proves closure only with its exact entry and overlay",()=>{
+  const bytes=new Uint8Array(0x600000),reader=new RomReader(bytes);reader.view.setUint32(0x5e3c8c+0x8e*4,0x80215a74);
+  const init=new ActorInitializer(reader,new Map(),{wave:()=>new Uint8Array()}),input={actorId:0x8e,parameters:[0,0,0],position:{x:0,y:0,z:0},rotation:{x:0,y:0,z:0},roomId:620,templateRoomId:0};
+  const result=init.resolve(input);assert.equal(result.status,"nonvisual");assert.equal(result.completed,true);assert.equal(result.bindings.length,0);
+  reader.view.setInt16(0x5e4ca6+0x8e*2,1);assert.notEqual(init.resolve(input).completed,true);
+  reader.view.setUint32(0x5e3c8c+0x8c*4,0x802151e0);const transition=init.resolve({...input,actorId:0x8c});assert.equal(transition.completed,true);assert.equal(transition.bindings.length,0);assert.ok(transition.diagnostics.some(message=>message.includes("later transitions are not evaluated")));
+});
 
 const call=(address:number)=>[i(15,0,25,address>>>16),i(13,25,25,address&65535),r(25,0,31,9),0];
 const enter=[i(9,29,29,-32),i(43,29,31,28),r(4,0,16,33)];
@@ -76,8 +83,14 @@ function synthetic(main:number[],callbacks:{pc:number;code:number[]}[]=[]){
 }
 const input0={actorId:0,parameters:[0,0,0],position:{x:0,y:0,z:0},rotation:{x:0,y:0,z:0}};
 test("secondary shadow declarations do not hide an unresolved primary callback budget",()=>{
-  const main=[...enter,i(9,0,5,0),...call(0x80216e54),...constant(4,0x80000400),...call(0x8003521c),...leave];
+  const main=[...enter,i(9,0,5,0),...call(0x80216838),...constant(4,0x80000400),...call(0x8003521c),...leave];
   const result=synthetic(main).resolve(input0);assert.ok(result.bindings.length);assert.ok(result.bindings.every(b=>b.objectIndex>0));assert.equal(result.status,"conditional");assert.equal(result.failureKind,"unresolved");assert.match(result.diagnostics.join(" "),/Primary deferred initializer remains unresolved/);
+});
+test("native extra model allocation declares a task body without inheriting parent transforms",()=>{
+  const main=[...enter,i(9,0,5,0),...call(0x80216e54),...leave];
+  const result=synthetic(main).resolve({...input0,position:{x:30,y:40,z:50},rotation:{x:10,y:20,z:30}});
+  assert.equal(result.completed,true);assert.equal(result.bindings.length,1);assert.deepEqual(result.bindings[0].position,{x:0,y:0,z:0});assert.deepEqual(result.bindings[0].rotation,{x:0,y:0,z:0});assert.equal(result.bindings[0].materialPointer,0xc006d920);
+  assert.ok(result.diagnostics.some(message=>message.includes("Unwritten native pool transforms")));
 });
 test("child initialization observes parent payload assignment and replaced task callback",()=>{
   const main=[...enter,...constant(5,0x80000700),i(9,0,6,0),...call(0x802171a8),i(9,0,8,1),i(43,2,8,0xd0),...constant(8,0x80000800),i(43,2,8,0xc),...leave];
@@ -139,4 +152,31 @@ test("all original placement constructors receive bounded evaluation without inv
     for(const b of result.bindings)assert.ok(b.provenance.length&&b.segments.length);
   }
   assert.equal(total,3888);assert.equal(ids.size,255);
+});
+
+test("verified private CP0 Status disable/restore preserves IE and rejects other hardware registers",()=>{
+  const disable=[0x40086000,0x2409fffe,0x01094824,0x40896000,0x31020001,ret,0];
+  const memory=new Memory().code(...disable),cpu=new InitMachine(memory);cpu.cp0Status=0x34000001;cpu.run(0);assert.equal(cpu.registers[2],1);assert.equal(cpu.cp0Status,0x34000000);
+  memory.code(0x40086000,0x01044025,0x40886000,ret,0);cpu.run(0,[1]);assert.equal(cpu.cp0Status,0x34000001);
+  memory.code(0x40084800,ret,0);assert.throws(()=>cpu.run(0),/Unsupported native COP0/);
+});
+
+test("native room context separates the active authored ID from bounded donor mappings",()=>{
+  const bytes=new Uint8Array(0x5c640),reader=new RomReader(bytes),bounds=[0,300,350,400,540,544,549,561,588,607,613,618,619,620];
+  bounds.forEach((value,index)=>reader.view.setUint16(0x5c610+index*2,value));
+  assert.deepEqual(nativeActorRoomContext(reader,{roomId:620,templateRoomId:465}),{stage:3,local:65,group:3,index:65});
+  assert.deepEqual(nativeActorRoomContext(reader,{roomId:90}),{stage:0,local:90,group:4,index:0});
+  assert.deepEqual(nativeActorRoomContext(reader,{roomId:128}),{stage:0,local:128,group:5,index:0});
+  assert.deepEqual(nativeActorRoomContext(reader,{roomId:349}),{stage:1,local:49,group:1,index:49});
+  assert.throws(()=>nativeActorRoomContext(reader,{roomId:620}),/Invalid/);
+  assert.throws(()=>nativeActorRoomContext(reader,{roomId:800,templateRoomId:0}),/Invalid/);
+});
+
+test("native conditional camera/player contexts use distinct objects and authored active room fields",{skip:!process.env.MNSG_TEST_ROM},()=>{
+  const {initializer}=native(),result=initializer.resolve({actorId:0x82,parameters:[0,0,0],position:input0.position,rotation:input0.rotation,roomId:620,templateRoomId:465});
+  const read=(address:number,length:number)=>{const bytes=new Uint8Array(length);for(let i=0;i<length;i++){for(const span of result.syntheticMemory)if(address+i>=span.address&&address+i<span.address+span.bytes.length)bytes[i]=span.bytes[address+i-span.address];}return new DataView(bytes.buffer);};
+  assert.equal(read(0x800c7ab2,2).getUint16(0),620);assert.equal(read(0x800c7aa4,1).getUint8(0),3);assert.equal(read(0x800c7ab4,2).getUint16(0),65);assert.equal(read(0x800c7ab6,1).getUint8(0),3);assert.equal(read(0x800c7ab8,2).getUint16(0),65);
+  const cameraObject=read(0x801fc628,4).getUint32(0),cameraTask=read(0x801fc624,4).getUint32(0),playerObject=read(0x801fc60c,4).getUint32(0),playerTask=read(0x801fc604,4).getUint32(0);
+  assert.notEqual(cameraTask,cameraObject);assert.notEqual(playerTask,playerObject);assert.equal(read(cameraTask+0x18,4).getUint32(0),cameraObject);assert.equal(read(cameraObject+0x2c,4).getUint32(0),0xa020cbf0);assert.equal(read(0x8015cd60,4).getUint32(0),playerObject);assert.equal(read(playerTask+0x18,4).getUint32(0),playerObject);
+  assert.equal(result.syntheticMemory.find(span=>span.address===0x8020cbf0)?.bytes.length,0x60);
 });

@@ -6,6 +6,7 @@ import path from "node:path";
 import type { EditorProject, RoomData, ToolchainStatus } from "../../shared/types";
 import { generatePatch } from "./patch";
 import type { GetGeometryTranslation } from "./geometry";
+import type {GetAuthoringExportContext} from "./authoring";
 
 /** Paths are selected in the trusted desktop process, never supplied by a project. */
 export interface ToolchainConfig {
@@ -73,12 +74,18 @@ async function verifyTools(tools: ResolvedTools): Promise<void> {
   if (!header.includes(".recomp_hook.")) throw new Error("The template modding.h lacks RECOMP_HOOK support.");
 }
 
-export async function exportNrm(project: EditorProject, loadRoom: (id: number) => RoomData | Promise<RoomData>, config: ToolchainConfig, getTranslation?: GetGeometryTranslation): Promise<{ bytes: Uint8Array; fileName: string; buildLog: string; warnings: string[] }> {
-  const generated = await generatePatch(project, loadRoom, getTranslation);
+export async function exportNrm(project: EditorProject, loadRoom: (id: number) => RoomData | Promise<RoomData>, config: ToolchainConfig, getTranslation?: GetGeometryTranslation,getAuthoringContext?:GetAuthoringExportContext): Promise<{ bytes: Uint8Array; fileName: string; buildLog: string; warnings: string[] }> {
+  const generated = await generatePatch(project, loadRoom, getTranslation,getAuthoringContext);
   const resolved = await resolveTools(config);
   if (!resolved.tools) throw new Error(`Cannot build an NRM. Configure: ${resolved.missing.join(", ")}.`);
   const tools = resolved.tools;
   await verifyTools(tools);
+  const [functionSymbols,dataSymbols] = await Promise.all([readFile(tools.functions,"utf8"),readFile(tools.data,"utf8")]);
+  const payload = generated.files["mnsg_level_patch.c"];
+  for (const symbol of new Set(payload.match(/\b(?:func_[A-Za-z0-9_]+|D_[A-Za-z0-9_]+)\b/g) ?? [])) {
+    const reference = symbol.startsWith("func_") ? functionSymbols : dataSymbols;
+    if (!reference.includes(`name = "${symbol}"`)) throw new Error(`Compatible native symbol ${symbol} is missing from the selected template. No NRM was emitted.`);
+  }
   const directory = await mkdtemp(path.join(tmpdir(), "mnsg-level-export-"));
   try {
     await mkdir(path.join(directory, "build"));

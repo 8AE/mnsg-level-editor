@@ -19,7 +19,8 @@ export class RenderWaves {
     const cached=this.cache.get(id);if(cached){this.cache.delete(id);this.cache.set(id,cached);return cached;}
     const file=this.files.get(id);if(!file||file.compressed)throw new Error("Render wave is unavailable.");
     const start=this.reader.u32(0x556c4+id*8),end=this.reader.u32(0x556c4+id*8+4),size=end-start;
-    if(size<file.end-file.start||size<0||size>16*1024*1024||(start>>>24)!==this.segment(id))throw new Error("Render wave allocation is invalid.");
+    const copyLength=Math.ceil((file.end-file.start)/2)*2;
+    if(size<copyLength||size<0||size>16*1024*1024||(start>>>24)!==this.segment(id)||(end>>>24)!==(start>>>24))throw new Error("Render wave allocation is invalid.");
     const wave=new Uint8Array(size);wave.set(this.reader.bytes.subarray(file.start,file.end));
     const pointer=this.reader.u32(0x6a51c+id*4);if(pointer<0x80000000||pointer>=0x80100000)throw new Error("Render parts list has an unmapped resident pointer.");
     let at=pointer-0x80000000+0xc00,terminated=false;

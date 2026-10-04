@@ -142,3 +142,28 @@
   .export-option small { color: var(--editor-muted); font-size: 11px; line-height: 1.5; }
   .export-icon { font-size: 22px; color: var(--editor-accent); }
 }
+
+.asset-library { width: 320px; min-width: 280px; max-width: 28vw; height: 100%; background: #151c1e; }
+.asset-grid { overflow: auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 16px; }
+.asset-card { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid #2a3938; border-radius: 12px; min-width: 0; background: #192324; cursor: grab; }
+.asset-card:active { cursor: grabbing; }
+.asset-card > span { overflow-wrap: anywhere; }
+.asset-thumbnail-empty { aspect-ratio: 3/2; display: grid; place-content: center; text-align: center; color: #8a9d99; font-size: 11px; background: #101718; border-radius: 8px; }
+.value-field select { width: 100%; min-height: 36px; padding: 8px; color: #d6e8e2; background: #141e20; border: 1px solid #314440; border-radius: 8px; }
+.check-field { display: flex; align-items: flex-start; gap: 8px; color: #a7beb6; font-size: 12px; }
+.authoring-inspector { overflow-wrap: anywhere; }
+@media (max-width: 1150px) { .asset-library { width: 260px; min-width: 220px; } .asset-grid { grid-template-columns: 1fr; } }
+.asset-grid { flex: 1; min-height: 0; }
+.mnsg-editor .viewport-controls > div:first-child { min-width: 0; overflow-x: auto; flex: 1; }
+.mnsg-editor .viewport-controls > span { flex-shrink: 0; padding-left: 12px; }
+
+/* Empty-room guidance must not intercept native library drag/drop. */
+.no-geometry { pointer-events: none; }
+
+.asset-grid { align-content: start; align-items: start; }
+
+.preview-reason { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preview-details { font-size: var(--font-size-body-xs); color: var(--neutral-on-background-weak); overflow-wrap: anywhere; }
+.preview-details summary { cursor: pointer; color: var(--neutral-on-background-medium); }
+.preview-details ul { margin: 12px 0 0; padding-left: 16px; }
+.preview-details li + li { margin-top: 8px; }

@@ -11,6 +11,8 @@ export class InitMachine {
   readonly registers=new Uint32Array(32);
   readonly floating=new Uint32Array(32);
   pc=0; nextPc=0; hi=0; lo=0; condition=false; fcr31=0; instructions=0; depth=0;
+  /** Private offline Status state for the verified disable/restore IE sequence. */
+  cp0Status=1;
   readonly branches:{pc:number;taken:boolean;target:number}[]=[];
   private readonly bits=new DataView(new ArrayBuffer(8));
   private inDelay=false;
@@ -78,6 +80,10 @@ export class InitMachine {
     else if(op===10)r[rt]=signed(a)<simm?1:0;
     else if(op===11)r[rt]=a<(simm>>>0)?1:0;
     else if(op===12)r[rt]=a&imm;else if(op===13)r[rt]=a|imm;else if(op===14)r[rt]=a^imm;else if(op===15)r[rt]=imm<<16;
+    else if(op===16){
+      if(rd!==12||(word&0x7ff)!==0||(rs!==0&&rs!==4))throw new Error(`Unsupported native COP0 instruction ${h(word)} at ${h(pc)}.`);
+      if(rs===0)r[rt]=this.cp0Status;else this.cp0Status=r[rt];
+    }
     else if(op===17){
       if(rs===0)r[rt]=this.floating[rd];else if(rs===4)this.floating[rd]=r[rt];
       else if(rs===2)r[rt]=rd===31?((this.fcr31&~0x800000)|(this.condition?0x800000:0)):0;

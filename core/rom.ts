@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { ActorData,ActorOverride,ActorVisualPayload, RomIdentity, RoomData, RoomSummary, SourceRecord } from "../shared/types";
+import type { ActorData,ActorOverride,ActorVisualPayload,ActorPrototypeEdits,AuthoringCatalog,GeometryAssetPayload,SkyboxAssetPayload, RomIdentity, RoomData, RoomSummary, SourceRecord } from "../shared/types";
 import { RomReader, normalizeRomByteOrder } from "./rom/binary";
 import { decompressUsRom, readFileTable, type RomFile } from "./rom/decompress";
 import { ROOM_NAMES } from "./rom/catalog";
@@ -12,6 +12,8 @@ import {RenderWaves} from "./rom/waves";
 import {renderRoom} from "./rom/render";
 import {ActorVisuals} from "./rom/actors";
 import {createProject,validateProject} from "./project";
+import {NativeAuthoringCatalog,type AuthoringExportContext} from "./authoring/catalog";
+import {ACTOR_NAMES} from "./rom/actors-names";
 
 export { normalizeRomByteOrder } from "./rom/binary";
 export { decompressLzkn64, readFileTable } from "./rom/decompress";
@@ -30,6 +32,7 @@ export class ImportedRom {
   private readonly renderWaves:RenderWaves;
   private readonly renderedRooms=new Map<number,RoomData>();
   private readonly actorVisuals:ActorVisuals;
+  private readonly authoring:NativeAuthoringCatalog;
   constructor(readonly bytes: Uint8Array, readonly identity: RomIdentity) {
     this.reader = new RomReader(bytes);
     this.files = new Map(readFileTable(bytes).map(file => [file.id, file]));
@@ -38,6 +41,7 @@ export class ImportedRom {
     this.translations=new GeometryTranslations(this.reader,this.files,id=>this.segment(id));
     this.renderWaves=new RenderWaves(this.reader,this.files,id=>this.segment(id));
     this.actorVisuals=new ActorVisuals(this.reader,this.files,this.renderWaves);
+    this.authoring=new NativeAuthoringCatalog(this.reader,this.files,this.renderWaves,this.actorVisuals,id=>this.segment(id),{listRooms:()=>this.listRooms(),loadBaseRoom:id=>this.loadBaseRoom(id),loadRoom:id=>this.loadRoom(id),geometryTranslation:(id,t)=>this.geometryTranslation(id,t)},identity.normalizedSha256);
   }
   private resident(pointer: number, size: number): number {
     if (pointer < FILE12_VRAM || pointer + size > FILE12_VRAM + FILE12_SIZE)
@@ -83,6 +87,16 @@ export class ImportedRom {
     const validated=validateProject(project,this.identity,id=>this.loadBaseRoom(id));
     return this.actorVisuals.load(room,validated.roomOverrides[String(roomId)]?.actors??{});
   }
+  getAuthoringCatalog():AuthoringCatalog {return this.authoring.getCatalog();}
+  loadGeometryAsset(id:string):GeometryAssetPayload {return this.authoring.loadGeometryAsset(id);}
+  loadActorPrototype(id:string,edits:ActorPrototypeEdits={}):ActorVisualPayload {return this.authoring.loadActorPrototype(id,edits);}
+  loadActorPrototypeForRoom(id:string,edits:ActorPrototypeEdits,context:import("./rom/actor-init").NativeActorContext):ActorVisualPayload {return this.authoring.loadActorPrototypeForRoom(id,edits,context);}
+  loadSkyboxAsset(id:string):SkyboxAssetPayload {return this.authoring.loadSkyboxAsset(id);}
+  resolveAuthoringMaterial(id:string):ReturnType<NativeAuthoringCatalog["resolveMaterial"]> {return this.authoring.resolveMaterial(id);}
+  authoringExportContext():AuthoringExportContext {return this.authoring.exportContext();}
+  nativeRoomSkyboxId(roomId:number):string|undefined {return this.authoring.nativeSkyboxId(roomId);}
+  nativeRoomGeometryAssetId(roomId:number):string|undefined {return this.authoring.nativeGeometryAssetId(roomId);}
+  loadAuthoringRoom(roomId:number):RoomData {return this.authoring.decorateRoom(this.loadRoom(roomId));}
   loadRoom(id: number): RoomData {
     const cached=this.renderedRooms.get(id);if(cached){this.renderedRooms.delete(id);this.renderedRooms.set(id,cached);return structuredClone(cached);}
     const room=this.loadBaseRoom(id);
@@ -126,7 +140,7 @@ export class ImportedRom {
         const definition = sourceKind === "resident" ? this.resident(definitionPointer, 16) : this.resolve(definitionPointer, fileId, 16);
         const actorId = r.u16(definition), sourcePointer = list + index * 20;
         seen.add(at);
-        actors.push({ id: `actor:${at.toString(16)}`, index: actors.length, actorId, name: `Actor 0x${actorId.toString(16).toUpperCase().padStart(3, "0")}`,
+        actors.push({ id: `actor:${at.toString(16)}`, index: actors.length, actorId, name: ACTOR_NAMES[actorId]??`Actor 0x${actorId.toString(16).toUpperCase().padStart(3, "0")}`,
           position: { x: r.i16(at), y: r.i16(at + 2), z: r.i16(at + 4) },
           rotation: { x: r.i16(at + 6), y: r.i16(at + 8), z: r.i16(at + 10) },
           parameters: [r.u32(definition + 4), r.u32(definition + 8), r.u32(definition + 12)],

@@ -23,7 +23,8 @@ test("derived native event views follow edited actor placement and behavior payl
   const edited = { ...project, roomOverrides: { "1": { actors: { [actor.id]: { position: { x: 20, y: 30, z: 40 }, parameters: [0, 0, 0x00070000] } }, events: {} } } };
   const view = applyOverrides(room, edited);
   assert.deepEqual(view.events[0].position, { x: 20, y: 30, z: 40 });
-  assert.match(view.events[0].name, /room 0x7/);
+  assert.match(view.events[0].name, /selector 0x7/);
+  assert.doesNotMatch(view.events[0].name, /room 0x7/, "native selector is not a universal destination room ID");
   assert.equal(view.events[0].actorRef, actor.id);
   assert.equal(view.events[0].editable, false);
   assert.equal(view.actors[0].source, actor.source);
