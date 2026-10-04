@@ -344,7 +344,8 @@ vertex modes/scales and unsupported load/draw root combinations keep the affecte
 untextured. Model geometry remains visible. The exporter rejects flattening generated actor
 coordinates into a static custom-door appearance.
 
-The fresh metadata-only census reports 361 library candidate IDs: 74 supported, 170 conditional,
+The historical 0.2.2 metadata-only census reports 361 library candidate IDs: 74 supported,
+170 conditional,
 11 nonvisual and 106 unresolved, including seven partial previews. It contains 497 parts and
 26,267 triangles: 22,911 textured and 3,356 untextured. For 255 IDs with canonical placements,
 it reports 54 supported, 152 conditional, 11 nonvisual and 38 unresolved, with 451 parts and
@@ -358,3 +359,64 @@ with no page/console errors. Those checks cover native normals, hierarchy, per-d
 the decoded TEXGEN examples. Read the [validation
 record](../README.md#package-and-validation-status) for source, authoring, package and
 installed-app results. No generated mod or native game was run.
+
+
+## Scoped loader previews and metadata controllers
+
+The loader preview reconstructs a cold native resource checkpoint for actor 0x24C in room 306
+and actor 0x35C in room 193. An authored preview must use the matching template room. Both rules
+require three zero payload words and a zero retained definition halfword; other contexts remain
+unresolved. The decoder follows the immediate native child constructors and retains their
+absolute position, yaw and scale.
+
+| Actor | Immediate preview | Scope |
+| --- | --- | --- |
+| `0x24C` | Identity `0x1AF`, File484 + File338, 78 triangles; identity `0x317`, File690 + File338, 92 triangles | Flag 0x99-clear branch in donor 306; alternate File70 scene remains unresolved |
+| `0x35C` | Identity `0x359`, File572 + File338, two textured triangles using one bitmap | Donor 193; first native texture-sequence image through segment B at File572 + `0x110` |
+
+Both results remain conditional with raw initializer `completed=false`. The ordered registry
+contains 29 IDs before 0x24C's children and 30 afterward; 0x35C's checkpoint grows from 22 to 36.
+These counts describe the reconstructed cold postcallback checkpoint. Earlier tasks, resource
+trimming and hot visits can change live occupancy. The decoder does not simulate transient
+scratch pressure or later cutscene, motion and physics callbacks. These previews do not admit
+foreign-room exports or establish native fog, sorting and framebuffer parity.
+
+Three guarded metadata classifications add markers without evaluating native instructions:
+
+| Actor | Native role | Resource evidence |
+| --- | --- | --- |
+| `0x23B` | Registered no-op, File43 `080022FC`; its 12-byte body saves arguments and returns | Static `verified-controller-closure` for File43 |
+| `0x35E` | File24 spatial-sound controller with a persistent countdown and source-object pointer | Classification only; no export resource-closure proof |
+| `0x1BF` | File30 camera/scene controller affecting existing player animation and speech/UI | Classification only; no export resource-closure proof |
+
+All three raw initializer results keep `completed=false` and `instructionCount=0`. The separate
+0x23B resource contract certifies its finite empty constructor; it does not assert CPU execution.
+The other two classifications supply no `proofKind` or export admission. None owns an intrinsic
+world mesh. Keep their live audio, camera, player and UI effects; a nonvisual marker does not
+remove those behaviors.
+
+The guards check the supported normalized ROM, initializer/overlay identity, body and callee
+bytes, file bounds, allocation extent and empty parts tables. Changed or truncated evidence
+remains unsupported. Read the [native loader and controller proof](
+native-room-authoring.md#scoped-loader-and-controller-implementation) and [material evidence](
+native-textures.md#loader-child-materials) for the checkpoint and appearance limits.
+
+
+### Version 0.2.3 coverage
+
+The fresh census reports 361 library IDs: 74 supported, 172 conditional, 14 nonvisual and 101
+unresolved, including seven partial previews. Its 500 parts contain 26,439 triangles: 23,050
+textured and 3,389 untextured. For 255 IDs with canonical placements, it reports 54 supported,
+154 conditional, 14 nonvisual and 33 unresolved, with 454 parts and 24,116 triangles: 21,275
+textured and 2,841 untextured.
+
+Exactly five IDs changed status from 0.2.2: 0x24C/0x35C became conditional and 0x23B/0x35E/0x1BF
+became nonvisual. ROM bytes and native room coverage stayed unchanged. Read the [validation
+record](../README.md#package-and-validation-status) for revision-specific checks. Neither census
+establishes later visibility or export admission for each candidate.
+
+
+Four actual Electron/GPU checks covered both scoped native placements and their real library
+cards. They confirmed 0x24C's 170 triangles with 137 textured and 0x35C's two textured triangles,
+restored exact pixels after texture toggles, and preserved ROM/profile data with no page,
+console or child-process errors. The raw completion and later-gameplay boundaries above remain.

@@ -1319,7 +1319,7 @@ unsupported cross-root state keeps the affected appearance untextured.
 The five decoded assets contain 448 triangles, 432 generated. Seventeen canonical actor parts
 contain 1,172 generated-coordinate triangles. Slicer now uses its File384 32 by 64 RGBA16 bitmap
 on eight triangles. The room inventory remains 383 records, 118,110 triangles, 114,137 textured
-and 378 visual rooms. The fresh library census remains 361 IDs with 74 supported, 170
+and 378 visual rooms. The historical 0.2.2 library census contains 361 IDs with 74 supported, 170
 conditional, 11 nonvisual and 106 unresolved; only its textured/untextured split changes to
 22,911/3,356 across 26,267 triangles.
 
@@ -1332,3 +1332,103 @@ passed 14 milestones, preserving the eight House actors and File96 and exporting
 actual-ROM/toolchain suite covered strict MIPS/link/NRM fixtures; the authoring smoke did not
 request NRM packaging. Read the [validation record](../README.md#package-and-validation-status)
 for GPU, package and installed-app results. No native game or generated NRM was run.
+
+
+## Scoped loader and controller implementation
+
+These notes extend the frozen native proof above with the editor's guarded 0x24C/0x35C previews
+and metadata-only 0x23B/0x35E/0x1BF classifications. They record implementation boundaries;
+release checks and aggregate coverage belong in the [validation record](
+../README.md#package-and-validation-status).
+
+### Cold resource checkpoint and immediate children
+
+File11 cold setup `801F728C_5B319C` resets the registry and player context through `801DC630`
+and `801CBD14`, loads the common list through `801CBCE4`, records its prefix through `801F8790`,
+loads the room through `801F87F8(0)`, then dispatches the File12 metadata callback at `8020D6BC`.
+Native scheduler `80034734_35334` runs afterward. Reserved player memory
+`80304000..80321500` contributes no registry IDs. Player graphics 288/292/296/300 and selected
+animation ranges 291/295/299/303 load into reserved buffers outside this registry.
+
+| Donor | Cold postcallback ledger | Immediate constructor result |
+| --- | --- | --- |
+| 306 | 29 IDs, cursor `803F6500`; File45 entry 18 at `803CB000`, tagged `C03CB000` | 0x24C children `08000324` and `08001820` bind identities 0x1AF/0x317. File484 appends one ID; File690/File338 are present. Result: 30 IDs, cursor `803FB3C0`. |
+| 193 | 22 IDs, cursor `803A0780`; File74 entry 20 at `8039B000`, tagged `C039B000` | 0x35C's immediate parent callback `080000A8` creates child `08002BBC`. Its ordered 14-ID local list gives 36 IDs, cursor `803E8600`. Identity 0x359 binds File572/File338 and segment B at File572 + `0x110`. |
+
+The preview requires the native donor or an authored room with that template, three zero
+payload words and a zero definition halfword. It preserves the authored active room ID while
+using the verified donor tables. For 0x24C, flag 0x99-clear selects the two immediate children;
+the alternate File70 path remains unresolved. Native child writes supply absolute XYZ, yaw and
+scale. Those parts contribute 78 and 92 triangles; 0x35C contributes two textured triangles
+using one bitmap.
+
+These ledger counts describe a reconstructed cold checkpoint, not measured live occupancy.
+Previously scheduled tasks can append resources or trim the retained suffix before a
+constructor. Hot `801F7C14` teardown and `801F87F8`/`801F7F78` retention can yield different
+history-dependent contents. The preview does not simulate PIC arena/framebuffer scratch
+pressure or later task scheduling, cutscenes, motion and physics. Both raw results remain
+conditional with `completed=false`; a visible part does not complete export closure.
+
+Native `800141C4(0)` returns zero; a missing nonzero resource returns `-1`. The binders preserve
+primary-then-secondary lazy loading through `80013B14`. Segment binder `80014218` does not load
+missing File338. CPU File45/File74 overlays use virtual namespace `08000000`; they are not RSP
+segment-eight models. Native `80001DF4` returns tag `0x40000000` for code class `0x11`, selecting
+4 KiB base alignment, with a 64-byte next cursor. The interval row's byte `+2` is not that tag.
+
+### Render bucket and first texture sequence
+
+File45 child `08000324_6FED54` writes draw bucket seven at object `+5`; its allocator leaves
+render type two at `+4`. Main `800087C4` dispatches that type through ordinary `80016C44`.
+Do not interpret bucket seven as model type seven or a special projection. Bucket flags,
+neighbor order and camera sorting remain unknown in a standalone preview.
+
+File45 `0800078C_6FF1BC` writes the inline material at task `+C8`: nested list `8006DA80`,
+two-cycle pair `FC567E04 / 1FFCF3F8`, white environment RGB with alpha zero, then end.
+The `0x20000000` tag requests command copying. Environment alpha zero selects texture RGB in
+cycle zero, and cycle one multiplies it by shade; texture alpha survives. See [material
+expressions](native-textures.md#loader-child-materials). Native fog, lighting, filtering and
+framebuffer results remain separate evidence requirements.
+
+The 0x35C child follows actual `80224ABC`/`80224560` first-sequence initialization. Speed input
+3.0 produces byte `task+AB=15`, with mode one. Segment B starts at File572 + `0x110`; the native
+32 by 16 RGBA bitmap supplies its first image. Later texture callbacks remain outside the
+preview. The texture evidence records the decoded hash without committing pixel bytes.
+
+### Metadata-only nonvisual classifications
+
+| Actor | Native proof | Editor resource contract |
+| --- | --- | --- |
+| 0x23B | File43 `080022FC_6F57DC`, 12 bytes: store argument homes and return; no model, child, parameter read or callback change | File43 `verified-controller-closure`, backed by static empty-constructor evidence |
+| 0x35E | File24 `08000808_6ACD58`; persistent spatial-sound state with owner pointer in its zero-filled allocation tail | No `proofKind` and no new export admission |
+| 0x1BF | File30 `08002D98_6C24E8` and its finite callbacks manipulate a typed camera child, existing player and speech/UI | No `proofKind` and no new export admission |
+
+The editor returns raw `completed=false` and `instructionCount=0` for all three. It classifies
+metadata without running their callbacks or allocating their live work. The separate 0x23B
+contract's finite static closure does not assert CPU completion. This distinction supersedes
+any earlier suggestion to treat the no-op classification as an executed initializer result.
+
+For 0x35E, File24 raw data ends at `08000E70`, while native allocation ends at `08000E80`.
+Its owner pointer occupies the zero-filled tail. State zero stores the task; state one services
+a positive countdown and calls `8000F420_10020` at exactly 40 using a live camera and source
+object at task `+D8`. Absence of a model binder does not certify those audio inputs or future
+resource behavior.
+
+For 0x1BF, event C chooses whether to allocate a typed camera task through `80012940_13540`.
+The tagged camera graph drives camera work rather than skeleton rendering. Later callbacks
+change existing player position/yaw and animation through `801DACDC`, and start speech/UI.
+The native caller does not guard camera-allocation failure. The editor neither fabricates
+success nor closes those external player/UI paths. All three actors lack an intrinsic world
+mesh; their nonvisual markers preserve the separate live effects.
+
+Each classifier rechecks normalized ROM identity, initializer/overlay tables, constructor and
+callee hashes, file bounds, allocation extent and empty PIC-parts evidence. Changed or
+truncated input remains unsupported. No native game or generated NRM was executed to establish
+these static contracts.
+
+
+The fresh 0.2.3 census records the two conditional loaders and three nonvisual metadata
+controllers as the only five status changes. Library results now total 361 IDs: 74 supported,
+172 conditional, 14 nonvisual and 101 unresolved. The [actor coverage table](
+native-actors.md#version-023-coverage) records the canonical and triangle totals. The census
+confirmed unchanged ROM bytes and native room coverage; it does not certify live scheduling or
+later resource closure.

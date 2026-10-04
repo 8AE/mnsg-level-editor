@@ -1,42 +1,47 @@
 # Development roadmap
 
-Published version 0.2.2 supports version 2 room authoring: blank rooms, native
+Version 0.2.3 supports version 2 room authoring: blank rooms, native
 clones and editable replacements; mesh, vertex and face editing; native asset
 placement; collision generation; entrances, custom doors and sky selection.
 Export produces C/H source or an optional `.nrm` through the local toolchain.
 The [authoring guide](room-authoring.md) covers the workflow; this roadmap tracks
 its supported bounds and remaining work.
 
-## Published preview coverage
+## Preview coverage
 
 The supported US ROM contains 383 decoded room records, including 378 with
-visual geometry. The 0.2.2 actor census distinguishes library seed previews from
+visual geometry. The 0.2.3 actor census distinguishes library seed previews from
 canonical native placements:
 
 | Census | Candidate IDs | Supported | Conditional | Nonvisual | Unresolved |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Library seeds | 361 | 74 | 170 | 11 | 106 |
-| IDs with canonical placements | 255 | 54 | 152 | 11 | 38 |
+| Library seeds | 361 | 74 | 172 | 14 | 101 |
+| IDs with canonical placements | 255 | 54 | 154 | 14 | 33 |
 
 The library's unresolved group includes seven partial previews. These counts
 cover bounded initialization and initial model declarations. Library scene
 hints can differ from canonical placement state; neither census establishes
 later visibility, animation or export admission for each candidate.
 
-Version 0.2.2 adds native signed-normal TEXGEN previews, including Slicer's
+Native signed-normal TEXGEN previews include Slicer's
 File384 texture. Unknown inherited LookAt uses an explicit conditional
 editor-camera basis. Mixed vertex state, partial LookAt and unsupported
 load/draw roots retain an untextured fallback. Timed Barrel and Slicer previews
 stop after the first child initializer and retain incomplete CPU results.
 Read [actor evidence](native-actors.md) and [texture limits](native-textures.md)
-for the distinctions. Work still in development does not change this published
-coverage record.
+for the distinctions.
+
+Version 0.2.3 adds immediate 0x24C/0x35C child previews under exact donor and zero-definition
+checks. Both remain conditional and incomplete for CPU/export purposes. Metadata-only
+0x23B/0x35E/0x1BF classifications execute no native instructions; only 0x23B adds a static File43
+controller resource contract. These five IDs account for the census changes. Coverage remains
+incomplete; later live behavior and foreign-room export closure require separate evidence.
 
 ## Development phases
 
 | Phase | Current capability | Work remaining |
 | --- | --- | --- |
-| 1: Read and display | US-ROM import, byte-order normalization and decompression; textured rooms and bounded native actor parts/initial poses; actor-linked event inspection; native asset libraries and thumbnails; picking, framing, Pan/Tilt and focused WASD; conditional TEXGEN and first timed-child previews | Wider verified actor/helper/material coverage; later animation and spawning; native lighting, fog and filtering parity; special scenes and broader collision inspection |
+| 1: Read and display | US-ROM import, byte-order normalization and decompression; textured rooms and bounded native actor parts/initial poses; actor-linked event inspection; native asset libraries and thumbnails; picking, framing, Pan/Tilt and focused WASD; conditional TEXGEN, first timed-child previews and donor-scoped 0x24C/0x35C children | Wider verified actor/helper/material coverage; later animation and spawning; native lighting, fog and filtering parity; special scenes and broader collision inspection |
 | 2: Author | Version 2 blank rooms, clones and editable replacements; independent authored geometry; mesh TRS, vertex XYZ/UV/RGBA, face topology and gizmos; actor insertion/deletion and loading policy; named entrances, editable custom-door volumes/destinations and sky inheritance/None/native assets; collision generation and linked updates; undo/redo and saved/native recovery | Direct native BSP editing and richer collision visualization; native event/script editing; migration of sparse actors across original proximity cells; broader scene support |
 | 3: C/H export | Sparse actor/translation patches and authored room payloads; owned geometry, copied or generated native collision, rebuilt authored proximity grids, metadata/admission, entrances, doors and sky; constructor-resource checks, guarded controller contracts and dependency/preimage safeguards | User gameplay validation of entry, physics, camera, progression, teardown and revisit; more verified actor/resource contexts; compatibility with mods that change native roots or allocations; arbitrary scripts |
 | 4: Prebuilt `.nrm` and desktop release | Optional local LLVM/LLD/RecompModTool pipeline using an initialized template; macOS ARM64 ad hoc signed package and installed-app checks | Toolchain distribution or guided installation; Intel macOS and Windows native runtime checks; Developer ID/notarization and Windows signing; user gameplay regression coverage |
@@ -108,7 +113,18 @@ identity and sparse edits. Continue testing malformed input, bounded native
 fields, shared sources, graph references and saved-state recovery. Projects
 must not supply native pointers, executable paths or toolchain arguments.
 
-The published 0.2.2 checks cover source tests, GPU presentation, 14 Electron
+The 0.2.3 source checks passed fresh typecheck, production build and an actual-ROM/toolchain
+suite with 250 tests: 247 passed, none failed and three optional GPU checks skipped. The census
+confirmed unchanged ROM bytes. Separate texture/actor and thumbnail-framing runs passed 16
+and 19 checks, including GPU rendering. Four actual Electron checks covered the native loader
+placements and their real library cards, with exact texture-toggle restoration and unchanged
+ROM/profile data. macOS ARM64 packaging and strict signatures passed. The installed binary
+passed isolated-package checks for 383 cached rooms, four native textured rooms, model/selector
+refresh and focused WASD, preserving ROM/cache data. A normal installed cached-ROM launch
+restored 383 rooms and House room 465's eight actors, textures and Pan/Tilt controls, with
+unchanged ROM/profile hashes.
+
+The prior 0.2.2 release checks cover source tests, GPU presentation, 14 Electron
 C/H authoring milestones, separate native compile/link/NRM fixtures, a packaged
 macOS ARM64 app and normal installed cached-ROM launch. Consult the
 [validation record](../README.md#package-and-validation-status) for exact scopes

@@ -19,10 +19,10 @@ without selecting the ROM again.
 
 ## Editing scope
 
-Version 0.2.2 supports version 2 room authoring and C/H or `.nrm` export. It adds generated
-texture-coordinate previews from native signed normals and vertex-load state, including Slicer's
-native texture. Guarded House controller contracts and conditional first-child previews remain
-available.
+Version 0.2.3 supports version 2 room authoring and C/H or `.nrm` export. It adds scoped native
+child previews for 0x24C/0x35C and guarded metadata-only classifications for 0x23B/0x35E/0x1BF.
+Generated texture coordinates, Slicer's native texture, House controller contracts and timed
+first-child previews remain available.
 
 - **Rooms:** browse 383 native room records, including 378 with decoded visual
   geometry. View original static textures, UVs, indexed palettes and supported
@@ -78,15 +78,23 @@ of game behavior:
 | Unavailable | A placement marker and diagnostic details for an unresolved model. |
 | Nonvisual controller | A hollow placement marker for a verified controller without a primary mesh. |
 
-The actor library includes 361 candidate IDs: 74 supported, 170 conditional,
-11 nonvisual and 106 unresolved. The unresolved group includes seven partial
+The actor library includes 361 candidate IDs: 74 supported, 172 conditional,
+14 nonvisual and 101 unresolved. The unresolved group includes seven partial
 previews. These counts describe bounded decoder results; they do not establish
 later gameplay behavior or export admission for each candidate.
 
-The census contains 497 decoded parts and 26,267 triangles: 22,911 textured and 3,356
-untextured. Across 255 IDs with canonical native placements, the results are 54 supported, 152
-conditional, 11 nonvisual and 38 unresolved. Library seed previews can use different scene hints
+The census contains 500 decoded parts and 26,439 triangles: 23,050 textured and 3,389
+untextured. Across 255 IDs with canonical native placements, the results are 54 supported, 154
+conditional, 14 nonvisual and 33 unresolved. Library seed previews can use different scene hints
 from the original placements, so their status can differ.
+
+Actor 0x24C previews two immediate children in native donor 306, totaling 170 triangles.
+Actor 0x35C previews its first texture-sequence image in donor 193: two textured triangles
+using one bitmap.
+Authored previews require the matching template and zero payload words/definition halfword.
+Both remain conditional with incomplete CPU/export results. The nonvisual 0x23B/0x35E/0x1BF
+classifications execute no native instructions. Only 0x23B adds a static File43 resource contract;
+audio, camera, player and UI effects remain outside those metadata markers.
 
 Falling Barrel (0x19A) previews its first child with 36 textured triangles and two CI4 textures.
 Slicer (0x19D) previews eight textured triangles using a 32 by 64 RGBA16 bitmap from File384 and
@@ -241,22 +249,32 @@ Developer ID release, override `mac.identity` with your certificate identity and
 configure notarization credentials in electron-builder. Windows distribution
 builds need code-signing credentials.
 
-Version 0.2.2 passed fresh typecheck, the production build and the actual-ROM/toolchain suite:
-211 tests total, 208 passed and three optional GPU checks skipped. Separate runs passed 16
-analytical/texture/actor checks and one thumbnail GPU check, with none skipped. Eight native
-TEXGEN actor and thumbnail checks passed with no page/console errors and unchanged ROM bytes.
+Version 0.2.3 passed a fresh nonincremental typecheck, production build and actual-ROM/toolchain
+suite: 250 tests total, 247 passed, none failed and three optional GPU checks skipped. The suite
+included offline strict MIPS compilation, linking and `.nrm` fixtures. The fresh census changed
+exactly five actor statuses: 0x24C/0x35C to conditional and 0x23B/0x35E/0x1BF to nonvisual. ROM
+bytes and room geometry coverage remained unchanged.
 
-The real Electron authoring smoke passed 14 milestones, retaining the eight House actors and
-File96 while checking navigation, geometry editing, native library placement, collision, doors,
-sky, recovery, save/reopen and hostile IPC. It required C/H export; that run did not request
-`.nrm` packaging. The full test suite covered strict MIPS compilation, linking and `.nrm`
-fixtures.
+Separate runs passed 16 texture/actor checks and 19 thumbnail-framing checks, including GPU
+rendering, with none skipped. Four actual Electron checks covered both scoped native placements
+and their real library cards. Texture toggles restored the exact rendered pixels; page, console
+and child-process errors stayed at zero. The checks preserved source ROM bytes and the normal
+profile. Thumbnail framing retained native part/bone offsets and project data.
 
-macOS ARM64 DMG/ZIP packaging and strict ad hoc signature verification passed. The visible
-packaged smoke checked four native textured rooms, body and door-selector previews, WASD and
-unchanged cache data. The installed 0.2.2 app passed strict signature verification and a normal
-cached-ROM launch with 383 rooms. Its native Slicer showed generated textured facets with its
-source X rotation unchanged. ROM identity and normalized cache hashes stayed unchanged.
+macOS ARM64 DMG/ZIP packaging and strict deep ad hoc signature verification passed. The final
+package contains the verified build, and the installed 0.2.3 app matches its ASAR bytes.
+The installed binary passed an isolated-package smoke with 383 cached rooms, four native
+textured-room checks, body/shadow and door-selector refresh, geometry visibility and focused
+WASD. Texture toggles restored exact pixels, page errors stayed at zero, and cached ROM identity
+and source bytes remained unchanged. A normal installed launch restored all 383 rooms without
+a ROM dialog. House room 465 retained eight actors and 247 textured triangles out of 249;
+texture off/on and Pan/Tilt controls responded. The clean project kept export and history
+controls disabled. ROM/profile hashes remained unchanged.
+
+The prior 0.2.2 Electron authoring smoke passed 14 milestones, retaining the eight House actors
+and File96 while checking navigation, geometry editing, native library placement, collision,
+doors, sky, recovery, save/reopen and hostile IPC. It required C/H export; that run did not request
+`.nrm` packaging.
 
 These are editor, build and package results. No generated mod was installed or run, and native
 gameplay parity remains unverified.

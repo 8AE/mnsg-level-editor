@@ -285,3 +285,38 @@ matrices. A separate thumbnail GPU check and eight native actor/thumbnail checks
 errors. Read the [validation record](../README.md#package-and-validation-status) for build,
 package and installed-app results. These checks do not establish native framebuffer or gameplay
 parity.
+
+
+## Loader child materials
+
+Actor 0x24C's File45 child `08000324` writes object byte `+5=7`, selecting draw bucket seven.
+Its render type remains byte `+4=2`, which native `800087C4` dispatches through `80016C44`.
+Bucket selection does not select a different model projection. Live bucket flags, neighbors and
+camera sort keys remain outside the preview.
+
+The child's inline material at task `+C8` uses `FC567E04 / 1FFCF3F8` in two-cycle mode, white
+environment RGB and environment alpha zero. Cycle zero computes
+`(ENV_RGB - TEX0_RGB) * ENV_ALPHA + TEX0_RGB` and retains texture alpha; cycle one multiplies the
+combined RGB by shade and retains its alpha. Here, zero environment alpha yields texture RGB
+multiplied by shade. It does not make the object transparent. The material's `0x20000000` pointer
+tag requests an inline command copy; it is not an opacity value.
+
+Actor 0x35C's child 0x359 binds segment B to File572 + `0x110`. The decoder follows the native
+`80224ABC` to `80224560` sequence setup, retaining the first image, speed input 3.0, derived
+`task+AB=15` and mode one. Both triangles use one native 32 by 16 RGBA bitmap. Decoded SHA256:
+
+```text
+f2a6f7fdad1935ec57b31fc4abb939ecc6d5db4e950c22d63895525287f6eac0
+```
+
+This first-image preview does not advance later sequence callbacks or establish native fog,
+lighting, filtering, coverage, sorting or framebuffer parity. The scoped actors remain
+conditional and incomplete for CPU/export purposes. See the [loader proof](
+native-room-authoring.md#scoped-loader-and-controller-implementation) for donor and cold-cache
+requirements. No texture bytes or decoded assets belong in this repository.
+
+
+The actual Electron/GPU checks confirmed the scoped native images and their library cards.
+Texture off/on restored the exact rendered pixels, including the 0x35C bitmap hash above, with
+no page, console or child-process errors. Read the [validation record](
+../README.md#package-and-validation-status) for revision-specific source and package checks.
