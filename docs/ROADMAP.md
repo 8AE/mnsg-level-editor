@@ -1,125 +1,128 @@
 # Development roadmap
 
-The first application version establishes a real US-ROM importer, project
-workspace, native actor export and bounded static geometry/collision translation.
-The actor preview extension adds ROM-driven model initialization, native parts
-and initial poses, plus focused WASD camera movement and Geometry visibility.
-Arbitrary mesh deformation, collision topology and script editing remain further
-native research and implementation work.
+Published version 0.2.2 supports version 2 room authoring: blank rooms, native
+clones and editable replacements; mesh, vertex and face editing; native asset
+placement; collision generation; entrances, custom doors and sky selection.
+Export produces C/H source or an optional `.nrm` through the local toolchain.
+The [authoring guide](room-authoring.md) covers the workflow; this roadmap tracks
+its supported bounds and remaining work.
 
-## Frozen US-ROM preview coverage
+## Published preview coverage
 
-The source census covers 383 native room records, including 378 with decoded
-visual geometry. For the supported US ROM, it classifies 3,888 actor placements
-and decodes 3,984 model parts:
+The supported US ROM contains 383 decoded room records, including 378 with
+visual geometry. The 0.2.2 actor census distinguishes library seed previews from
+canonical native placements:
 
-| Placement classification | Count |
-| --- | ---: |
-| Resolved native preview | 1,228 |
-| Conditional declaration | 1,271 |
-| Verified nonvisual controller | 1,115 |
-| Partial preview or unavailable model | 274 |
+| Census | Candidate IDs | Supported | Conditional | Nonvisual | Unresolved |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Library seeds | 361 | 74 | 170 | 11 | 106 |
+| IDs with canonical placements | 255 | 54 | 152 | 11 | 38 |
 
-These counts describe bounded initialization and model decoding from the
-[supported ROM](native-actors.md). They do not establish runtime visibility,
-later animation or a complete inventory of actor definitions. Conditional paths
-use stated save, collision or scene-state assumptions; edits can change a
-placement's classification.
+The library's unresolved group includes seven partial previews. These counts
+cover bounded initialization and initial model declarations. Library scene
+hints can differ from canonical placement state; neither census establishes
+later visibility, animation or export admission for each candidate.
+
+Version 0.2.2 adds native signed-normal TEXGEN previews, including Slicer's
+File384 texture. Unknown inherited LookAt uses an explicit conditional
+editor-camera basis. Mixed vertex state, partial LookAt and unsupported
+load/draw roots retain an untextured fallback. Timed Barrel and Slicer previews
+stop after the first child initializer and retain incomplete CPU results.
+Read [actor evidence](native-actors.md) and [texture limits](native-textures.md)
+for the distinctions. Work still in development does not change this published
+coverage record.
 
 ## Development phases
 
 | Phase | Current capability | Work remaining |
 | --- | --- | --- |
-| 1: Read and display | Verified ROM import, byte-order normalization and decompression; native room records and actor-linked events; room geometry with static RGBA/CI textures, palette/PIC decoding and supported material alpha; bounded native actor initializer/model selectors, meshes/textures, initial integer poses, linked parts and billboards; model-surface picking, framing, focused WASD movement and Geometry visibility | Wider constructor/helper and material coverage, complete event/script coverage, native lighting/fog/filtering, later animation and runtime spawning, special scene overlays and collision visualization |
-| 2: Modify | Project-scoped actor transforms, cancelable translation gizmo, room-supported actor substitution and three native payload words; verified selector-driven model refresh; undo/redo/reset; native F32 same-cell movement validation; bounded integer room translation with collision and shared-source groups | Individual mesh vertices and collision topology, event scripts/volumes, actor insertion/deletion, proximity grid migration and resource dependency changes |
-| 3: C/H export | Generated actor and static translation patch source/header; availability and preimage guards; private actor definitions; room resource restoration; read-only geometry dependency guards and pre-bind collision/model hooks | Fresh in-game validation, geometry cloning for independent shared-room edits, broad other-mod compatibility, arbitrary event scripts |
-| 4: Prebuilt `.nrm` | Local optional LLVM/RecompModTool pipeline from an initialized template; `.nrm` save dialog | Distributable bundled toolchain or guided installation, Windows native validation, signed app releases and in-game export regression coverage |
+| 1: Read and display | US-ROM import, byte-order normalization and decompression; textured rooms and bounded native actor parts/initial poses; actor-linked event inspection; native asset libraries and thumbnails; picking, framing, Pan/Tilt and focused WASD; conditional TEXGEN and first timed-child previews | Wider verified actor/helper/material coverage; later animation and spawning; native lighting, fog and filtering parity; special scenes and broader collision inspection |
+| 2: Author | Version 2 blank rooms, clones and editable replacements; independent authored geometry; mesh TRS, vertex XYZ/UV/RGBA, face topology and gizmos; actor insertion/deletion and loading policy; named entrances, editable custom-door volumes/destinations and sky inheritance/None/native assets; collision generation and linked updates; undo/redo and saved/native recovery | Direct native BSP editing and richer collision visualization; native event/script editing; migration of sparse actors across original proximity cells; broader scene support |
+| 3: C/H export | Sparse actor/translation patches and authored room payloads; owned geometry, copied or generated native collision, rebuilt authored proximity grids, metadata/admission, entrances, doors and sky; constructor-resource checks, guarded controller contracts and dependency/preimage safeguards | User gameplay validation of entry, physics, camera, progression, teardown and revisit; more verified actor/resource contexts; compatibility with mods that change native roots or allocations; arbitrary scripts |
+| 4: Prebuilt `.nrm` and desktop release | Optional local LLVM/LLD/RecompModTool pipeline using an initialized template; macOS ARM64 ad hoc signed package and installed-app checks | Toolchain distribution or guided installation; Intel macOS and Windows native runtime checks; Developer ID/notarization and Windows signing; user gameplay regression coverage |
 
-## Native work before broadening edits
+## Supported bounds
 
-1. Extend bounded actor initialization with verified helper semantics and explicit
-   save, collision and scene-state assumptions. Preserve resolved, conditional,
-   partial previews of known parts, unavailable and nonvisual controller distinctions. Initial
-   model declarations do not prove runtime visibility or complete actor coverage.
-2. Expand event classifiers with exact overlay entry and continuation evidence.
-   Keep actor-linked events distinct from a hypothetical universal event table.
-   Decode their fields per family, preserving opaque pointers and flag lifetimes.
-3. Extend static texture rendering toward native lighting, fog, three-point
-   filtering and animation parity, and expand scene graph coverage. Preserve
-   original geometry provenance distinct from reconstructed texture waves.
-4. Reconstruct collision BSP surfaces for visualization and arbitrary deformation.
-   The recovered plane/tree schema supports translation while preserving topology;
-   visible triangles and collision surfaces remain separate resources.
-5. Have the user test translation pre-bind hooks in gameplay, including unload/reload and
-   shared assets. Add geometry cloning and rebinding before supporting distinct
-   edits to rooms that share one complete geometry/collision source group.
-6. Implement proximity-list migration before allowing movement across spawn
-   cells or adding/deleting proximity actors.
-7. Decode room resource dependencies before allowing new actor types that are
-   absent from a room's original roster. Preserve actor-specific definitions.
+- **Room admission:** authored exports use ordinary-world service donors
+  0 through 539 with a verified File11 geometry-group mapping. New rooms use
+  unoccupied IDs 620 through 799. Replacements retain their native room ID and
+  service donor. Minigame, Impact and other special layouts require their own
+  verified lifecycle; an unused ID alone does not establish support.
+- **Geometry and sharing:** authored rooms own their editable meshes, so clones
+  and replacements can diverge from native shared geometry. Sparse integer room
+  translation still updates the complete shared visual/collision source group.
+  It does not move actors, entrances or camera paths. Vertex positions must fit
+  signed 16-bit storage; transformed edits round to integers and reject overflow.
+- **Collision:** a native clone can preserve its copied template planes and BSP
+  while its visible mesh changes. **Generate collision from geometry** explicitly
+  replaces that physics; linked collision can follow later mesh edits. Authored
+  collision permits up to 9,362 triangles with raw face classifiers 1 through
+  255 and surface values 0 through 65535. Classifier zero belongs to clipping
+  planes. Visual triangles do not define the original native collision, and
+  arbitrary deformation cannot infer its attributes or gameplay effects.
+- **Actors and proximity:** authored rooms permit insertion, deletion and a
+  resident or near-player policy. Export checks the effective roster, spawn
+  order and resource context; an unresolved dependency rejects the export.
+  Authored proximity grids rebuild from those placements. Sparse native edits
+  preserve original list lengths and cell membership, and moves must stay in
+  the verified original cell. A preview or nonvisual label does not prove a
+  resource-free constructor or later script closure.
+- **Runtime capacity:** native players and services share resource slots and
+  task/object pools with authored rooms. The exporter checks the 48-ID registry,
+  native allocation extents and its ordinary-world cache bound; project record
+  limits do not guarantee simultaneous actor capacity. Read
+  [export details](export.md) for memory budgets and failure recovery.
+- **Events and doors:** classified native events remain read-only details tied
+  to their source actors. Authored Interact/Touch door volumes and named arrival
+  links are editable and exportable. They do not provide a universal native
+  event table or an arbitrary scenario-script editor.
 
-## Project evolution
+## Native work still needed
 
-Version 1 projects store a ROM identity, sparse actor overrides and bounded room
-translations. Future schema versions should add mesh, collision and script edits with migrations,
-strict source checks and clear unsupported-record handling. Never store project-
-controlled native pointers or executable/toolchain commands. Continue checking
-conflicting edits to resources shared by several rooms.
+1. Extend actor and resource coverage from exact constructor, helper and scene
+   evidence. Preserve supported, conditional, partial, unavailable and nonvisual
+   distinctions. Keep static controller contracts separate from executed
+   initializer traces and later scenario VM behavior.
+2. Recover more native event families and script lifecycles. Preserve opaque
+   payload words, resource pointers, save-flag semantics and callback ownership
+   before adding editable fields.
+3. Expand material and scene-graph handling, including unsupported vertex-load
+   provenance and inherited draw state. Keep camera-basis assumptions visible;
+   pursue native lighting, fog, filtering and animation parity with evidence.
+4. Add collision inspection and direct native BSP tools without conflating
+   visual topology with original physics. Preserve copied attributes unless
+   the user chooses an explicit collision replacement. Verify winding, clipping
+   and contact behavior in gameplay.
+5. Broaden scene admission and sparse proximity migration through verified
+   native mapping, spawn and teardown paths. Existing authored room admission
+   and rebuilt grids do not establish support for unrelated native modes.
+6. Have the user test generated mods through normal entry, doors, reloads and
+   shared-resource visits. Include actor progression, camera state, allocation
+   failure, unload/revisit and other-mod interactions in those checks.
 
-Translation exports assume canonical File11 root/resource tables and wave
-allocation sizes. Export guards cover display commands, plane normals and
-tree/header dependencies. Test compatibility with other mods in the game.
+## Project and release verification
 
-## Verification and release gates
+Version 2 projects already store authored meshes, collision, actors, doors,
+entrances, sky choices and sparse overrides. Version 1 migration preserves ROM
+identity and sparse edits. Continue testing malformed input, bounded native
+fields, shared sources, graph references and saved-state recovery. Projects
+must not supply native pointers, executable paths or toolchain arguments.
 
-- Keep bounded parser, project and export tests covering malformed input,
-  shared records, signed widths, native angle sentinels and F32 cell boundaries.
-- Check native model selection and parameter refresh through the validated
-  desktop bridge. Test model-surface picking, frame bounds and material toggles
-  on GPU fixtures and user-ROM samples. Hide room geometry to inspect occluded
-  initial poses without changing their native placement.
-- Test focused WASD movement, inspector typing, blur and pointer gestures against
-  saved project data. Verify canceled gizmo previews and normal drop/undo order.
-- Import the supplied local compressed and decompressed US ROM as separate inputs;
-  confirm identical decoded results and the native decompressed hash.
-- Test desktop import, room browsing, editing, save/reopen, C/H export and `.nrm`
-  creation on macOS and Windows. Packaging for another OS does not prove runtime
-  behavior there.
-- Hand generated mods to the user with their file paths, affected rooms and exact
-  changes. The user installs and tests them in Goemon64Recomp: verify actors,
-  room reloads, transitions into rooms sharing resources, and missing/deferred
-  resource handling. Static native analysis and successful MIPS builds cannot
-  substitute for this gameplay check. Do not install or launch generated mods
-  at the end of a task.
-- Validate each release installer, then configure macOS signing/notarization and
-  Windows signing for distribution. Keep game assets outside release artifacts.
+The published 0.2.2 checks cover source tests, GPU presentation, 14 Electron
+C/H authoring milestones, separate native compile/link/NRM fixtures, a packaged
+macOS ARM64 app and normal installed cached-ROM launch. Consult the
+[validation record](../README.md#package-and-validation-status) for exact scopes
+and counts, and the [desktop workflow](https://github.com/8AE/mnsg-level-editor/actions/workflows/build.yml)
+for each revision's platform builds. Packaging for another OS does not establish
+native editor behavior there.
 
-Apple Silicon native editor checks cover textured rooms, project edits,
-native actor body textures and depth-aware surface picking, selector refresh and
-undo, Geometry visibility with exact pixel restoration, WASD and real gizmo
-cancellation/drop. Those checks preserve the saved project. The frozen source
-passed typecheck and the production build. In the test suite, 102 tests passed;
-five optional GPU/toolchain checks skipped. The final desktop run generated no
-`.nrm` and launched no Goemon64Recomp game.
+Static analysis, editor previews and successful native builds do not establish
+Goemon64Recomp gameplay. Hand generated mods to the user with their paths,
+affected rooms, changes and remaining uncertainties. The user chooses whether
+to install and test them; do not install or launch generated NRMs at task end.
+Keep ROMs, decoded game assets and generated test mods out of source control.
 
-The actor-preview revision passed public CI for macOS ARM64, macOS x64 and
-Windows x64. The local ad hoc signed ARM64 package passed strict signature
-verification and visible-window native checks with an isolated ROM cache:
-four textured rooms with exact texture-toggle restoration, conditional body
-parts, distinct door-selector assets, Geometry visibility and WASD movement.
-The checks left the project and existing ROM cache unchanged.
-The installed ARM64 app passed signature verification and restored the cached
-ROM, textured house and native actor previews on a normal launch.
-The [desktop workflow](https://github.com/8AE/mnsg-level-editor/actions/workflows/build.yml)
-checks and packages source revisions. Intel macOS and Windows native runtime
-validation remain open. The macOS build configuration uses ad hoc signing;
-Developer ID distribution requires a certificate identity override and
-notarization credentials. Windows distribution requires code-signing credentials.
-
-Read [native-formats.md](native-formats.md) for layout evidence and uncertainty,
-and [export.md](export.md) for actor export behavior and prerequisites.
-[room-geometry-editing.md](room-geometry-editing.md) covers translation schemas
-and staging; [runtime-validation.md](runtime-validation.md) covers gameplay
-handoffs. Consult [native-textures.md](native-textures.md) for static texture
-formats and preview limits, and [native-actors.md](native-actors.md) for actor
-identity, initialization, initial-pose evidence and unresolved paths.
+Read [native formats](native-formats.md),
+[room translation evidence](room-geometry-editing.md), [export details](export.md)
+and [runtime validation](runtime-validation.md) for native layouts, staging and
+user gameplay handoffs.
