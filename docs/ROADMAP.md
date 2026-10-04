@@ -102,12 +102,19 @@ passed typecheck and the production build. In the test suite, 102 tests passed;
 five optional GPU/toolchain checks skipped. The final desktop run generated no
 `.nrm` and launched no Goemon64Recomp game.
 
-Prior local `0.1.0` installers cover the earlier textured-room revision. Build
-current source or download the desktop workflow artifacts for actor previews.
-The original public CI passed for macOS ARM64, macOS x64 and Windows x64.
+The actor-preview revision passed public CI for macOS ARM64, macOS x64 and
+Windows x64. The local ad hoc signed ARM64 package passed strict signature
+verification and visible-window native checks with an isolated ROM cache:
+four textured rooms with exact texture-toggle restoration, conditional body
+parts, distinct door-selector assets, Geometry visibility and WASD movement.
+The checks left the project and existing ROM cache unchanged.
+The installed ARM64 app passed signature verification and restored the cached
+ROM, textured house and native actor previews on a normal launch.
 The [desktop workflow](https://github.com/8AE/mnsg-level-editor/actions/workflows/build.yml)
-checks and packages later source revisions. Intel macOS and Windows native
-runtime validation remain open, as do packaged actor-preview runtime checks.
+checks and packages source revisions. Intel macOS and Windows native runtime
+validation remain open. The macOS build configuration uses ad hoc signing;
+Developer ID distribution requires a certificate identity override and
+notarization credentials. Windows distribution requires code-signing credentials.
 
 Read [native-formats.md](native-formats.md) for layout evidence and uncertainty,
 and [export.md](export.md) for actor export behavior and prerequisites.

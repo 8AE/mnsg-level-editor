@@ -181,25 +181,31 @@ npx electron-builder --win nsis --x64 --publish never
 Find installers in `release/`. The [desktop build workflow](https://github.com/8AE/mnsg-level-editor/actions/workflows/build.yml)
 checks and packages source revisions for macOS ARM64, macOS x64 and Windows x64
 on pushes to `main`. Consult its runs for a revision's results and build artifacts.
-Distribution builds need signing and notarization credentials for a signed macOS
-release, or code-signing credentials for Windows.
+The macOS configuration uses ad hoc signing (`mac.identity: "-"`). For a
+Developer ID release, override `mac.identity` with your certificate identity and
+configure notarization credentials in electron-builder. Windows distribution
+builds need code-signing credentials.
 
 | Platform | Current evidence |
 | --- | --- |
-| Apple Silicon macOS | Current source passed native editor checks with a user-supplied ROM: textured rooms and actors, model picking, selector refresh/undo, Geometry visibility, WASD, gizmo cancellation/drop and project preservation. |
-| Intel macOS | Prior ZIP build and public CI passed. Native runtime testing remains open. |
-| Windows x64 | Prior NSIS build and public CI passed. Native runtime testing remains open. |
+| Apple Silicon macOS | Source and an ad hoc signed package passed native editor checks with a user-supplied ROM. The package passed textured-room and actor previews, selector refresh, Geometry visibility, WASD and unchanged project/cache checks. |
+| Intel macOS | The actor-preview revision passed public CI and ZIP packaging. Native runtime testing remains open. |
+| Windows x64 | The actor-preview revision passed public CI and NSIS packaging. Native runtime testing remains open. |
 
 The frozen source passed typecheck and the production build. In the test suite,
 102 tests passed; five optional GPU/toolchain checks skipped. Native desktop
 smoke passed with the ROM. That run generated no `.nrm` and launched no
 Goemon64Recomp game.
 
-Prior local `0.1.0` installers cover the earlier textured-room revision. Build
-current source or download the desktop workflow artifacts for actor previews.
-Packaged actor-preview runtime checks remain open. The original public revision
-passed all three CI build targets; use the workflow link above to check later
-revisions.
+The actor-preview revision passed all three CI build targets. The local macOS
+ARM64 package passed `codesign --verify --deep --strict` and a visible-window
+smoke test with an isolated copy of the ROM cache. That test covered four
+textured rooms, conditional native body parts and distinct door-selector assets.
+It left the existing ROM cache unchanged. The installed app passed signature
+verification and restored the cached ROM on a normal launch, including the
+textured house and native actor previews. Build current source or download the
+desktop workflow artifacts for actor previews; consult the workflow for each
+revision's status.
 
 Compile, link, package and editor checks do not establish in-game collision,
 reload behavior or compatibility with other mods. Test the affected rooms and
