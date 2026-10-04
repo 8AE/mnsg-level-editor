@@ -168,7 +168,7 @@ test("timed library children have real native models while foreign dependency co
     assert.ok(catalog.actorPrototypes.some(p=>p.id===id));const preview=rom.loadActorPrototype(id,edits),visual=preview.actorVisuals[0];assert.equal(visual.status,"conditional");assert.equal(visual.parts.length,1);assert.equal(preview.actorModels.length,1);
     const model=preview.actorModels[0];assert.equal(model.meshes.reduce((n,m)=>n+m.indices.length/3,0),triangles);
     if(actorId===0x19a){assert.equal(model.textures.length,2);assert.ok(model.textures.every(t=>t.format==="CI4/TLUTRGBA16"&&t.width===64&&t.height===64));}
-    else {assert.equal(model.textures.length,0);assert.ok(model.warnings.some(w=>w.includes("generated texture coordinates are unsupported")));assert.ok(model.warnings.some(w=>w.includes("8 actor triangles use an unsupported native appearance state")));}
+    else {assert.equal(model.textures.length,1);assert.ok(model.warnings.some(w=>w.includes("conditional preview basis")));assert.ok(model.meshes.every(m=>m.material?.texgen?.mode==="linear"&&m.uvs===undefined&&m.normals?.length===m.positions.length));}
     assert.match(visual.warnings.join(" "),/Preview-only timed native child prefix/);
     const target={roomId:621,templateRoomId:465,siblings:[{prototypeId:id,...edits}]};assert.equal(rom.loadActorPrototypeForRoom(id,edits,target).actorVisuals[0].parts.length,1);
     assert.throws(()=>rom.authoringExportContext().prototype(id,edits,target),/unresolved resource dependency path.*dependency completion is not asserted/);

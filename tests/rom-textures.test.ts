@@ -8,7 +8,7 @@ import {RomReader} from "../core/rom/binary";
 import {readFileTable} from "../core/rom/decompress";
 import {ImportedRom,importRomBytes} from "../core/rom";
 import {decodeRoomGeometry,graphicsLocation,geometryAuxiliaryRecord} from "../core/rom/geometry";
-import {renderRoom} from "../core/rom/render";
+import {renderRoom,renderModelLists} from "../core/rom/render";
 import type {RenderWaves} from "../core/rom/waves";
 
 const hash=(bytes:Uint8Array)=>createHash("sha256").update(bytes).digest("hex");
@@ -119,4 +119,54 @@ test("local US texture census, independent PIC hashes and immutable native sourc
   assert.match(room.warnings.join("; "),/Texture preview failed/);assert.deepEqual(room.textures,[]);
   assert.deepEqual(room.meshes,decodeRoomGeometry(r,location.record,files,segment).meshes);
   assert.equal(room.geometryEdit?.supported,true);assert.equal(hash(rom.bytes),before);
+});
+
+
+function texgenFixture(before:number[][]=[],after:number[][]=[]){
+  const bytes=new Uint8Array(0x1000),v=new DataView(bytes.buffer);let at=0x20;
+  const commands=[[0xfcffffff,0xfffcf279],[0xbb000001,0x80004000],[0xfd100003,0x08000300],[0xf5100000,0x07000000],[0xf3000000,0x07003000],[0xf5100200,0],[0xf2000000,0x0000c000],...before,[0x04000c2f,0x08000200],...after,[0xbf000000,0x00000204],[0xb8000000,0]];
+  for(const [word,pointer] of commands){v.setUint32(at,word);v.setUint32(at+4,pointer);at+=8;}
+  for(let i=0;i<3;i++){v.setInt16(0x200+i*16,i*10);v.setInt16(0x208+i*16,64);bytes.set([128,0,0,255],0x20c+i*16);}bytes.set([0xf8,1,7,0xc1,0,0x3f,0xff,0xff],0x300);
+  bytes.set([0,0,127],0x408);bytes.set([127,0,0],0x418);
+  const read=(address:number,size:number)=>{const offset=address&0xffffff;if(offset+size>bytes.length)throw new Error("fixture read bounds");return bytes.subarray(offset,offset+size);};
+  return {bytes,v,read,roots:[{displayList:0x08000020}]};
+}
+
+test("TEXGEN requires LIGHTING and captures raw normals, mode and scale at vertex load",()=>{
+  for(const mode of [0x40000,0x80000,0xa0000]){
+    const f=texgenFixture([[0xb7000000,mode]]),result=renderModelLists(f.read,f.roots);
+    assert.equal(result.coverage.textured,1);assert.equal(result.meshes[0].material?.texgen,undefined);assert.equal(result.meshes[0].uvs?.length,6);
+  }
+  for(const [mode,kind] of [[0x60000,"sphere"],[0xe0000,"linear"]] as const){
+    const f=texgenFixture([[0xb7000000,mode]],[[0xbb000001,0xffffffff],[0xb6000000,0xe0000]]),result=renderModelLists(f.read,f.roots),mesh=result.meshes[0];
+    assert.equal(result.coverage.textured,1);assert.equal(result.coverage.unsupported,0);assert.equal(mesh.uvs,undefined);
+    assert.deepEqual(mesh.material?.texgen,{mode:kind,basis:{kind:"editor-camera"},scale:[.5/4,.25],offset:[0,0]});
+    assert.deepEqual(mesh.normals,[-128/127,0,0,-128/127,0,0,-128/127,0,0]);assert.equal(mesh.material?.lighting,false);
+    assert.match(result.warnings.join(" "),/conditional preview basis/);
+  }
+});
+
+test("TEXGEN captures explicit LookAt axes before later commands and preserves zero",()=>{
+  const f=texgenFixture([[0xb7000000,0xe0000],[0x03840010,0x08000400],[0x03820010,0x08000410]],[[0x03840010,0x08000410]]);
+  const result=renderModelLists(f.read,f.roots);assert.deepEqual(result.meshes[0].material?.texgen?.basis,{kind:"world",x:[0,0,1],y:[1,0,0],source:"movemem"});assert.equal(result.coverage.unsupported,0);
+  f.bytes.fill(0,0x408,0x40b);assert.deepEqual(renderModelLists(f.read,f.roots).meshes[0].material?.texgen?.basis,{kind:"world",x:[0,0,0],y:[1,0,0],source:"movemem"});
+  const partial=texgenFixture([[0xb7000000,0x60000],[0x03840010,0x08000400]]),bad=texgenFixture([[0xb7000000,0x60000],[0x03840008,0x08000400]]);
+  for(const fixture of [partial,bad]){const r=renderModelLists(fixture.read,fixture.roots);assert.equal(r.coverage.textured,0);assert.equal(r.coverage.unsupported,1);assert.equal(r.meshes[0].material?.texgen,undefined);}
+  const bounds=texgenFixture([[0xb7000000,0x60000],[0x03840010,0x08000ff8],[0x03820010,0x08000410]]),r=renderModelLists(bounds.read,bounds.roots);assert.equal(r.complete,true);assert.equal(r.coverage.textured,0);assert.match(r.warnings.join(" "),/LookAt unavailable.*bounds/);
+});
+
+test("generated sampler coefficients include shift, origin and filter center",()=>{
+  const f=texgenFixture([[0xb7000000,0xe0000],[0xba000c02,0x2000],[0xf5100200,0x00000001],[0xf2004004,0x00010004]]),result=renderModelLists(f.read,f.roots);
+  // Four-wide tile begins at texel one. ShiftS=1 halves generated coordinates.
+  assert.deepEqual(result.meshes[0].material?.texgen?.scale,[.5/2/4,.25]);assert.deepEqual(result.meshes[0].material?.texgen?.offset,[-.5/4,-.5]);
+});
+
+test("mixed generated states and cross-root vertex cache fail closed; contiguous batches split",()=>{
+  const f=texgenFixture([[0xb7000000,0xe0000]],[[0xbb000001,0x40004000],[0x0402041f,0x08000210]]),mixed=renderModelLists(f.read,f.roots);
+  assert.equal(mixed.coverage.textured,0);assert.match(mixed.warnings.join(" "),/mix vertex modes, scales/);
+  const cross=texgenFixture([[0xb7000000,0xe0000]]);cross.v.setUint32(0x68,0xb8000000); // after VTX, before triangle
+  cross.v.setUint32(0x100,0xbf000000);cross.v.setUint32(0x104,0x00000204);cross.v.setUint32(0x108,0xb8000000);
+  const reused=renderModelLists(cross.read,[...cross.roots,{displayList:0x08000100,preserveVertexCache:true}]);assert.equal(reused.coverage.textured,0);assert.match(reused.warnings.join(" "),/load\/draw roots/);
+  const split=texgenFixture([[0xb7000000,0x60000]],[[0xbf000000,0x00000204],[0xb7000000,0x80000],[0x04000c2f,0x08000200]]),result=renderModelLists(split.read,split.roots);
+  assert.equal(result.meshes.length,2);assert.equal(result.meshes[0].material?.texgen?.mode,"sphere");assert.equal(result.meshes[1].material?.texgen?.mode,"linear");
 });

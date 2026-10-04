@@ -7,6 +7,7 @@ import { TransformControls } from "three/examples/jsm/controls/TransformControls
 import type { RoomData, ProjectRoomScene, Vec3 } from "../shared/types";
 import {
   createNativeSurfaceMaterial,
+  hasNativeNormals,
   linearNativeColors,
   RoomTexturePool,
   type RenderTextureCoverage,
@@ -191,12 +192,12 @@ export default function RoomViewport({
           "uv",
           new THREE.Float32BufferAttribute(data.uvs, 2),
         );
-      if (data.normals?.length === data.positions.length)
+      if (hasNativeNormals(data))
         geometry.setAttribute(
           "normal",
-          new THREE.Float32BufferAttribute(data.normals, 3),
+          new THREE.Float32BufferAttribute(data.normals!, 3),
         );
-      else geometry.computeVertexNormals();
+      else if (!data.material?.texgen) geometry.computeVertexNormals();
       const material = new THREE.MeshStandardMaterial({
         color: 0x55726b,
         roughness: 0.95,

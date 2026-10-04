@@ -1,10 +1,10 @@
 # Author rooms
 
-Use the desktop app with your own supported US ROM. Version 0.2.1 includes
-version 2 projects, authored C/H and optional `.nrm` export. Source tests, typecheck, the production build, 15-milestone desktop authoring
-smoke, four timed-actor GPU checks and macOS ARM64 package checks passed. The
-installed 0.2.1 app passed a normal cached-ROM launch. Live gameplay checks
-remain open.
+Use the desktop app with your own supported US ROM. Version 0.2.2 adds native generated
+texture-coordinate previews to the version 2 authoring workflow. The 14-milestone authoring
+smoke passed with C/H export and the full House roster. Read the [validation
+record](../README.md#package-and-validation-status) for source, GPU, package and installed-app
+checks. Live gameplay remains open.
 
 ## Choose a starting room
 
@@ -29,10 +29,11 @@ inspect them after a shared translation or an authored replacement.
 
 ## Build and edit geometry
 
-Open **Asset library**, choose **Geometry**, and search names or IDs. You can
-choose a complete room asset or a decoded component from your ROM. Drag a card
-into the viewport to place it, or choose **Place at origin**. You retain its
-native material references when you edit the imported triangles.
+Open **Asset library**, choose **Geometry**, and search names or IDs. You can choose a complete
+room asset or a decoded component from your ROM. Drag a card into the viewport to place it, or
+choose **Place at origin**. You retain its native material references when you edit the imported
+triangles. Generated actor texture coordinates depend on normals and vertex-load state; the
+exporter rejects flattening those models into static custom-door appearance UVs.
 
 Choose a mesh in **Geometry**. The inspector has three selection modes:
 
@@ -92,11 +93,12 @@ The catalog contains 361 candidate IDs: 74 supported, 170 conditional,
 status visible when choosing a prototype; export requires a verified native
 resource context in addition to a preview.
 
-Falling Barrel (0x19A) and Slicer (0x19D) offer conditional previews of their
-first timed child. Barrel has 36 textured triangles and two CI4 textures.
-Slicer's eight triangles use an untextured fallback: the editor does not support
-its native generated texture coordinates. These previews stop before movement
-or further emissions, and do not admit edited or foreign contexts to export.
+Falling Barrel (0x19A) and Slicer (0x19D) offer conditional previews of their first timed child.
+Barrel has 36 textured triangles and two CI4 textures. Slicer's eight triangles use a 32 by 64
+RGBA16 texture from File384 with native generated coordinates. Unknown inherited LookAt uses an
+explicit conditional editor-camera basis; mixed or unsupported vertex state retains an
+untextured fallback. These previews stop before movement or further emissions, and do not admit
+edited or foreign contexts to export.
 
 Drag an actor card into the viewport or use **Place at origin**, then edit its
 position, native rotation and three unsigned payload words. Payload meanings

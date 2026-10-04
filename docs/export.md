@@ -75,16 +75,15 @@ before removing its task. Export verifies the canonical scenario-table entries
 and includes File96 for either initial flag state. The CPU interpreter does not
 execute scenario startup or the later scenario VM for this contract.
 
-Falling Barrel (0x19A) and Slicer (0x19D) use bounded timed-child previews.
-In the canonical room 91 Barrel and room 171 Slicer fixtures, the decoder runs
-101 and 61 native callbacks respectively, then stops after the first child
-initializer. Other guarded parameter values can change those counts. Both
-retain `completed: false`. Barrel's
-first child has 36 textured triangles and two CI4 textures. Slicer's eight
-triangles have no mapped preview texture because native TEXGEN is unsupported;
-the renderer uses an untextured fallback. These prefixes do not establish
-complete resource closure. Edited or foreign authored contexts still reject
-export when only that prefix evidence is available.
+Falling Barrel (0x19A) and Slicer (0x19D) use bounded timed-child previews. In the canonical
+room 91 Barrel and room 171 Slicer fixtures, the decoder runs 101 and 61 native callbacks
+respectively, then stops after the first child initializer. Other guarded parameter values can
+change those counts. Both retain `completed: false`. Barrel's first child has 36 textured
+triangles and two CI4 textures. Slicer's eight triangles now use the File384 32 by 64 RGBA16
+bitmap with native TEXGEN. Unknown inherited LookAt uses an explicit conditional editor-camera
+basis; mixed vertex state or unsupported load/draw roots keep an untextured fallback. These
+prefixes do not establish complete resource closure. Edited or foreign authored contexts still
+reject export when only that prefix evidence is available.
 
 Resident actors use an owned static roster; **Near player** actors use a compiled
 native proximity grid with native spawn flags, cleanup and rearming. Sparse
@@ -266,40 +265,26 @@ macOS it uses an x86_64 executable under Rosetta so synthetic resource addresses
 can fit the native 32-bit ABI. The harness exercises the generated helper but
 does not execute Goemon64Recomp's mapper or live game hooks.
 
-Version 0.2.1 passed source typecheck and the production build. The test suite
-with the supported US ROM and LLVM/NRM template passed 202 of 204 tests, with two
-optional GPU checks skipped. Separate timed-actor GPU checks passed all four
-cases, including Barrel texture-pixel checks and Slicer's untextured TEXGEN
-fallback. They recorded no page/console errors or runtime crashes.
+Version 0.2.2 adds TEXGEN presentation without changing offline CPU completion or export
+admission. Flattening generated actor texture coordinates into static custom-door UVs remains
+rejected.
 
-The real Electron authoring smoke passed 15 milestones across native import,
-Pan/Tilt/WASD, mesh transforms, UV/RGBA and topology, picking, thumbnail
-drag/drop, collision, reciprocal doors, sky, reset/history, save/reopen and
-hostile IPC rejection. It kept all eight House 465 actors in its room 621 clone,
-verified File96 in the exact export inventory, generated C/H and passed strict
-MIPS compilation, linking and `.nrm` packaging.
-
-macOS ARM64 0.2.1 DMG/ZIP packaging and strict app-signature verification passed.
-A visible packaged smoke checked rooms 0, 465, 376 and 322, native body and
-door-selector previews, textured geometry, WASD and unchanged cache data. The
-installed 0.2.1 app passed strict signature verification and a normal launch
-with its cached ROM: 383 rooms, House 465 with 249 triangles, 247 textured, and
-Pan/Tilt controls present. ROM identity and normalized cache hashes stayed
-unchanged. Consult the
-[desktop build workflow](https://github.com/8AE/mnsg-level-editor/actions/workflows/build.yml)
-for each revision's macOS ARM64, macOS x64 and Windows x64 build results.
+The actual-ROM/toolchain suite passed 208 of 211 tests with three optional GPU skips, including
+strict MIPS/link/NRM fixtures. The 0.2.2 authoring smoke passed 14 milestones, retaining all
+eight House actors and File96 and exporting C/H; that smoke did not request NRM packaging. Read
+the [validation record](../README.md#package-and-validation-status) for GPU, package and
+installed-app results. No generated mod was installed or run.
 
 A geometry-only corpus check compiled 369 world rooms; five were empty and nine
 nonworld records were excluded. These results do not establish export of every
 full native roster.
 
-The full-roster House handoff generated C/H, passed strict MIPS compilation,
-linked and packaged `.nrm`. Room 465 retains eight native actors and adds a
-checker door at `(2, -44, 52)` targeting room 620. Room 620 copies the House
-geometry and native BSP, retains all eight actors, adds coin actor 0x082 at
-`(66, -24, 52)` and a return checker door, and selects sky resource 123.
-The controller contracts include File96 with native extent 0xB110. This handoff
-requires no controller-removal workaround.
+The unchanged historical 0.2.1 full-roster House handoff generated C/H, passed strict MIPS
+compilation, linked and packaged `.nrm`. Room 465 retains eight native actors and adds a checker
+door at `(2, -44, 52)` targeting room 620. Room 620 copies the House geometry and native BSP,
+retains all eight actors, adds coin actor 0x082 at `(66, -24, 52)` and a return checker door,
+and selects sky resource 123. The controller contracts include File96 with native extent 0xB110.
+This handoff requires no controller-removal workaround.
 
 The generated file is
 `test-mods/2026-10-04-house-full-roster/mnsg_level_house_authoring_handoff_465_620_full_roster.nrm`.

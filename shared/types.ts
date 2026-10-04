@@ -43,6 +43,14 @@ export interface EventData {
   source: SourceRecord;
   editable: boolean;
 }
+/** Native generated UV state captured at vertex load. Camera substitution is explicit. */
+export interface NativeTexgen {
+  mode: "sphere" | "linear";
+  basis: {kind:"world";x:[number,number,number];y:[number,number,number];source:"movemem"|"native-reset"} | {kind:"editor-camera"};
+  /** Generated texels map to normalized sampler coordinates using these coefficients. */
+  scale: [number,number];
+  offset: [number,number];
+}
 export interface GeometryMesh {
   id: string;
   /** Stable ROM-backed material library ID; never a native pointer. */
@@ -55,6 +63,7 @@ export interface GeometryMesh {
   normals?: number[];
   material?: {
     textureId?: string;
+    texgen?: NativeTexgen;
     wrapS: "repeat" | "mirror" | "clamp";
     wrapT: "repeat" | "mirror" | "clamp";
     filter: "nearest" | "linear";

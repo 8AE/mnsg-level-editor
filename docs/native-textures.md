@@ -251,3 +251,37 @@ reads; discovered Ghidra MCP metadata before `decompile_function` and
 were additionally checked in disassembly of `800154B0_160B0`. Remaining work is
 runtime animation/light/fog parity and any additional special scene types,
 rather than missing canonical room PIC4/RGB15 formats.
+
+## Editor 0.2.2 generated texture coordinates
+
+TEXGEN uses signed native vertex normals, with each component divided by 127 without normalizing
+the vector. The renderer retains state from vertex load: generation mode, unsigned texture
+scales, LookAt axes and the model/load-root identity. It transforms the axes with the model
+matrix transpose, clamps the normal dot products, and computes sphere or linear generated texel
+coordinates per vertex. It then applies tile shifts, origin, wrap and image dimensions. Ordinary
+stored UVs use signed 10.5 units; generated texels do not divide by 32.
+
+A complete explicit MOVEMEM LookAt pair supplies decoded signed-byte axes. When the preceding
+scene LookAt state is unknown, the editor uses a labelled conditional camera basis. That policy
+does not establish the preceding in-game draw state. Partial or invalid axes, mixed vertex
+modes/scales and unsupported load/draw roots retain the untextured fallback for affected
+surfaces.
+
+Slicer's eight preview triangles now use the File384 32 by 64 RGBA16 bitmap. The five decoded
+TEXGEN assets contain 448 triangles, 432 generated; seventeen canonical parts contain 1,172
+generated-coordinate triangles. Native room coverage remains 383 records and 118,110 triangles,
+114,137 textured, with 378 rooms containing visual geometry. The static room corpus contains no
+TEXGEN.
+
+Read the [native TEXGEN proof](native-room-authoring.md#native-texgen-presentation-slicer-0x19d)
+for LookAt provenance, the per-vertex formula and native command evidence. The implementation
+preserves fallback diagnostics and rejects generated actor appearance flattening for custom
+doors. This presentation change does not complete timed actor initialization or expand native
+export admission.
+
+The fresh census confirmed unchanged status counts and ROM bytes. The analytical/texture/actor
+suite passed 16 checks, including raw-normal handling, vertex interpolation and per-draw
+matrices. A separate thumbnail GPU check and eight native actor/thumbnail checks passed without
+errors. Read the [validation record](../README.md#package-and-validation-status) for build,
+package and installed-app results. These checks do not establish native framebuffer or gameplay
+parity.

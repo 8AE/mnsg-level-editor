@@ -263,7 +263,13 @@ test("timed slicer material reads physical CPU File30 while FD texture remains G
   const textureMemory=new NativeTextureMemory(read),view=new DataView(material.buffer,material.byteOffset,material.byteLength);
   for(let offset=0;offset<material.length;offset+=8){const w0=view.getUint32(offset),w1=view.getUint32(offset+4),opcode=w0>>>24;if(opcode===0xb8)break;if(opcode===0xfd)textureMemory.setImage(w0,w1);else if(opcode===0xf5)textureMemory.setTile(w0,w1);else if(opcode===0xf2)textureMemory.setTileSize(w0,w1);else if([0xf0,0xf3,0xf4].includes(opcode))textureMemory.load(opcode,w0,w1);}
   const bitmap=textureMemory.decode(0,0);assert.equal(bitmap.format,"RGBA16");assert.equal(bitmap.width,32);assert.equal(bitmap.height,64);assert.equal(Buffer.from(bitmap.rgbaBase64,"base64").length,32*64*4);
-  // The decoded source image is valid; the renderer deliberately does not bind
-  // it to unsupported generated UVs or claim a textured slicer preview.
-  const preview=service.preview({actorId:actor.actorId,parameters:actor.parameters,position:actor.position,rotation:actor.rotation,roomId:171},actor.id);assert.equal(preview.actorModels[0].textures.length,0);assert.match(preview.actorModels[0].warnings.join(" "),/generated texture coordinates are unsupported/);
+  // The image is bound to native generated UVs; inherited LookAt remains an explicit editor-camera assumption.
+  const preview=service.preview({actorId:actor.actorId,parameters:actor.parameters,position:actor.position,rotation:actor.rotation,roomId:171},actor.id);assert.equal(preview.actorModels[0].textures.length,1);assert.match(preview.actorModels[0].warnings.join(" "),/conditional preview basis/);
+  assert.equal(createHash("sha256").update(Buffer.from(preview.actorModels[0].textures[0].rgbaBase64,"base64")).digest("hex"),"7c284d614e92ea97e5a44695fe067198f0ea3c5b8fb1c10260d8a5c668a298d0");
+  const mesh=preview.actorModels[0].meshes[0];assert.equal(mesh.uvs,undefined);assert.equal(mesh.normals?.length,mesh.positions.length);assert.deepEqual(mesh.material?.texgen,{mode:"linear",basis:{kind:"editor-camera"},scale:[.0029296875,.00146484375],offset:[.015625,.0078125]});
+  // Isolate conversion policy from the independently incomplete timed initializer.
+  // Even a fully completed constructor must not turn generated UVs into UV(0,0).
+  const conversion=service as unknown as {initializer:{resolve:()=>typeof result}};
+  conversion.initializer.resolve=()=>({...result,completed:true,failureKind:undefined});
+  assert.throws(()=>service.doorGeometry({actorId:actor.actorId,parameters:actor.parameters,position:actor.position,rotation:actor.rotation,roomId:171}),/generated UVs cannot be flattened/);
 });

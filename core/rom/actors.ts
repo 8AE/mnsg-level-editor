@@ -19,7 +19,7 @@ const AXES=["x","y","z"] as const;
 interface ReadonlyResource {address:number;fileId:number;byteLength:number}
 const identity=()=>[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];
 const digest=(value:unknown)=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
-const bytesFor=(model:ActorModel)=>model.meshes.reduce((sum,m)=>sum+(m.positions.length+m.indices.length+(m.uvs?.length??0)+(m.colors?.length??0)+(m.normals?.length??0))*8,0)+model.textures.reduce((sum,t)=>sum+t.width*t.height*4+t.rgbaBase64.length*2,0);
+const bytesFor=(model:ActorModel)=>model.meshes.reduce((sum,m)=>sum+(m.positions.length+m.indices.length+(m.uvs?.length??0)+(m.colors?.length??0)+(m.normals?.length??0))*8+(m.material?.texgen?128:0),0)+model.textures.reduce((sum,t)=>sum+t.width*t.height*4+t.rgbaBase64.length*2,0);
 
 function inverse(matrix:number[]):number[] {
   const [a,b,c]=[matrix[0],matrix[4],matrix[8]],[d,e,f]=[matrix[1],matrix[5],matrix[9]],[g,h,i]=[matrix[2],matrix[6],matrix[10]],det=a*(e*i-f*h)-b*(d*i-f*g)+c*(d*h-e*g);
@@ -116,6 +116,7 @@ export class ActorVisuals {
       if(graph.nodes.some(node=>node.billboardAxes&&Object.values(node.billboardAxes).some(Boolean)))throw new Error("Camera-aligned native actor nodes cannot be flattened into a static door.");
       const rendered=renderModelLists(read,graph.roots.map((root,index)=>({...root,material:index===0?(binding.materialPointer&0x8fffffff)>>>0:undefined})),0,undefined,{vertexProvenance:true,materialProvenance:true});
       if(!rendered.complete||rendered.coverage.unsupported)throw new Error(`Native door appearance has unsupported geometry or material state: ${rendered.warnings.join(" ")}`);
+      if(rendered.meshes.some(mesh=>mesh.material?.texgen))throw new Error("Native generated UVs cannot be flattened into authored static door UVs.");
       output.warnings.push(...graph.warnings,...rendered.warnings);
       const matrix=nativePoseMatrix({translation:binding.position,rotation:{x:binding.rotation.x&1023,y:binding.rotation.y&1023,z:binding.rotation.z&1023},scale:binding.scale,cameraAlignedAxes:{x:0,y:0,z:0}});
       for(const [index,mesh] of rendered.meshes.entries()){

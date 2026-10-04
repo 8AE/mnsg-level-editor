@@ -1135,3 +1135,200 @@ have expired; this timed proof makes no fresh on-disk ELF comparison claim.
 The shared API documents the general binder/allocation/audio helpers but
 does not contain these exact timed actor contracts. No game callbacks or
 game process were executed.
+
+### Native TEXGEN presentation: Slicer 0x19D
+
+This proof concerns read-only texture presentation. It changes neither
+exported actor data nor collision. The shader formula below follows the
+local RT64 implementation used by Goemon64Recomp; it is not a claim of
+bit-identical physical RSP microcode emulation. Upstream source identities
+read for this proof were Goemon64Recomp commit
+`30775d247e912178d28fe46bf04d5d610ebc43da` and its RT64 submodule commit
+`abb3d7ad0ed60a8a74aa839222d4c107e828b7f5`.
+
+The canonical Slicer material at File30 local `7C30` clears geometry bits
+with `B6000000/001F3205`, then sets `B7000000/000E2205`. This enables
+`G_LIGHTING=20000`, `G_TEXTURE_GEN=40000` and
+`G_TEXTURE_GEN_LINEAR=80000`. Its texture command is
+`BB000001/18001800`: tile 0, enabled, unsigned S/T scales `0x1800`.
+RT64 enables generation only when **both** LIGHTING and GEN are set:
+`(geometryMode & 0x60000) == 0x60000`; LINEAR is a modifier of that
+enabled state. LINEAR alone, or GEN without LIGHTING, must not be treated
+as generated coordinates. See `rt64_rsp.cpp:637–654` and the local SDK
+`lib/mnsg/libultra/include/PR/gbi.h:341–343`.
+
+The material loads `FD100000/09001000`, then
+`F3000000/077FF100`, and configures render tile
+`F5101000/00018050` plus size `F2000000/0007C0FC`.
+These describe RGBA16, width 32, height 64, row stride 64 bytes,
+TMEM start 0, wrap masks S=5/T=6, no mirror, no clamp, shifts 0/0,
+and tile origins 0/0. File470's reachable display prefix at local `348`
+clears TLUT and at `350` selects bilinear filtering. Its combiner at
+`340` is `FC127E24/FFFFF3F9`; the bounded Slicer traversal observes
+eight triangles, one-cycle mode, `otherH=00082CC0` and
+`otherL=00552078`. Native lighting and N64 three-point filtering remain
+separate from the coordinate-generation proof.
+
+File384 is a texture-parts-only wave: its raw ROM file has zero bytes,
+while its native allocation is 8192 bytes. Its parts list selects resources
+`0x8325` at `09000000` and `0x8326` at `09001000`. The Slicer uses
+the latter 4096-byte RGBA16 bitmap. Checked canonical hashes are:
+
+| Source | SHA-256 |
+|---|---|
+| File30 material `7C30`, `0x90` bytes | `67e77856e772fba00e4e76bac243fc102673b82e96820d3467fa779d3cf59ea3` |
+| File470, raw/expanded `0x3A0` bytes | `da60dd45b94c1f24c9ed4697d32189b6faab4b7193280ad5f545df7088b31ca0` |
+| File384, expanded `0x2000` bytes | `f9f93777bf8638ab3e27925756219afa6e2172fabef0f91803cfc06cfe9afc78` |
+| File384 `+1000`, bitmap `0x1000` bytes | `be5dce3784a959a0cec4b2e08667d3da265c600015af65f3dbb16ab888557987` |
+| Decoded 32×64 RGBA pixels | `7c284d614e92ea97e5a44695fe067198f0ea3c5b8fb1c10260d8a5c668a298d0` |
+
+**Camera basis and state provenance.** Native main
+`80017D8C_1898C` builds the active camera projection/view state.
+For the ordinary perspective branch it passes camera eye floats at
+`+0/+4/+8`, target floats at `+C/+10/+14`, and up vector
+`(sin(roll),cos(roll),0)` to `guLookAtHilite` at `800439E8`
+(ROM `445E8`). Roll is the native angle at camera `+18`.
+`800176F0_182F0` has the analogous animation-decoded camera path.
+Each allocates a 32-byte LookAt pair from the cursor at `80168508`,
+advances that cursor by `0x20`, and supplies the previous cursor to the
+SDK helper. The camera view matrix is multiplied into the **projection**
+stack; the model stack receives identity before object/limb transforms.
+Thus the TEXGEN matrix is the actor/limb model transform, with no second
+application of the camera view rotation.
+
+Fresh native `guLookAtHiliteF`, `800432B0` (ROM `43EB0`), establishes
+the directions independently of its two light/hilite inputs:
+
+```text
+back  = normalize(eye - target)
+right = normalize(cross(up, back))
+up2   = normalize(cross(back, right))
+dirByte(component) = signed8(trunc(min(127, component * 128)))
+```
+
+The right vector is stored at LookAt bytes `+8/+9/+A`; up2 at
+`+18/+19/+1A`. The six signed bytes are quantized native directions,
+not unquantized camera quaternion columns. RT64 `setLookAt`,
+`rt64_rsp.cpp:962–974`, normalizes each loaded signed-byte vector;
+an explicitly loaded all-zero vector stays zero. F3DEX MOVEMEM
+`03840010` selects X/right and `03820010` selects Y/up2. The SDK
+macros agree at `gbi.h:2490–2503`, and RT64 decodes selectors
+`84/82` in `rt64_gbi_f3d.cpp:60–65`.
+
+Main material emitter `800196F0_1A2F0` emits those two MOVEMEMs
+at native `800199D0…80019A18` only when object material `+30` has
+bit `0x10000000`. Their pointers are `80168508` cursor minus `20`
+and minus `10`, selecting the latest camera-generated pair. Slicer's
+material pointer has inline-copy tag `0x20000000`, **not** this LookAt
+tag. `80014218_14E18` only binds resource segment bases; it does not
+add the LookAt tag. Consequently Slicer inherits the preceding RSP
+LookAt state, which cannot be recovered from its material alone.
+
+Do not confuse generic RSP reset zeros with a loaded F3DEX task's
+default. `rt64_gbi_f3dex.cpp:96–97` registers
+`GBI_F3D::reset` for task and microcode-load reset. That function sets
+LookAt X=`(0,1,0)` and Y=`(1,0,0)` at
+`rt64_gbi_f3d.cpp:197–199`; the interpreter invokes the appropriate
+reset at `rt64_interpreter.cpp:45–47`. A known fresh F3DEX task can
+use this explicit default. A model preview without preceding scene
+commands has unknown inherited provenance. It may adopt an explicitly
+labelled editor-camera basis policy, but must not describe that basis as
+the proved previous in-game draw state. Degenerate eye/target/up inputs
+cannot supply a valid camera basis and must remain unavailable.
+
+**Per-vertex formula and matrix convention.**
+`rt64_rsp.cpp:637–723` captures geometry mode, LookAt index,
+texture scales and current world-transform index when each VTX loads.
+`RSPProcessCS.hlsl:55–60` reads signed vertex-normal bytes divided by
+127. It does **not** normalize this input normal. A raw component of
+`-128` therefore remains `-128/127` before the dot-product clamp.
+The shader dispatch uses that vertex's captured matrix/LookAt indices
+at `RSPProcessCS.hlsl:50–55,82–88`, regardless of later draw state.
+
+For a column-vector matrix `M` that places this vertex as `M*p`, and
+the captured world-space unit LookAt axes `Lx/Ly`, the equivalent
+formula from `TextureGen.hlsli:19–33` is:
+
+```text
+N  = signedVertexNormal / 127                    // do not normalize N
+Ax = normalizeSafe(transpose(M3x3) * Lx)
+Ay = normalizeSafe(transpose(M3x3) * Ly)
+dx = clamp(dot(N, Ax), -1, 1)
+dy = clamp(dot(N, Ay), -1, 1)
+g  = LINEAR ? acos(-[dx,dy]) * (1024/pi)
+            : ([dx,dy] + 1) * 512
+texelUV = g * [unsignedScaleS,unsignedScaleT] / 65536
+```
+
+`normalizeSafe` returns zero for a zero-length vector. HLSL spells the
+axis operation as `mul(float4(L,0),worldMatrix)`; because that matrix
+also transforms column positions, this is its **transpose**, not inverse
+or inverse-transpose. Applying Three's normal matrix would change the
+result for nonuniform scale. Translation is excluded with `w=0`.
+`rt64_rsp.cpp:520–526` stores the matrix selected at vertex load;
+`matrixCommon:170–184` establishes its model-stack source. The native
+camera's projection-stack view is not part of these model-only axes.
+
+The generated result is in **texels**, not signed stored vertex UV units.
+Ordinary UVs divide by 32; generated UVs do not. RT64 stores texture
+scale words directly as inputUV for generation at `rt64_rsp.cpp:710–718`.
+Slicer's `0x1800/65536` makes generated coordinates range 0…96
+texels in each axis. Feed those texels through the existing tile shift,
+origin, wrap and texture-dimension rules. Tile shifts/origin are applied
+by RT64 `TextureSampler.hlsli:222,243–244`. Do not divide by 32 a
+second time, reverse an axis independently of the existing image-upload
+policy, or recompute TEXGEN per fragment: generation occurs per vertex,
+then its coordinates are interpolated across the triangle.
+
+Cached vertices retain their original normal, mode, scales, LookAt and
+load-matrix provenance when another node draws them. A later node must
+not transform them through its own matrix for TEXGEN. Dynamic node
+alignment, mixed cached roots or unsupported matrix commands require
+either faithfully captured per-vertex matrices or an explicit unsupported
+fallback. Invalid pointers, unbounded MOVEMEM reads, nonfinite matrix or
+basis values and unknown modified-vertex semantics must likewise keep
+affected appearance unavailable. Geometry remains displayable.
+
+The ROM worker's read-only corpus identified five currently decoded
+TEXGEN assets: Slicer `0x19D` and actor `0x08A`'s selected identity
+`0x314` (File688), slots 1/2/4/5. Those four additional assets use the
+same File384 RGBA16 bitmap with LINEAR+LIGHTING and scales
+`0800/1000`. Their sampled assets had no mixed-mode or cross-root
+vertex reuse. The worker's static room corpus found no TEXGEN among
+118110 triangles across 383 decoded rooms. This is coverage evidence
+for the current decoder, not proof that every native model or future
+animation state satisfies the restricted contract.
+
+Evidence was read from explicit-program Ghidra camera/material/SDK
+decompilation, material-emitter disassembly and SDK xrefs, canonical ROM
+command/file/allocation/parts tables, and the pinned RT64 source listed
+above. A private bounded TMEM reconstruction checked the source and
+decoded bitmap hashes without committing pixels or game assets. The
+shared API currently documents only the scissor part of `17D8C` and
+does not document this camera LookAt/material-tag contract. No game,
+native gameplay callbacks or generated NRM were executed.
+
+## Editor implementation notes: 0.2.2 TEXGEN
+
+This section records implementation scope after the frozen native proof above. The renderer
+retains signed normals and TEXGEN state at vertex load and computes generated coordinates per
+vertex. Unknown inherited LookAt uses an explicit conditional editor-camera basis. Complete
+native MOVEMEM axes use their decoded signed-byte values; partial, invalid, mixed-mode or
+unsupported cross-root state keeps the affected appearance untextured.
+
+The five decoded assets contain 448 triangles, 432 generated. Seventeen canonical actor parts
+contain 1,172 generated-coordinate triangles. Slicer now uses its File384 32 by 64 RGBA16 bitmap
+on eight triangles. The room inventory remains 383 records, 118,110 triangles, 114,137 textured
+and 378 visual rooms. The fresh library census remains 361 IDs with 74 supported, 170
+conditional, 11 nonvisual and 106 unresolved; only its textured/untextured split changes to
+22,911/3,356 across 26,267 triangles.
+
+This texture work does not change raw offline CPU completion or export admission. Timed-child
+previews still stop after the first initializer, and generated actor appearance flattening into
+a static custom door remains rejected. The shared API reference gap noted above remains open.
+
+The metadata-only census confirmed unchanged normalized ROM bytes. The 0.2.2 authoring smoke
+passed 14 milestones, preserving the eight House actors and File96 and exporting C/H. The full
+actual-ROM/toolchain suite covered strict MIPS/link/NRM fixtures; the authoring smoke did not
+request NRM packaging. Read the [validation record](../README.md#package-and-validation-status)
+for GPU, package and installed-app results. No native game or generated NRM was run.

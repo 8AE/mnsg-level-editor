@@ -19,11 +19,10 @@ without selecting the ROM again.
 
 ## Editing scope
 
-Version 0.2.1 includes version 2 projects, authored-room controls and C/H or
-`.nrm` export. It adds guarded resource contracts for the House camera and
-progression controllers, plus conditional first-child previews for Falling
-Barrel and Slicer. Source, desktop authoring, timed-actor GPU, package and installed-launch checks
-passed. Gameplay testing in Goemon64Recomp remains open.
+Version 0.2.2 supports version 2 room authoring and C/H or `.nrm` export. It adds generated
+texture-coordinate previews from native signed normals and vertex-load state, including Slicer's
+native texture. Guarded House controller contracts and conditional first-child previews remain
+available.
 
 - **Rooms:** browse 383 native room records, including 378 with decoded visual
   geometry. View original static textures, UVs, indexed palettes and supported
@@ -84,18 +83,18 @@ The actor library includes 361 candidate IDs: 74 supported, 170 conditional,
 previews. These counts describe bounded decoder results; they do not establish
 later gameplay behavior or export admission for each candidate.
 
-The census contains 497 decoded parts and 26,267 triangles: 22,903 textured
-and 3,364 untextured. Across 255 IDs with canonical native placements, the
-results are 54 supported, 152 conditional, 11 nonvisual and 38 unresolved.
-Library seed previews can use different scene hints from the original
-placements, so their status can differ.
+The census contains 497 decoded parts and 26,267 triangles: 22,911 textured and 3,356
+untextured. Across 255 IDs with canonical native placements, the results are 54 supported, 152
+conditional, 11 nonvisual and 38 unresolved. Library seed previews can use different scene hints
+from the original placements, so their status can differ.
 
-Falling Barrel (0x19A) previews its first child with 36 textured triangles and
-two CI4 textures. Slicer (0x19D) previews eight triangles with an untextured
-fallback because native generated texture coordinates (TEXGEN) remain
-unsupported. Both previews stop after the first child initializer. The decoder
-does not establish later movement, repeated spawning or export resource closure
-for an edited or foreign room context.
+Falling Barrel (0x19A) previews its first child with 36 textured triangles and two CI4 textures.
+Slicer (0x19D) previews eight textured triangles using a 32 by 64 RGBA16 bitmap from File384 and
+native generated texture coordinates (TEXGEN). Unknown inherited LookAt state uses an explicit,
+conditional editor-camera basis. Mixed vertex state or unsupported load/draw roots retain an
+untextured fallback. Both timed previews stop after the first child initializer. The decoder
+does not establish later movement, repeated spawning or export resource closure for an edited or
+foreign room context.
 
 Some initial poses sit behind room surfaces. Geometry is visible by default.
 Turn **Geometry** off below the viewport to inspect those models; this view
@@ -242,37 +241,34 @@ Developer ID release, override `mac.identity` with your certificate identity and
 configure notarization credentials in electron-builder. Windows distribution
 builds need code-signing credentials.
 
-Current 0.2.1 source validation passed typecheck, the production build and the
-test suite with the supported US ROM and LLVM/NRM template: 204 tests total,
-202 passed and two optional GPU checks skipped. Separate timed-actor GPU checks
-passed all four cases, including Barrel texture pixels and Slicer's explicit
-untextured TEXGEN fallback, with no page/console errors or runtime crashes.
+Version 0.2.2 passed fresh typecheck, the production build and the actual-ROM/toolchain suite:
+211 tests total, 208 passed and three optional GPU checks skipped. Separate runs passed 16
+analytical/texture/actor checks and one thumbnail GPU check, with none skipped. Eight native
+TEXGEN actor and thumbnail checks passed with no page/console errors and unchanged ROM bytes.
 
-The real Electron authoring smoke passed 15 milestones: native import,
-Pan/Tilt/WASD with unchanged project data, cloning, mesh transforms, UV/RGBA,
-topology, picking, thumbnail drag/drop, collision, reciprocal doors, sky,
-reset/history, save/reopen and hostile IPC rejection. It retained all eight
-House 465 actors in room 621, verified File96 in the export inventory, generated
-C/H and passed strict MIPS compilation, linking and `.nrm` packaging.
+The real Electron authoring smoke passed 14 milestones, retaining the eight House actors and
+File96 while checking navigation, geometry editing, native library placement, collision, doors,
+sky, recovery, save/reopen and hostile IPC. It required C/H export; that run did not request
+`.nrm` packaging. The full test suite covered strict MIPS compilation, linking and `.nrm`
+fixtures.
 
-The full-roster House handoff generated C/H, compiled MIPS, linked and packaged
-`.nrm`. Room 465 retains all eight native actors and adds a checker door to
-room 620. Room 620 copies the House geometry and native BSP, retains those
-eight actors, adds a native coin and a return door, and selects sky resource
-123. Guarded static controller contracts retain File27 for camera actor 0x308
-and File61 plus File96 for progression controller 0x34E. The clone requires no
-actor-removal workaround. These contracts do not simulate later camera
-callbacks or scenario-script execution.
+macOS ARM64 DMG/ZIP packaging and strict ad hoc signature verification passed. The visible
+packaged smoke checked four native textured rooms, body and door-selector previews, WASD and
+unchanged cache data. The installed 0.2.2 app passed strict signature verification and a normal
+cached-ROM launch with 383 rooms. Its native Slicer showed generated textured facets with its
+source X rotation unchanged. ROM identity and normalized cache hashes stayed unchanged.
 
-The macOS ARM64 0.2.1 DMG and ZIP passed packaging and strict app-signature
-verification. A visible packaged smoke checked rooms 0, 465, 376 and 322,
-textured geometry, native body and door-selector previews, WASD and unchanged
-cache data. The installed 0.2.1 app passed strict signature verification and a
-normal cached-ROM launch: 383 rooms, House 465 with 249 triangles, 247 textured,
-and Pan/Tilt controls present. ROM identity and normalized cache hashes stayed
-unchanged. Consult the linked desktop workflow for each revision's macOS ARM64,
-macOS x64 and Windows x64 build results. Intel macOS and Windows runtime checks
-remain open.
+These are editor, build and package results. No generated mod was installed or run, and native
+gameplay parity remains unverified.
+
+The historical 0.2.1 full-roster House handoff remains unchanged. Its C/H, MIPS/link and `.nrm`
+checks passed; room 465 keeps eight native actors and a checker door to room 620, which copies
+the House geometry/BSP, retains those actors, adds a coin and return door, and selects sky
+resource 123. Static controller closure includes File27 and File61/File96; later camera
+callbacks and scenario VM behavior remain unverified.
+
+Consult the linked desktop workflow for each revision's macOS ARM64, macOS x64 and Windows x64
+build results. Intel macOS and Windows runtime checks remain open.
 
 Compile, link, package and editor checks do not establish in-game collision,
 reload behavior or compatibility with other mods. Test the affected rooms and

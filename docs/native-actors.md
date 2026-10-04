@@ -323,3 +323,38 @@ Generated pair `FC1115FF / FFFDFE3B` decodes via SDK `gbi.h:2851` and RT64 combi
 House room 465 source positions for `2D3/2D4` are Y `-40`. Fresh File 54 constructors `C18/F18` bind identities `2D1/2D2`, animated slot zero at step `0.5`, scale `0.12`, then call native ground settling through `21A90`; flag `97` controls presence. Deferred `CCC/FCC` handles interaction and a slot-zero rebind. No upward rise stage was established in those bodies. The current read-only service probe returned zero model position offset and zero root Y translation; local mesh Y bounds were `0…202` and `1…198.71` before the actor scale. These are constructor/source-pose facts, not final gameplay floor placement. A screenshot below the floor does not prove a scalar decoder error or justify a guessed settled height.
 
 Additional exact tools used for this closure: `import_file` on private unmodified File 35/36/39/80 ELF wrappers; `decompile_function` against `mnsg-actor-native-census-file-35.elf`, `-36.elf`, `-39.elf`, `-80.elf` and existing explicit File 24/27/30/40/43/44/46/56/59/61 programs; `disassemble_function` at File 44 `080026D0` and main `800358E8`, `80035A5C`. Metadata-only classification was regenerated independently. `create_function` at fresh File 27 `080009D8` established its missing function boundary before decompilation. No native callback or game process was executed.
+
+## Editor 0.2.2 TEXGEN implementation
+
+The renderer now carries original signed vertex-normal bytes and the TEXGEN mode, texture
+scales, LookAt state and load-root identity captured when VTX loads. It computes generated
+coordinates per vertex through the verified model transform, then applies the tile origin,
+shifts and wrapping. It does not normalize the raw signed normal or substitute reconstructed
+face normals.
+
+Slicer's first timed child now has eight textured triangles using the File384 32 by 64 RGBA16
+bitmap. The bounded decoded corpus contains five unique TEXGEN assets: Slicer and actor 0x08A's
+selected identity 0x314, slots 1, 2, 4 and 5. Together they contain 448 triangles, 432 with
+generated coordinates. Seventeen canonical displayed parts contribute 1,172 generated-coordinate
+triangles. These counts cover the decoded assets and initial parts, not later animation.
+
+Unknown inherited LookAt state uses a labelled conditional editor-camera basis. A complete
+explicit native MOVEMEM pair uses its decoded signed-byte axes. Partial or invalid LookAt, mixed
+vertex modes/scales and unsupported load/draw root combinations keep the affected appearance
+untextured. Model geometry remains visible. The exporter rejects flattening generated actor
+coordinates into a static custom-door appearance.
+
+The fresh metadata-only census reports 361 library candidate IDs: 74 supported, 170 conditional,
+11 nonvisual and 106 unresolved, including seven partial previews. It contains 497 parts and
+26,267 triangles: 22,911 textured and 3,356 untextured. For 255 IDs with canonical placements,
+it reports 54 supported, 152 conditional, 11 nonvisual and 38 unresolved, with 451 parts and
+23,944 triangles: 21,136 textured and 2,808 untextured. Library scene hints can differ from
+canonical placement state. Actor status and offline CPU/export admission remain unchanged by
+this texture work.
+
+The fresh census confirmed unchanged normalized ROM bytes and actor statuses. The
+analytical/texture/actor suite passed 16 checks; eight native actor and thumbnail checks passed
+with no page/console errors. Those checks cover native normals, hierarchy, per-draw matrices and
+the decoded TEXGEN examples. Read the [validation
+record](../README.md#package-and-validation-status) for source, authoring, package and
+installed-app results. No generated mod or native game was run.

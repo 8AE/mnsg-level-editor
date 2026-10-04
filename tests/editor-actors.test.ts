@@ -158,3 +158,31 @@ test("an async native payload arriving during a real gizmo drag preserves previe
   assert.equal(commits, 1); assert.equal(proxy.position.equals(preview), true); assert.deepEqual(source.position, { x: 0, y: 0, z: 0 });
   cancelRequest(); transform.dispose(); fixture.dispose();
 });
+
+test("generated actor surfaces retain native normals in shared hierarchical assets and toggle without mutation", () => {
+  const other = { ...actor, id: "fixture:generated-other", rotation: { x: 0, y: 0, z: 256 } };
+  const fixture = setup([actor, other]);
+  const nativeNormals = [-128 / 127, 64 / 127, 0, 32 / 127, 0, 1, 0, 0, 0];
+  const generated: ActorModel = { ...model, meshes: [{ ...model.meshes[0], uvs: undefined, normals: nativeNormals, material: { ...model.meshes[0].material!, texgen: { mode: "linear", basis: { kind: "editor-camera" }, scale: [1 / 1024, 1 / 1024], offset: [0, 0] } } }] };
+  const value = { actorModels: [generated], actorVisuals: [visual, { ...visual, actorRef: other.id, parts: [{ ...part, rootMatrix: new THREE.Matrix4().makeScale(3, .5, 2).toArray() }] }] };
+  const fingerprint = JSON.stringify(value);
+  const coverage = fixture.layer.setPayload(value);
+  assert.equal(coverage.texturedTriangles, 2);
+  const draws = meshes(fixture.scene);
+  assert.equal(draws[0].geometry, draws[1].geometry); assert.equal(draws[0].material, draws[1].material);
+  assert.deepEqual([...draws[0].geometry.getAttribute("normal").array], [...new Float32Array(nativeNormals)]);
+  assert.equal(draws[0].geometry.getAttribute("uv"), undefined);
+  const native = draws[0].material;
+  fixture.camera.position.set(100, 0, 0); fixture.camera.lookAt(0, 0, 0); fixture.layer.updateCamera(fixture.camera);
+  fixture.layer.updateView(null, { actors: true, textures: false, wireframe: false });
+  assert.notEqual(draws[0].material, native);
+  fixture.layer.updateView(null, { actors: true, textures: true, wireframe: false });
+  assert.equal(draws[0].material, native);
+  assert.equal(JSON.stringify(value), fingerprint);
+  fixture.dispose();
+  const invalid = setup();
+  const refused = invalid.layer.setPayload({ actorModels: [{ ...generated, meshes: [{ ...generated.meshes[0], normals: undefined }] }], actorVisuals: [visual] });
+  assert.equal(refused.texturedTriangles, 0); assert.match(refused.warnings.join(" "), /complete verified native normals/);
+  assert.equal(meshes(invalid.scene)[0].geometry.getAttribute("normal"), undefined);
+  invalid.dispose();
+});

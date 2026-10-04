@@ -187,7 +187,7 @@ test("unknown inherited actor material fallback is explicit, opt-in and limited 
   assert.deepEqual(fallback.meshes[0].material!.color,[1,1,1]);assert.equal(fallback.meshes[0].material!.opacity,1);assert.equal(fallback.meshes[0].material!.vertexColors,false);
   const saved=f.bytes.slice();
   f.v.setUint32(0x200,0xfcffffff);f.v.setUint32(0x204,0xabcdef01);const unknown=renderModelLists(f.read,roots,0,undefined,{inheritedTextureFallback:true});assert.equal(unknown.coverage.textured,0);
-  f.bytes.set(saved);f.v.setUint32(0x200,0xb7000000);f.v.setUint32(0x204,0x40000);f.v.setUint32(0x208,0xbb000001);f.v.setUint32(0x20c,0xffffffff);const generated=renderModelLists(f.read,roots,0,undefined,{inheritedTextureFallback:true});assert.equal(generated.coverage.textured,0);assert.match(generated.warnings.join(),/generated texture coordinates/);
+  f.bytes.set(saved);f.v.setUint32(0x200,0xb7000000);f.v.setUint32(0x204,0x40000);f.v.setUint32(0x208,0xbb000001);f.v.setUint32(0x20c,0xffffffff);const generated=renderModelLists(f.read,roots,0,undefined,{inheritedTextureFallback:true});assert.equal(generated.coverage.textured,1);assert.equal(generated.meshes[0].material?.texgen,undefined); // GEN without LIGHTING is ignored by native RSP.
   f.bytes.set(saved);f.v.setUint32(0x200,0x99000000);const badState=renderModelLists(f.read,roots,0,undefined,{inheritedTextureFallback:true});assert.equal(badState.coverage.textured,0);
   f.bytes.set(saved);f.v.setUint32(0x218,0);const absent=renderModelLists(f.read,roots,0,undefined,{inheritedTextureFallback:true});assert.equal(absent.coverage.textured,0);assert.match(absent.warnings.join(),/uninitialized TMEM/);
 });
@@ -222,13 +222,14 @@ test("local US native actor selectors, integer initial poses and immutable ROM s
   assert.ok(payload.actorModels.every(model=>model.nodes.every((node,index)=>node.parentIndex===null||node.parentIndex<index)));
   assert.ok(rom.listRooms().every(summary=>!("actorModels" in summary)&&!("actorVisuals" in summary)&&!("textures" in summary)));
   assert.throws(()=>rom.loadActorVisuals(465,{[actor.id]:{actorId:0xffff}}));
-  let accounted=0,parts=0;for(const summary of rom.listRooms()){
+  let accounted=0,parts=0,generatedTriangles=0,generatedParts=0;for(const summary of rom.listRooms()){
     const native=rom.loadRoom(summary.id),p=rom.loadActorVisuals(summary.id);accounted+=p.actorVisuals.length;
     assert.deepEqual(p.actorVisuals.map(v=>v.actorRef),native.actors.map(a=>a.id));
     for(const visual of p.actorVisuals){assert.ok(["supported","conditional","nonvisual","unsupported"].includes(visual.status));if(visual.status==="nonvisual")assert.equal(visual.parts.length,0);parts+=visual.parts.length;}
+    for(const visual of p.actorVisuals)for(const part of visual.parts){const model=p.actorModels.find(model=>model.id===part.assetId)!;const generated=model.meshes.filter(m=>m.material?.texgen);if(generated.length){generatedParts++;generatedTriangles+=generated.reduce((n,m)=>n+m.indices.length/3,0);assert.ok(generated.every(m=>m.material!.texgen!.mode==="linear"&&m.material!.texgen!.basis.kind==="editor-camera"&&m.uvs===undefined&&m.normals?.length===m.positions.length));assert.ok(model.textures.some(t=>t.format==="RGBA16"&&t.width===32&&t.height===64));}}
     for(const model of p.actorModels){assert.ok(model.meshes.every(m=>m.positions.every(Number.isFinite)));assert.ok(model.textures.every(t=>Buffer.from(t.rgbaBase64,"base64").length===t.width*t.height*4));assert.equal(model.nodes.flatMap(n=>n.meshIndices).length,model.meshes.length);}
   }
-  assert.equal(accounted,3888);assert.ok(parts>3700,"Native declarations must be rendered broadly, not a hardcoded subset");
+  assert.equal(accounted,3888);assert.equal(generatedParts,17);assert.equal(generatedTriangles,1172);assert.ok(parts>3700,"Native declarations must be rendered broadly, not a hardcoded subset");
   // Project/preview edits never change bytes used by patch and collision guards.
   assert.equal(rom.geometryTranslation(0,{x:10,y:20,z:30}).spans.length,576);assert.equal(hash(),before);
 });

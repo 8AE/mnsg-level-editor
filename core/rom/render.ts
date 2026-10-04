@@ -1,4 +1,4 @@
-import type {GeometryMesh,GeometryTexture} from "../../shared/types";
+import type {GeometryMesh,GeometryTexture,NativeTexgen} from "../../shared/types";
 import {RomReader} from "./binary";
 import type {RomFile} from "./decompress";
 import {geometryAuxiliaryRecord,graphicsLocation} from "./geometry";
@@ -6,7 +6,7 @@ import {NativeTextureMemory,textureCoordinate,type TextureTile} from "./textures
 import {RenderWaves} from "./waves";
 import {actorTextureColorVariant,actorTextureProductVariant,actorPrimitiveAlphaTexture,nativeCombinerClamp,type ActorTextureColor} from "./actors-colors";
 
-interface RenderVertex {position:number[];uv:number[];color:number[];normal:number[];lighting:boolean;texgen:boolean;loadRoot:number;sourceAddress:number}
+interface RenderVertex {position:number[];uv:number[];color:number[];normal:number[];lighting:boolean;texgen?:{mode:NativeTexgen["mode"];basis?:NativeTexgen["basis"];scale:[number,number]};loadRoot:number;sourceAddress:number}
 export interface RenderCoverage {triangles:number;textured:number;untextured:number;unsupported:number;formats:Record<string,number>}
 export interface RenderedRoom {meshes:GeometryMesh[];textures:GeometryTexture[];warnings:string[];coverage:RenderCoverage;complete:boolean;vertexAddresses?:number[][];materialCommands?:number[][][];materialStates?:RenderTriangleState[]}
 export interface ModelDisplayRoot {displayList:number;material?:number;label?:string;matrix?:number[];preserveVertexCache?:boolean}
@@ -44,6 +44,10 @@ export function renderModelLists(read:(address:number,size:number)=>Uint8Array,r
   const memory=new NativeTextureMemory(read);
   let mode=0,otherH=0,otherL=0,tile=0,textureOn=false,scaleS=1,scaleT=1,primitive=[1,1,1,1],environment=[0,0,0,1],blendAlpha=0;
   let rootMatrix:number[]|undefined,drawRoot=0;
+  // Scene LookAt state is unknown until both explicit MOVEMEM records are read.
+  // Never substitute task-reset defaults for inherited native frame state.
+  let lookAtX:[number,number,number]|undefined,lookAtY:[number,number,number]|undefined,invalidLookAt=false;
+  const capturedBasis=():NativeTexgen["basis"]|undefined=>invalidLookAt?undefined:lookAtX&&lookAtY?{kind:"world",x:[...lookAtX],y:[...lookAtY],source:"movemem"}:!lookAtX&&!lookAtY?{kind:"editor-camera"}:undefined;
   let combine0=0,combine1=0,vertexCache=new Map<number,RenderVertex>(),active=new Set<number>(),commands=0,pixelBytes=0,currentKey="",rootLabel="render",unsupportedState=false;
   const rgba=(word:number)=>[(word>>>24)/255,((word>>>16)&255)/255,((word>>>8)&255)/255,(word&255)/255];
   const addImage=(image:GeometryTexture)=>{if(!images.has(image.id)){const size=image.width*image.height*4;if(pixelBytes+size>16*1024*1024||images.size>=128)throw new Error("Room texture budget exceeded.");images.set(image.id,image);pixelBytes+=size;}};
@@ -55,13 +59,18 @@ export function renderModelLists(read:(address:number,size:number)=>Uint8Array,r
     onTriangle?.(rows.map(vertex=>vertex.loadRoot),drawRoot,{combine0,combine1,otherH,otherL,tile,tiles:memory.tiles});
     const inheritedFallback=!!options.inheritedTextureFallback&&!combine0&&!combine1&&textureOn&&!unsupportedState&&!rows.some(vertex=>vertex.texgen);
     const combiner=COMBINERS[`${combine0.toString(16)}:${combine1.toString(16)}`]??(inheritedFallback?{texture:true,shade:false,primitive:false,alphaPrimitive:false} as Combiner:undefined);
+    const generated=rows.some(vertex=>vertex.texgen);
+    const gen=rows[0].texgen;
+    const homogeneousGen=!!gen&&!!gen.basis&&rows.every(vertex=>vertex.loadRoot===drawRoot&&vertex.texgen&&JSON.stringify(vertex.texgen)===JSON.stringify(gen));
+    const unsupportedGen=generated&&!homogeneousGen;
     const wrongCycle=combiner?.cycle!==undefined&&combiner.cycle!==((otherH>>>20)&3);
-    let texture:GeometryTexture|undefined,unsupported=unsupportedState||rows.some(vertex=>vertex.texgen)||!combiner||wrongCycle||inheritedFallback;
+    let texture:GeometryTexture|undefined,unsupported=unsupportedState||unsupportedGen||!combiner||wrongCycle||inheritedFallback;
     if(combiner?.environmentAfterShade&&rows.some(vertex=>!vertex.lighting)){unsupported=true;warnings.add("Native texture/shade plus environment color requires a per-pixel unlit combiner; affected surfaces use an untextured fallback.");}
     if(wrongCycle)warnings.add("Unsupported native actor combiner cycle type; affected surfaces use an untextured fallback.");
     if(inheritedFallback)warnings.add("Native actor inherited scene material is unknown; displaying decoded native texture/UVs with a neutral static color fallback.");
     else if(!combiner)warnings.add(`Unsupported native color combiner ${combine0.toString(16)}/${combine1.toString(16)}; affected surfaces use an untextured fallback.`);
-    if(rows.some(vertex=>vertex.texgen))warnings.add("Native generated texture coordinates are unsupported; affected surfaces use an untextured fallback.");
+    if(unsupportedGen)warnings.add("Native generated texture coordinates mix vertex modes, scales, incomplete LookAt state or load/draw roots; affected surfaces use an untextured fallback.");
+    else if(generated&&gen?.basis?.kind==="editor-camera")warnings.add("Native generated UVs inherit unknown scene LookAt state; the editor camera supplies a conditional preview basis.");
     if(textureOn&&combiner?.texture&&(!unsupported||inheritedFallback)){
       const textureKey=JSON.stringify([memory.version,descriptor,(otherH>>>14)&3]);let decoded=textureCache.get(textureKey);
       if(!decoded){if(textureCache.size>=4096)throw new Error("Native texture state cache budget exceeded.");try{decoded=memory.decode(tile,(otherH>>>14)&3);addImage(decoded);}catch(error){decoded=error instanceof Error?error:new Error(String(error));}textureCache.set(textureKey,decoded);}
@@ -94,13 +103,17 @@ export function renderModelLists(read:(address:number,size:number)=>Uint8Array,r
     if(combiner?.environment==="constant-add"||combiner?.environment==="shade-add")color=combiner.environment==="shade-add"&&!lighting?[1,1,1]:[0,1,2].map(i=>nativeCombinerClamp(environment[i]+primitive[i])) as [number,number,number];
     // Surface identity includes raw combiner/primitive state even where lighting is approximate.
     const wrap=(bits:number):"repeat"|"mirror"|"clamp"=>(bits&2)?"clamp":(bits&1)?"mirror":"repeat";
-    const material:NonNullable<GeometryMesh["material"]>={textureId:texture?.id,wrapS:wrap(descriptor.cms),wrapT:wrap(descriptor.cmt),filter,color,
+    const shiftFactor=(shift:number)=>shift<=10?1/(2**shift):2**(16-shift);
+    const texgen:NativeTexgen|undefined=texture&&homogeneousGen?{mode:gen!.mode,basis:gen!.basis!,
+      scale:[gen!.scale[0]*shiftFactor(descriptor.shifts)/texture.width,gen!.scale[1]*shiftFactor(descriptor.shiftt)/texture.height],
+      offset:[(-descriptor.uls/4+(filter==="linear"?.5:0))/texture.width,(-descriptor.ult/4+(filter==="linear"?.5:0))/texture.height]}:undefined;
+    const material:NonNullable<GeometryMesh["material"]>={textureId:texture?.id,texgen,wrapS:wrap(descriptor.cms),wrapT:wrap(descriptor.cmt),filter,color,
       opacity:combiner?.alphaEnvironment?environment[3]:combiner?.alphaPrimitive?primitive[3]:1,alphaTest:!inheritedFallback&&!combiner?.secondTexture&&(otherL&3)===1?Math.max(blendAlpha,1/255):0,vertexColors:!!combiner?.shade&&!rows[0].lighting&&!mixed,lighting};
     // Preserve contiguous command order, including translucent surfaces.
     const key=JSON.stringify([material,combine0,combine1,primitive,environment]);
     let mesh=result.meshes[result.meshes.length-1];
     if(key!==currentKey||!mesh){if(result.meshes.length>=1024)throw new Error("Room material batch budget exceeded.");currentKey=key;mesh={id:`${rootLabel}:${roomId}:${result.meshes.length}`,source:"display-list",positions:[],indices:[],material,
-      uvs:texture?[]:undefined,colors:material.vertexColors?[]:undefined,normals:lighting?[]:undefined};result.meshes.push(mesh);result.vertexAddresses?.push([]);
+      uvs:texture&&!texgen?[]:undefined,colors:material.vertexColors?[]:undefined,normals:lighting||texgen?[]:undefined};result.meshes.push(mesh);result.vertexAddresses?.push([]);
       result.materialCommands?.push(stateCommands.map(command=>[...command]));result.materialStates?.push(structuredClone({combine0,combine1,otherH,otherL,tile,tiles:memory.tiles}));}
     for(const vertex of rows){mesh.indices.push(mesh.positions.length/3);mesh.positions.push(...vertex.position);
       result.vertexAddresses?.[result.meshes.length-1].push(vertex.sourceAddress);
@@ -120,7 +133,7 @@ export function renderModelLists(read:(address:number,size:number)=>Uint8Array,r
           const p=[dv.getInt16(at),dv.getInt16(at+2),dv.getInt16(at+4)],m=rootMatrix;
           const position=m?[m[0]*p[0]+m[4]*p[1]+m[8]*p[2]+m[12],m[1]*p[0]+m[5]*p[1]+m[9]*p[2]+m[13],m[2]*p[0]+m[6]*p[1]+m[10]*p[2]+m[14]]:p;
           vertexCache.set(first+i,{position,uv:[dv.getInt16(at+8)/32*scaleS,dv.getInt16(at+10)/32*scaleT],loadRoot:drawRoot,sourceAddress:w1+at,
-            color:[data[at+12]/255,data[at+13]/255,data[at+14]/255],normal:[signed(data[at+12])/127,signed(data[at+13])/127,signed(data[at+14])/127],lighting,texgen:(mode&0xc0000)!==0});}}
+            color:[data[at+12]/255,data[at+13]/255,data[at+14]/255],normal:[signed(data[at+12])/127,signed(data[at+13])/127,signed(data[at+14])/127],lighting,texgen:(mode&0x60000)===0x60000?{mode:(mode&0x80000)?"linear":"sphere",basis:capturedBasis(),scale:[scaleS,scaleT]}:undefined});}}
       else if(op===0xbf)triangle([((w1>>>16)&255)/2,((w1>>>8)&255)/2,(w1&255)/2]);
       else if(op===0xb1){triangle([((w0>>>16)&255)/2,((w0>>>8)&255)/2,(w0&255)/2]);triangle([((w1>>>16)&255)/2,((w1>>>8)&255)/2,(w1&255)/2]);}
       else if(op===0xb6)mode&=~w1;else if(op===0xb7)mode|=w1;
@@ -130,7 +143,18 @@ export function renderModelLists(read:(address:number,size:number)=>Uint8Array,r
       else if([0xf0,0xf3,0xf4].includes(op)){try{memory.load(op,w0,w1);}catch(error){memory.initialized.fill(0);memory.version++;warnings.add(`Texture load failed: ${error instanceof Error?error.message:String(error)}`);}}
       else if(op===0xfa)primitive=rgba(w1);else if(op===0xfb)environment=rgba(w1);else if(op===0xf9)blendAlpha=(w1&255)/255;else if(op===0xfc){combine0=w0;combine1=w1;}
       else if([0x01,0xb0,0xb2,0xbe].includes(op))throw new Error(`Unsupported position-changing render command 0x${op.toString(16)}.`);
-      else if(op===0x03){if(((w0>>>16)&255)!==0x8a){unsupportedState=true;warnings.add("Unsupported native MOVEMEM render state; affected texture appearance is unavailable.");}}
+      else if(op===0x03){
+        const selector=(w0>>>16)&255;
+        if(selector===0x82||selector===0x84){
+          try{
+            if(w0!==((0x03000010|(selector<<16))>>>0))throw new Error("Unsupported LookAt record layout.");
+            const data=resolve(w1,16);if(data.length!==16)throw new Error("LookAt record is truncated.");
+            const axis=[8,9,10].map(at=>(data[at]>=128?data[at]-256:data[at])/127),length=Math.hypot(...axis);
+            const normalized=axis.map(value=>length?value/length:0) as [number,number,number];
+            if(selector===0x84)lookAtX=normalized;else lookAtY=normalized;
+          }catch(error){invalidLookAt=true;warnings.add(`Native LookAt unavailable: ${error instanceof Error?error.message:String(error)}`);}
+        }else if(selector!==0x8a){unsupportedState=true;warnings.add("Unsupported native MOVEMEM render state; affected texture appearance is unavailable.");}
+      }
       else if(op===0xbc){if(![0x02,0x08].includes(w0&255)){unsupportedState=true;warnings.add("Unsupported native MOVEWORD render state; affected texture appearance is unavailable.");}}
       else if(![0x00,0xc0,0xe6,0xe7,0xe8,0xe9,0xea,0xeb,0xec,0xed,0xee,0xef,0xf7,0xf8,0xfb,0xfe,0xff].includes(op)){unsupportedState=true;warnings.add(`Unsupported native render command 0x${op.toString(16)}; affected texture appearance is unavailable.`);}
     }throw new Error("Room material display list has no bounded terminator.");}finally{active.delete(pointer);}

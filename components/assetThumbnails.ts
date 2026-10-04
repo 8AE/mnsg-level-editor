@@ -8,6 +8,7 @@ import type {
 import { ActorModelLayer } from "./actorModelScene";
 import {
   createNativeSurfaceMaterial,
+  hasNativeNormals,
   decodeTexturePixels,
   linearNativeColors,
   RoomTexturePool,
@@ -129,6 +130,8 @@ function render(
                 data.colorItemSize ?? 3,
               ),
             );
+          if (hasNativeNormals(data))
+            g.setAttribute("normal", new THREE.Float32BufferAttribute(data.normals!, 3));
           const m = createNativeSurfaceMaterial(data, pool!);
           scene.add(new THREE.Mesh(g, m.material));
         });
