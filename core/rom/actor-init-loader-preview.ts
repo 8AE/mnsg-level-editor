@@ -86,7 +86,7 @@ export class NativeLoaderPreview {
   constructor(readonly reader:RomReader,readonly files:Map<number,RomFile>,readonly input:NativeActorInitInput,readonly waves:Pick<RenderWaves,"image">){
     this.donor=input.actorId===0x24c?306:input.actorId===0x35c?193:-1;this.overlay=input.actorId===0x24c?45:74;
     const actual=input.roomId;
-    if(this.donor<0||actual===undefined||!Number.isInteger(actual)||actual<0||actual>799||(input.templateRoomId??actual)!==this.donor||input.parameters.length!==3||input.parameters.some(p=>p!==0)||(input.unknownHalfword??0)!==0)throw new Error("Scoped loader preview requires the matching native donor and zero definition words/halfword; other scene contexts remain unresolved.");
+    if(this.donor<0||actual===undefined||!Number.isInteger(actual)||actual<0||actual>799||(input.templateRoomId??actual)!==this.donor||!Array.isArray(input.parameters)||input.parameters.length!==3||[0,1,2].some(index=>input.parameters[index]!==0)||(input.unknownHalfword??0)!==0)throw new Error("Scoped loader preview requires the matching native donor and zero definition words/halfword; other scene contexts remain unresolved.");
     for(const [name,offset,length,expected] of GUARDS){reader.check(offset,length);if(digest(reader.bytes.subarray(offset,offset+length))!==expected)throw new Error(`Native loader preview ${name} byte/table guard changed.`);}
     if(digest(reader.bytes)!==ROM_HASH)throw new Error("Native loader preview requires the canonical decompressed US ROM identity.");
     for(const file of readFileTable(reader.bytes)){const supplied=files.get(file.id);if(!supplied||supplied.start!==file.start||supplied.end!==file.end||supplied.compressed!==file.compressed)throw new Error("Native loader file table/bounds changed.");}

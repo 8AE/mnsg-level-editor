@@ -23,6 +23,13 @@ function read(result:NativeActorInitResult,address:number,length:number):DataVie
 function taskObjects(result:NativeActorInitResult){return result.syntheticMemory.filter(s=>s.bytes.length===0xf0&&new DataView(s.bytes.buffer,s.bytes.byteOffset).getUint32(0x18)).map(s=>({task:s.address,object:new DataView(s.bytes.buffer,s.bytes.byteOffset).getUint32(0x18)}));}
 const actual={skip:!process.env.MNSG_TEST_ROM};
 
+test("direct loader guards reject sparse, missing and non-array definition words before ROM reads",()=>{
+  const reader=new RomReader(new Uint8Array(64)),files=new Map();let decoded=false;
+  const waves={image:()=>{decoded=true;throw Error("No native image decode permitted");}};
+  for(const id of [0x24c,0x35c])for(const parameters of [new Array(3),[0,,0],[0,0],{0:0,1:0,2:0,length:3},null])assert.throws(()=>new NativeLoaderPreview(reader,files,{...input(id,id===0x24c?306:193),parameters:parameters as number[]},waves),/zero definition words/);
+  assert.equal(decoded,false);
+});
+
 test("CPU full-span readonly barriers reject before any private or cached byte changes",()=>{
   const m=new ActorMemory(new RomReader(new Uint8Array(0x1000)),new Map()),source=Uint8Array.of(1,2,3,4);m.regions.push({start:0x80321500,bytes:source,readonly:true});
   assert.throws(()=>m.write(0x803214fe,new Uint8Array(6).fill(9)),/readonly/);assert.deepEqual([...source],[1,2,3,4]);assert.equal(m.privateBytes.size,0);

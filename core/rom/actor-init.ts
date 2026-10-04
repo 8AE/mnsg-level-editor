@@ -5,6 +5,7 @@ import type {RomFile} from "./decompress";
 import type {RenderWaves} from "./waves";
 import {InitMachine,type InitMemory} from "./actor-init-machine";
 import {NativeLoaderPreview,LOADER_REGISTRY_ADDRESS,LOADER_ARENA_DESCRIPTOR,verifiedLoaderPresentationCall} from "./actor-init-loader-preview";
+import {nativeActorControllerClassification} from "./actor-controller-classification";
 
 export interface NativeActorSceneDeclaration {prototypeId:string;parameters:[number,number,number];position:Vec3;rotation:Vec3}
 export interface NativeActorContext {roomId:number;templateRoomId?:number;siblings?:NativeActorSceneDeclaration[]}
@@ -50,6 +51,11 @@ export interface NativeControllerResourceContract {
 
 /** A static resource proof is separate from executing or completing the CPU. */
 export function nativeControllerResourceContract(reader:RomReader,files:Map<number,RomFile>,actorId:number):NativeControllerResourceContract|undefined {
+  if(actorId===0x23b){
+    const classification=nativeActorControllerClassification(reader,files,actorId);
+    if(!classification||classification.entry!==0x080022fc||classification.overlay!==43||classification.completed!==true||classification.resourceFileIds?.length!==1||classification.resourceFileIds[0]!==43)throw new Error("Actor0x23b guarded finite empty-constructor resource proof changed.");
+    return {kind:"verified-controller-closure",resourceFileIds:[43],provenance:["Static guarded native actor0x23b empty-constructor resource proof: File43, entry0x080022FC, 12-byte body SHA256 691e766163b1b8288cf1e76b4dc9eb7dde764cde7f749bf5aef916d919300f2b. CPU completion is not asserted."],warnings:[classification.reason,classification.provenance[0]]};
+  }
   const contract=actorId===0x308?{overlay:27,entry:0x080020f4,start:0x6af410,end:0x6b2fa0,length:0x50,hash:"e87911e696977b8c4096aa422a893ccaa6f4004972f5194df565f0b00d81653c"}:
     actorId===0x34e?{overlay:61,entry:0x0800098c,start:0x7208d0,end:0x721620,length:0x64,hash:"1814198742678a03a59f45aa771b00c8f6f2ba37ea08acc6603204075cfa9410"}:undefined;
   if(!contract)return undefined;
@@ -223,7 +229,7 @@ export class ActorInitializer {
   private evaluate(input:NativeActorInitInput,progression:Map<number,boolean>,observedFlags:Set<number>,instructionLimit:number):NativeActorInitResult {
     const diagnostics:string[]=[],bindings:NativeActorBinding[]=[],callbacks:number[]=[];
     const result:NativeActorInitResult={bindings,status:"unsupported",diagnostics,instructionCount:0,branches:[],deferredCallbacks:callbacks,syntheticMemory:[],readonlyMemory:[]};
-    if(input.actorId===0x24c||input.actorId===0x35c)result.completed=false;
+    if([0x24c,0x35c,0x23b,0x35e,0x1bf].includes(input.actorId))result.completed=false;
     const memory=new ActorMemory(this.reader,this.files),objects:ObjectState[]=[],sceneObjects=new Map<number,ObjectState>(),multiObjectBodies=new Set<number>();
     let currentTask=0,allocationCount=0,removed=false;
     let timedPolicy:NativeTimedPreviewPolicy|undefined;
@@ -440,7 +446,10 @@ export class ActorInitializer {
       return false;
     };
     try {
-      if(!Number.isInteger(input.actorId)||input.actorId<0||input.actorId>0x405||input.parameters.length!==3||input.parameters.some(v=>!Number.isInteger(v)||v<0||v>0xffffffff))throw new Error("Actor initializer input must come from a validated native actor record.");
+      if(!Number.isInteger(input.actorId)||input.actorId<0||input.actorId>0x405||!Array.isArray(input.parameters)||input.parameters.length!==3||[0,1,2].some(index=>!Number.isInteger(input.parameters[index])||input.parameters[index]<0||input.parameters[index]>0xffffffff))throw new Error("Actor initializer input must come from a validated native actor record.");
+      for(const vector of [input.position,input.rotation])if(AXES.some(axis=>!Number.isFinite(vector[axis])))throw new Error("Native actor transform is not finite.");
+      const classification=nativeActorControllerClassification(this.reader,this.files,input.actorId);
+      if(classification){result.status="nonvisual";result.completed=false;diagnostics.push(classification.reason,classification.provenance[0]);return result;}
       if(input.actorId===0x24c||input.actorId===0x35c){
         if(!this.waves.image)throw new Error("Scoped native loader lacks a canonical image provider.");
         loader=new NativeLoaderPreview(this.reader,this.files,input,{image:this.waves.image.bind(this.waves)});memory.loader=loader;
@@ -449,7 +458,6 @@ export class ActorInitializer {
         diagnostics.push("Conditional cold postcallback donor checkpoint: reserved player prefix has no registry IDs; ordered native common/room/callback loads are reconstructed. Actual live occupancy and PIC transient arena/framebuffer scratch pressure are not simulated; later scene/cutscene/physics callbacks stop before execution.");
       }
       timedPolicy=nativeTimedPreviewPolicy(this.reader,this.files,input);
-      for(const vector of [input.position,input.rotation])if(AXES.some(axis=>!Number.isFinite(vector[axis])))throw new Error("Native actor transform is not finite.");
       if(input.priorScene){
         const prior=input.priorScene;if(!prior.completed||prior.failureKind==="unresolved")throw new Error("Required native sibling initialization did not complete.");
         let bytes=0;for(const span of prior.syntheticMemory){bytes+=span.bytes.length;if(bytes>2*1024*1024||span.address+span.bytes.length>0x81200000||span.address<0x08000000)throw new Error("Native sibling snapshot exceeds its bounded private arena.");
