@@ -2,6 +2,7 @@
 
 import { Button, Column, Row, Text } from "@once-ui-system/core";
 import { useState } from "react";
+import RoomInitializationDetails from "./RoomInitializationDetails";
 import type { RoomData, Vec3 } from "../shared/types";
 import { ValueField } from "./Inspector";
 import { checkedGeometryTranslation, formatAddress, parseInteger } from "./editorModel";
@@ -37,5 +38,6 @@ export default function RoomInspector({ room, translation, modified, busy, sampl
     {sharedImpacts.length > 0 && <div className="inspector-notice geometry-shared-notice" role="status">Showing the shared translation set in {sharedImpacts.length === 1 ? "room" : "rooms"} {sharedImpacts.map(id => `0x${id.toString(16).toUpperCase()}`).join(", ")}. Editing here updates the same geometry group.</div>}
     <Row gap="8"><Button variant="secondary" size="s" fillWidth onClick={onFrame} disabled={!room.meshes.length}>Frame room</Button><Button variant="tertiary" size="s" fillWidth data-testid="geometry-reset" disabled={disabled || !modified} onClick={() => { onReset(); setResetVersion(value => value + 1); }}>{geometry?.affectedRoomIds.some(id => id !== room.id) ? "Reset group" : "Reset geometry"}</Button></Row>
     <Text variant="body-default-xs" onBackground="neutral-weak">Translation preserves the native vertex layout. Editing individual vertices or rebuilding room topology is not available.</Text>
+    <RoomInitializationDetails initialization={room.initialization} sample={sample} />
   </Column>;
 }

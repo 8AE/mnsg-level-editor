@@ -150,7 +150,7 @@ test("all original placement constructors receive bounded evaluation without inv
   const {rom,initializer}=native(),seen=new Set<string>();let total=0;const ids=new Set<number>();
   for(const room of rom.listRooms())for(const actor of rom.loadRoom(room.id).actors){if(seen.has(actor.id))continue;seen.add(actor.id);ids.add(actor.actorId);total++;
     const result=initializer.resolve({actorId:actor.actorId,parameters:actor.parameters,position:actor.position,rotation:actor.rotation,roomId:room.id});
-    assert.ok(result.instructionCount<=12000);assert.ok(result.bindings.length<=64);if(result.status==="nonvisual")assert.ok(result.diagnostics.some(d=>/no.*3D|no intrinsic 3D|without.*3D/.test(d)));
+    assert.ok(result.instructionCount<=12000);assert.ok(result.bindings.length<=64);if(result.status==="nonvisual")assert.ok(result.diagnostics.some(d=>/no.*3D|no intrinsic 3D|without.*3D/i.test(d)),`Actor 0x${actor.actorId.toString(16)} in room ${room.id}: ${result.diagnostics.join("; ")}`);
     if(!result.bindings.length)assert.ok(result.status==="unsupported"||result.status==="nonvisual");
     for(const b of result.bindings)assert.ok(b.provenance.length&&b.segments.length);
   }

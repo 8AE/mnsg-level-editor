@@ -1,3 +1,5 @@
+import type { RoomInitialization } from "./room-initialization";
+export type { RoomInitialization, NativeInitializationSource } from "./room-initialization";
 /** The renderer contract contains data only. Filesystem paths stay in Electron. */
 export interface Vec3 { x: number; y: number; z: number }
 export interface RomIdentity {
@@ -125,6 +127,7 @@ export interface RoomSummary {
   warnings: string[];
 }
 export interface RoomData extends RoomSummary {
+  initialization?: RoomInitialization;
   actors: ActorData[];
   events: EventData[];
   meshes: GeometryMesh[];

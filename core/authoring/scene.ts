@@ -73,6 +73,8 @@ export function composeProjectRoom(project: EditorProjectV2, roomId: number, loo
     assertDecodedBudget(native.meshes, [...(native.textures ?? []), ...(skybox ? [skybox.texture] : [])]);
     return { ...native, kind: "native", authoredMeshes: [], collisionMode: "template", ...(translation ? { collisionTranslation: structuredClone(translation) } : {}), collision: [], doors: [], entrances: lookup.catalog.nativeEntrances.filter(entrance => entrance.roomId === roomId).map(({ roomId: _id, ...entrance }) => structuredClone(entrance)), ...(skybox ? { skybox } : {}) };
   }
+  const donor = lookup.loadRoom(authored.templateRoomId);
+  const initialization = donor.initialization ? structuredClone(donor.initialization) : undefined;
   const resolved = new Map<string, ReturnType<AuthoringLookup["resolveMaterial"]>>();
   const textures = new Map<string, GeometryTexture>();
   for (const material of authored.materials) {
@@ -108,9 +110,10 @@ export function composeProjectRoom(project: EditorProjectV2, roomId: number, loo
   const skybox = skyboxId ? structuredClone(lookup.loadSkyboxAsset(skyboxId)) : undefined;
   if (skybox) textureBytes(skybox.texture);
   const warnings = authored.kind === "new" && !lookup.catalog.roomAdmission.supported ? [lookup.catalog.roomAdmission.reason ?? "Native room admission is pending; this room cannot be exported until the registry-aware hooks are available."] : [];
+  warnings.push(...donor.warnings.filter(warning => warning.startsWith("Room initialization inspection unavailable:")));
   if (authored.collisionMode === "template") warnings.push(`Native collision from template room ${authored.templateRoomId} is preserved. Visual mesh edits do not change its physics.`);
   assertDecodedBudget(meshes, [...textures.values(), ...(skybox ? [skybox.texture] : [])]);
-  return { ...authoredSummary(authored, lookup), kind: authored.kind, actors, events, meshes, textures: structuredClone([...textures.values()]), warnings,
+  return { ...authoredSummary(authored, lookup), ...(initialization ? { initialization } : {}), kind: authored.kind, actors, events, meshes, textures: structuredClone([...textures.values()]), warnings,
     authoredMeshes: structuredClone(authored.meshes), collisionMode: authored.collisionMode, ...(authored.collisionTranslation ? { collisionTranslation: structuredClone(authored.collisionTranslation) } : {}), collision: structuredClone(authored.collision), doors: structuredClone(authored.doors), entrances: structuredClone(authored.entrances), bounds: bounds(meshes), ...(skybox ? { skybox } : {}) };
 }
 

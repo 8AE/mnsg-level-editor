@@ -1658,6 +1658,7 @@ export default function EditorPage() {
                   <AuthoringInspector
                     key={selected ?? `room:${authoredRoom.id}`}
                     room={authoredRoom}
+                    initialization={baseRoom?.initialization}
                     catalog={catalog}
                     selected={selected}
                     geometrySelection={geometrySelection}

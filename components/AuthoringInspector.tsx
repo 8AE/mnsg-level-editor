@@ -10,6 +10,8 @@ import type {
   Vec3,
 } from "../shared/types";
 import { ValueField } from "./Inspector";
+import RoomInitializationDetails from "./RoomInitializationDetails";
+import type { RoomInitialization } from "../shared/room-initialization";
 import { PreviewStatus, PreviewDetails } from "./PreviewDiagnostics";
 import { parseInteger } from "./editorModel";
 import {
@@ -91,6 +93,7 @@ const numberList = (
 };
 interface Props {
   room: AuthoredRoom;
+  initialization?: RoomInitialization;
   catalog: AuthoringCatalog;
   selected: string | null;
   geometrySelection: GeometrySelection | null;
@@ -114,6 +117,7 @@ interface Props {
 }
 export default function AuthoringInspector({
   room,
+  initialization,
   catalog,
   selected,
   geometrySelection,
@@ -1083,6 +1087,13 @@ export default function AuthoringInspector({
             ))}
           </Column>
         </>
+      )}
+      {!mesh && !actor && !door && !entrance && (
+        <RoomInitializationDetails
+          initialization={initialization}
+          authored
+          templateRoomId={room.templateRoomId}
+        />
       )}
       {!mesh && !actor && !door && !entrance && (
         <Column gap="8">

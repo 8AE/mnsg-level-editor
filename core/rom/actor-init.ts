@@ -6,6 +6,8 @@ import type {RenderWaves} from "./waves";
 import {InitMachine,type InitMemory} from "./actor-init-machine";
 import {NativeLoaderPreview,LOADER_REGISTRY_ADDRESS,LOADER_ARENA_DESCRIPTOR,verifiedLoaderPresentationCall} from "./actor-init-loader-preview";
 import {nativeActorControllerClassification} from "./actor-controller-classification";
+import {nativeSceneControllerClassification} from "./actor-scene-controller";
+import {nativeEmptyControllerClassification} from "./actor-empty-controllers";
 
 export interface NativeActorSceneDeclaration {prototypeId:string;parameters:[number,number,number];position:Vec3;rotation:Vec3}
 export interface NativeActorContext {roomId:number;templateRoomId?:number;siblings?:NativeActorSceneDeclaration[]}
@@ -51,6 +53,11 @@ export interface NativeControllerResourceContract {
 
 /** A static resource proof is separate from executing or completing the CPU. */
 export function nativeControllerResourceContract(reader:RomReader,files:Map<number,RomFile>,actorId:number):NativeControllerResourceContract|undefined {
+  if(actorId===0x079||actorId===0x07c){
+    const classification=nativeEmptyControllerClassification(reader,files,actorId),entry=actorId===0x079?0x080005d0:0x0800018c;
+    if(!classification||classification.entry!==entry||classification.overlay!==24||classification.completed!==false||classification.resourceFileIds?.length!==1||classification.resourceFileIds[0]!==24)throw new Error("Guarded dynamic empty-constructor File24 resource proof changed.");
+    return {kind:"verified-controller-closure",resourceFileIds:[24],provenance:[`Static guarded native actor${hex(actorId)} finite empty-constructor resource proof: File24, entry${hex(entry)}, complete12-byte body SHA256 691e766163b1b8288cf1e76b4dc9eb7dde764cde7f749bf5aef916d919300f2b; plain ROM0x6AC550..0x6AD3C0, full raw SHA256 9b31e9e5fc9e7a30886bf5a240bd658b7fabf1360908f0e6c633df5d6a3ea43b, allocation0x08000000..0x08000E80 with16-byte zero tail and empty PIC parts. CPU completion is not asserted.`],warnings:[classification.reason,classification.provenance[0]]};
+  }
   if(actorId===0x23b){
     const classification=nativeActorControllerClassification(reader,files,actorId);
     if(!classification||classification.entry!==0x080022fc||classification.overlay!==43||classification.completed!==true||classification.resourceFileIds?.length!==1||classification.resourceFileIds[0]!==43)throw new Error("Actor0x23b guarded finite empty-constructor resource proof changed.");
@@ -229,7 +236,7 @@ export class ActorInitializer {
   private evaluate(input:NativeActorInitInput,progression:Map<number,boolean>,observedFlags:Set<number>,instructionLimit:number):NativeActorInitResult {
     const diagnostics:string[]=[],bindings:NativeActorBinding[]=[],callbacks:number[]=[];
     const result:NativeActorInitResult={bindings,status:"unsupported",diagnostics,instructionCount:0,branches:[],deferredCallbacks:callbacks,syntheticMemory:[],readonlyMemory:[]};
-    if([0x24c,0x35c,0x23b,0x35e,0x1bf].includes(input.actorId))result.completed=false;
+    if([0x24c,0x35c,0x23b,0x35e,0x1bf,0x079,0x07a,0x07b,0x07c,0x357].includes(input.actorId))result.completed=false;
     const memory=new ActorMemory(this.reader,this.files),objects:ObjectState[]=[],sceneObjects=new Map<number,ObjectState>(),multiObjectBodies=new Set<number>();
     let currentTask=0,allocationCount=0,removed=false;
     let timedPolicy:NativeTimedPreviewPolicy|undefined;
@@ -448,7 +455,7 @@ export class ActorInitializer {
     try {
       if(!Number.isInteger(input.actorId)||input.actorId<0||input.actorId>0x405||!Array.isArray(input.parameters)||input.parameters.length!==3||[0,1,2].some(index=>!Number.isInteger(input.parameters[index])||input.parameters[index]<0||input.parameters[index]>0xffffffff))throw new Error("Actor initializer input must come from a validated native actor record.");
       for(const vector of [input.position,input.rotation])if(AXES.some(axis=>!Number.isFinite(vector[axis])))throw new Error("Native actor transform is not finite.");
-      const classification=nativeActorControllerClassification(this.reader,this.files,input.actorId);
+      const classification=nativeActorControllerClassification(this.reader,this.files,input.actorId)||nativeSceneControllerClassification(this.reader,this.files,input.actorId)||nativeEmptyControllerClassification(this.reader,this.files,input.actorId);
       if(classification){result.status="nonvisual";result.completed=false;diagnostics.push(classification.reason,classification.provenance[0]);return result;}
       if(input.actorId===0x24c||input.actorId===0x35c){
         if(!this.waves.image)throw new Error("Scoped native loader lacks a canonical image provider.");

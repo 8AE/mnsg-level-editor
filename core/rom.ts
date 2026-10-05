@@ -14,6 +14,7 @@ import {ActorVisuals} from "./rom/actors";
 import {createProject,validateProject} from "./project";
 import {NativeAuthoringCatalog,type AuthoringExportContext} from "./authoring/catalog";
 import {ACTOR_NAMES} from "./rom/actors-names";
+import {NativeRoomInitialization} from "./rom/room-initialization";
 
 export { normalizeRomByteOrder } from "./rom/binary";
 export { decompressLzkn64, readFileTable } from "./rom/decompress";
@@ -33,11 +34,13 @@ export class ImportedRom {
   private readonly renderedRooms=new Map<number,RoomData>();
   private readonly actorVisuals:ActorVisuals;
   private readonly authoring:NativeAuthoringCatalog;
+  private readonly initialization:NativeRoomInitialization;
   constructor(readonly bytes: Uint8Array, readonly identity: RomIdentity) {
     this.reader = new RomReader(bytes);
     this.files = new Map(readFileTable(bytes).map(file => [file.id, file]));
     if (this.files.get(12)?.start !== FILE12_ROM) throw new Error("ROM does not match the verified US native layout.");
     this.reader.check(ROOM_TABLE, 800 * 4);
+    this.initialization=new NativeRoomInitialization(this.reader,this.files);
     this.translations=new GeometryTranslations(this.reader,this.files,id=>this.segment(id));
     this.renderWaves=new RenderWaves(this.reader,this.files,id=>this.segment(id));
     this.actorVisuals=new ActorVisuals(this.reader,this.files,this.renderWaves);
@@ -97,8 +100,14 @@ export class ImportedRom {
   nativeRoomSkyboxId(roomId:number):string|undefined {return this.authoring.nativeSkyboxId(roomId);}
   nativeRoomGeometryAssetId(roomId:number):string|undefined {return this.authoring.nativeGeometryAssetId(roomId);}
   loadAuthoringRoom(roomId:number):RoomData {return this.authoring.decorateRoom(this.loadRoom(roomId));}
+  private attachInitialization(room:RoomData):void {
+    room.warnings=room.warnings.filter(warning=>!warning.startsWith("Room initialization inspection unavailable:"));
+    delete room.initialization;
+    try {room.initialization=this.initialization.inspect(room.id);}
+    catch(error){room.warnings.push(`Room initialization inspection unavailable: ${error instanceof Error?error.message:String(error)}`);}
+  }
   loadRoom(id: number): RoomData {
-    const cached=this.renderedRooms.get(id);if(cached){this.renderedRooms.delete(id);this.renderedRooms.set(id,cached);return structuredClone(cached);}
+    const cached=this.renderedRooms.get(id);if(cached){this.renderedRooms.delete(id);this.renderedRooms.set(id,cached);const room=structuredClone(cached);this.attachInitialization(room);return room;}
     const room=this.loadBaseRoom(id);
     try {
       const rendered=renderRoom(this.reader,id,this.files,fileId=>this.segment(fileId),this.renderWaves);
@@ -114,6 +123,7 @@ export class ImportedRom {
       room.textures=[];room.warnings.push(`Texture preview failed; displaying untextured structural geometry: ${error instanceof Error?error.message:String(error)}`);
     }
     room.geometryAvailable=room.meshes.length>0;
+    this.attachInitialization(room);
     while(this.renderedRooms.size>=4)this.renderedRooms.delete(this.renderedRooms.keys().next().value!);
     this.renderedRooms.set(id,room);return structuredClone(room);
   }
