@@ -253,6 +253,12 @@ Scene relocation. The recovery smoke uses a disposable no-ROM profile to check a
 restart, saved window bounds, off-monitor recovery and compact popouts at 100%, 125% and 200%
 zoom. Set `MNSG_TEST_APP` to check an installed executable. These checks do not launch the game.
 
+On native Windows CI, the installer check runs the actual NSIS package in a disposable
+directory containing spaces, an apostrophe and Japanese characters. The workflow compares its
+installed payload with the packaged files, then runs startup, metadata/NRM and recovery checks
+from that installed copy. A configured workflow is not a passed platform check; use the run's
+results below.
+
 ## Package and validation status
 
 After staging and checking the native tool bundle, package on the corresponding host:
@@ -292,6 +298,9 @@ The October 5 continuation fixed draft submission during forced popout closure a
 relocation. A separate 11-milestone native-window check passed full-app restart, saved layouts
 and window sizes, off-monitor recovery, and all six compact popouts' redock controls through
 200% zoom. These checks used disposable profiles.
+The installed ARM64 app also passed the 11 recovery milestones after a shutdown fix that
+flushes pending window-position writes before quitting. Its 44 embedded build files match the
+tested build; strict signature, cached-ROM offline export and five metadata/archive checks pass.
 
 Normal-profile interactive checks, manual cross-window drag, IME and Intel/Windows package
 checks remain outstanding.

@@ -185,7 +185,10 @@ passed 11 milestones for process restart, saved layout/window sizes, off-monitor
 recovery and redock controls in six 360x300 popouts at 100%, 125% and 200% zoom. The real-ROM
 workspace check passed 21 milestones, including exact restoration of four rooms' textures
 after Scene relocation. The recovery check uses
-an isolated no-ROM profile; it does not test room editing or gameplay.
+an isolated no-ROM profile; it does not test room editing or gameplay. The installed ARM64
+copy repeated those 11 checks after a shutdown fix that flushes window-position writes before
+quitting. It also repeated the cached-ROM offline export and five packaged-tool metadata tests,
+passed strict signature verification and matched all 44 embedded build files.
 
 A **LOCAL** status covers its named source, GUI or packaged-build observation. **PARTIAL**
 identifies remaining observations in a broader gate. This matrix does not equate a candidate
@@ -210,7 +213,7 @@ build with an installed release or an editor check with gameplay.
 | Project independence | A/B projects retain separate settings/workspaces/icons; Save As/switch/stale build cannot overwrite the other project | PARTIAL: settings Apply/Undo/Redo/Save/Reopen/Cancel passed; A/B and stale-build concurrency pending |
 | Injection and corruption | Reject traversal, absolute/drive/UNC paths, symlink escapes, unsafe quoting, executable/URL fields, altered tool/symbol bundles | PARTIAL: source guards and packaged child-IPC denial passed; complete hostile-path runtime matrix pending |
 | Admission regression | Invalid native preimages/dependencies/donors/budgets still reject after metadata edits; old output survives failed/cancelled builds | PARTIAL: source and 30 host-tool exports passed; failed/cancelled managed-output preservation pending |
-| macOS ARM64 offline package | Clean profile, network off and host tools hidden; installed package uses bundled tools to compile/link/NRM and verify mod.json/ZIP | PARTIAL: real-ROM candidate builds passed with empty PATH and HTTP/HTTPS blocked; installed interactive checks pending |
+| macOS ARM64 offline package | Clean profile, network off and host tools hidden; installed package uses bundled tools to compile/link/NRM and verify mod.json/ZIP | LOCAL INSTALLED PASS: isolated cached-ROM build with empty PATH/HTTP blocked, five metadata/archive tests and 11 native recovery milestones; normal-profile/manual drag checks remain separate |
 | macOS Intel offline package | Same test on a native x64 host; audit architecture/minimum OS/libraries and verify output, without ARM/Rosetta substitution | PENDING |
 | Windows x64 offline package | Same test on native Windows; spaces/Unicode/quoting paths and runtime dependencies work without installed LLVM/VS tools | PENDING |
 | Packaging and onboarding | Own-ROM/cached-ROM paths, signed-package resource discovery and baseline project flows pass; no ROM/project/NRM/private assets bundled | PARTIAL: first boot/cached-ROM/signature/installed byte parity passed; normal-profile interaction pending |

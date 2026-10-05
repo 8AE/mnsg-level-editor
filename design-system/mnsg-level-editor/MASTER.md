@@ -156,6 +156,8 @@ recovery milestones. Those cover full-app restart, off-monitor main/Scene recove
 window sizes, recovery controls in all six compact popouts through 200% zoom, and exact texture
 toggle restoration in four rooms after Scene relocation. Forced closure preserves field drafts;
 Enter submits them and Escape discards them.
+The installed ARM64 copy repeated the 11 recovery checks after a fix that flushes pending
+window-position writes before quitting.
 
 Visual/release acceptance remains **PARTIAL**: measure contrast and wider pane/monitor sizes;
 check IME and cross-window drag. Normal-profile interaction and native Intel/Windows package
