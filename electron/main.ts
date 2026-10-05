@@ -273,6 +273,9 @@ function createWindow() {
   const bounds = clampWindowBounds(savedBounds.main, screen.getAllDisplays().map(display => display.workArea), { x: 60, y: 60, width: 1520, height: 980 });
   window = new BrowserWindow({ ...bounds, minWidth: 800, minHeight: 600, title: "MNSG Level Editor", backgroundColor: "#101419", webPreferences: { preload: join(__dirname, "preload.cjs"), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true, webviewTag: false } });
   trackBounds(window, "main");
+  // An opener can destroy its children without their normal close callbacks.
+  // Capture their current geometry while every native window is still alive.
+  window.on("close", snapshotWindowBounds);
   window.webContents.setWindowOpenHandler(({ url, frameName }) => {
     const name = panelName(frameName);
     if (url !== "about:blank" || !name) return { action: "deny" };
@@ -309,10 +312,18 @@ function trackBounds(target: BrowserWindow, key: PanelName | "main") {
   const save = () => {
     if (target.isDestroyed()) return;
     savedBounds[key] = target.getNormalBounds();
-    const serialized = JSON.stringify(savedBounds);
-    boundsWrites = boundsWrites.then(() => atomicWrite(dataPath("window-bounds.json"), serialized)).catch(error => console.error("Could not save window positions", error));
+    writeWindowBounds();
   };
   target.on("resized", save); target.on("moved", save); target.on("close", save);
+}
+function writeWindowBounds() {
+  const serialized = JSON.stringify(savedBounds);
+  boundsWrites = boundsWrites.then(() => atomicWrite(dataPath("window-bounds.json"), serialized)).catch(error => console.error("Could not save window positions", error));
+}
+function snapshotWindowBounds() {
+  if (window && !window.isDestroyed()) savedBounds.main = window.getNormalBounds();
+  for (const [name, child] of panelWindows) if (!child.isDestroyed()) savedBounds[name] = child.getNormalBounds();
+  writeWindowBounds();
 }
 app.whenReady().then(async () => {
   await mkdir(app.getPath("userData"), { recursive: true });
@@ -325,6 +336,7 @@ app.whenReady().then(async () => {
   app.on("activate", () => { if (!window) createWindow(); });
 }).catch((error: unknown) => { console.error(error); app.quit(); });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
+app.on("before-quit", snapshotWindowBounds);
 // Window close handlers enqueue their last geometry after before-quit. Wait at
 // will-quit, once those handlers have run, so an installed app cannot exit while
 // its atomic preference writes are still pending.
