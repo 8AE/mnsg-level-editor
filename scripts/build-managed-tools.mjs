@@ -31,11 +31,24 @@ const recompSource = path.resolve(options['recomp-source'] || path.join(work, 'N
 const llvmBuild = path.resolve(options['llvm-build'] || path.join(work, 'llvm-build'));
 const recompBuild = path.resolve(options['recomp-build'] || path.join(work, 'recomp-build'));
 const exists = async (target) => access(target).then(() => true, () => false);
-const run = (file, args, cwd = work) => new Promise((resolve, reject) => {
+const run = (file, args, cwd = work, phase = 'tool preparation', timeoutMs = 10 * 60 * 1000) => new Promise((resolve, reject) => {
   console.log(`> ${file} ${args.join(' ')}`);
-  const child = spawn(file, args, { cwd, stdio: 'inherit', shell: false });
-  child.on('error', reject);
-  child.on('exit', (code) => code === 0 ? resolve() : reject(new Error(`${file} exited ${code}`)));
+  const started = Date.now();
+  const child = spawn(file, args, { cwd, stdio: 'inherit', shell: false, detached: process.platform !== 'win32' });
+  const heartbeat = setInterval(() => console.log(`${phase}: running for ${Math.round((Date.now() - started) / 1000)}s`), 30000);
+  const timer = setTimeout(() => {
+    if (child.pid) {
+      try {
+        if (process.platform === 'win32') execFileSync(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32/taskkill.exe'), ['/PID', String(child.pid), '/T', '/F'], { timeout: 10000, stdio: 'pipe' });
+        else process.kill(-child.pid, 'SIGKILL');
+      } catch { child.kill('SIGKILL'); }
+    }
+    clearInterval(heartbeat);
+    reject(new Error(`${phase} exceeded its ${timeoutMs / 60000}-minute subprocess budget; the ${phase} subprocess was stopped.`));
+  }, timeoutMs);
+  const clean = () => { clearTimeout(timer); clearInterval(heartbeat); };
+  child.on('error', (error) => { clean(); reject(error); });
+  child.on('close', (code) => { clean(); code === 0 ? resolve() : reject(new Error(`${phase}: ${file} exited ${code}`)); });
 });
 await mkdir(work, { recursive: true });
 const template = path.join(root, 'resources/managed-template');
@@ -47,10 +60,26 @@ const patch = path.join(root, 'scripts/patches/recomp-powershell-paths.patch');
 if (!options['stage-only']) {
   const archive = path.join(work, llvmArchiveName);
   if (!await exists(archive)) {
-    await run('curl', ['-fL', '--retry', '3', `https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.8/${llvmArchiveName}`, '-o', archive]);
+    await run('curl', ['-fL', '--connect-timeout', '30', '--max-time', '300', '--retry', '3', `https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.8/${llvmArchiveName}`, '-o', archive], work, 'LLVM source download');
   }
   if (sha256(await readFile(archive)) !== llvmArchiveHash) throw new Error('LLVM source archive checksum mismatch');
-  if (!await exists(path.join(llvmSource, 'llvm/CMakeLists.txt'))) await run('tar', ['-xJf', archive, '-C', work]);
+  const useStreamingExtractor = process.platform === 'win32' || options['extract-only'];
+  if (useStreamingExtractor) {
+    const marker = path.join(llvmSource, '.mnsg-llvm-extraction.json');
+    if (!await exists(marker)) {
+      await run(process.env.MNSG_BUILD_PYTHON || (process.platform === 'win32' ? 'python' : 'python3'),
+        ['-u', path.join(root, 'scripts/extract-llvm-source.py'), '--archive', archive, '--destination', llvmSource],
+        work, 'LLVM source extraction', 12 * 60 * 1000);
+    }
+    const extracted = JSON.parse(await readFile(marker, 'utf8'));
+    if (extracted.format !== 'mnsg-llvm-source-extraction' || extracted.version !== 1 || extracted.sha256 !== llvmArchiveHash) throw new Error('LLVM extraction completion marker does not match the pinned archive');
+  } else if (!await exists(path.join(llvmSource, 'llvm/CMakeLists.txt'))) {
+    await run('tar', ['-xJf', archive, '-C', work], work, 'LLVM source extraction');
+  }
+  if (options['extract-only']) {
+    console.log(`Verified extraction-only source: ${llvmSource}; no compiler build or application launch performed.`);
+    process.exit(0);
+  }
   if (!await exists(path.join(recompSource, '.git'))) {
     await run('git', ['clone', '--no-checkout', 'https://github.com/N64Recomp/N64Recomp.git', recompSource]);
     await run('git', ['checkout', '--detach', recompCommit], recompSource);
@@ -77,9 +106,9 @@ if (!options['stage-only']) {
     '-DLLVM_INCLUDE_DOCS=OFF', '-DLLVM_ENABLE_BINDINGS=OFF', '-DLLVM_ENABLE_ASSERTIONS=OFF',
     '-DCLANG_ENABLE_STATIC_ANALYZER=OFF', '-DCLANG_ENABLE_ARCMT=OFF',
     '-DLLVM_ENABLE_BACKTRACES=OFF', '-DLLVM_ENABLE_DUMP=OFF', '-DLLVM_ENABLE_RTTI=OFF', '-DLLVM_ENABLE_EH=OFF']);
-  await run('cmake', ['--build', llvmBuild, '--target', 'clang', 'lld', '--parallel', String(options.jobs || 3)]);
+  await run('cmake', ['--build', llvmBuild, '--target', 'clang', 'lld', '--parallel', String(options.jobs || 3)], work, 'LLVM compiler build', 150 * 60 * 1000);
   await run('cmake', ['-S', recompSource, '-B', recompBuild, ...common, '-DFMT_TEST=OFF', '-DFMT_DOC=OFF']);
-  await run('cmake', ['--build', recompBuild, '--target', 'RecompModTool', '--parallel', String(options.jobs || 3)]);
+  await run('cmake', ['--build', recompBuild, '--target', 'RecompModTool', '--parallel', String(options.jobs || 3)], work, 'RecompModTool build', 15 * 60 * 1000);
 }
 // --stage-only is for already completed builds from these same pinned sources.
 // It still checks source identity, pinned support and every packaged dependency.

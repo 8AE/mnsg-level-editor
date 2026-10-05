@@ -31,14 +31,30 @@ jobs:
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
         with:
           arch: amd64
+      - name: Python for bounded Windows source extraction
+        if: runner.os == 'Windows'
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12.10'
       - name: Restore exact verified bundle
         id: cache
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: resources/managed-tools
-          key: managed-tools-v1-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('scripts/build-managed-tools.mjs', 'scripts/managed-tools-contract.mjs', 'scripts/patches/**', 'resources/managed-template/**') }}
+          key: managed-tools-v1-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('scripts/build-managed-tools.mjs', 'scripts/extract-llvm-source.py', 'scripts/managed-tools-contract.mjs', 'scripts/patches/**', 'resources/managed-template/**') }}
+          # Exact compatible Mac bundles: source pins, patch and flags are unchanged.
+          # Revalidate their entire manifest before reuse; never use a Windows fallback.
+          restore-keys: ${{ matrix.platform == 'darwin' && format('managed-tools-v1-darwin-{0}-0f9df03fee5655851740a5bade20fba5e8afceedd1c86e94626f259a319b3c95', matrix.arch) || '' }}
+      - name: Validate restored bundle before skipping any compilation
+        id: restored
+        run: >-
+          node --input-type=module -e
+          "import fs from 'node:fs/promises'; import {validateBundle} from './scripts/managed-tools-contract.mjs';
+          const present=await fs.access('resources/managed-tools/manifest.json').then(()=>true,()=>false);
+          if(present) await validateBundle('resources/managed-tools');
+          await fs.appendFile(process.env.GITHUB_OUTPUT, 'ready='+present+'\n');"
       - name: Build pinned native MIPS compiler and mod tool
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.restored.outputs.ready != 'true'
         run: node scripts/build-managed-tools.mjs --generator=Ninja --jobs=3
       - name: Verify complete bundle and offline compile/link/NRM contract
         run: node scripts/smoke-managed-tools.mjs
