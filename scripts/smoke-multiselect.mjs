@@ -257,7 +257,6 @@ try {
     baseline.authoredRooms[465].collision,
   );
   await undo();
-  await child.mouse.up();
   assert.deepEqual(
     (await savedFixture()).authoredRooms,
     baseline.authoredRooms,
