@@ -21,5 +21,24 @@ jobs:
           arch: amd64
       - name: Verify extraction safety fixtures
         run: python -u scripts/extract-llvm-source.py --self-test
-      - name: Extract pinned source and compile the exact missing-header consumer
+      - name: Admit both pinned sources and compile LLVM consumer plus RecompModTool
         run: node scripts/build-managed-tools.mjs --source-compile-probe --generator=Ninja --jobs=3
+      - name: Verify an unrelated source root is rejected by the same preflight
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import { mkdir } from 'node:fs/promises';
+          import { execFileSync } from 'node:child_process';
+          import os from 'node:os';
+          import path from 'node:path';
+          const wrong = path.join(os.tmpdir(), 'mnsg-unrelated-source-fixture');
+          await mkdir(path.join(wrong, 'llvm'), { recursive: true });
+          let rejected = false;
+          try {
+            execFileSync(process.execPath, ['scripts/build-managed-tools.mjs', '--stage-only', '--preflight-only', `--llvm-source=${wrong}`], { encoding: 'utf8', stdio: 'pipe' });
+          } catch (error) {
+            rejected = `${error.stdout || ''}${error.stderr || ''}`.includes('LLVM build cache source root mismatch');
+          }
+          if (!rejected) throw new Error('Unrelated LLVM source root was not rejected by source identity admission');
+          console.log('Unrelated source-root fixture rejected; the prior native probe admitted the real TEMP short/long aliases.');
+          JS

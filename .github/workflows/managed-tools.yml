@@ -67,3 +67,81 @@ jobs:
           if-no-files-found: error
           compression-level: 6
           retention-days: 30
+      - name: Preserve completed compilers after a later build or staging failure
+        id: recovery
+        if: failure()
+        timeout-minutes: 12
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs/promises';
+          import { execFileSync } from 'node:child_process';
+          import os from 'node:os';
+          import path from 'node:path';
+          const work = process.env.MNSG_RECOVERY_WORK_DIR || path.join(os.tmpdir(), 'mnsg-managed-tool-build');
+          const suffix = process.platform === 'win32' ? '.exe' : '';
+          const present = (name) => fs.stat(path.join(work, name)).then((s) => s.isFile() && s.size > 0, () => false);
+          const binaries = [`llvm-build/bin/clang${suffix}`, `llvm-build/bin/lld${suffix}`];
+          if (!(await Promise.all(binaries.map(present))).every(Boolean)) {
+            console.log('No completed native LLVM pair is available for diagnostics.');
+            process.exit(0);
+          }
+          const llvm = 'llvm-project-21.1.8.src';
+          const entries = [...binaries, 'llvm-build/CMakeCache.txt', 'recomp-build/CMakeCache.txt', 'N64Recomp',
+            `${llvm}.tar.xz`, `${llvm}/llvm/CMakeLists.txt`, `${llvm}/LICENSE.TXT`, `${llvm}/llvm/LICENSE.TXT`,
+            `${llvm}/llvm/include/llvm/Support/LICENSE.TXT`, `${llvm}/llvm/lib/Support/BLAKE3/LICENSE`,
+            `${llvm}/clang/LICENSE.TXT`, `${llvm}/lld/LICENSE.TXT`,
+            ...['__libunwind_config.h', 'libunwind.h', 'mach-o/compact_unwind_encoding.h', 'unwind.h', 'unwind_arm_ehabi.h', 'unwind_itanium.h']
+              .map((name) => `${llvm}/libunwind/include/${name}`)];
+          const modTool = `recomp-build/RecompModTool${suffix}`;
+          const modToolPresent = await present(modTool);
+          if (modToolPresent) entries.push(modTool);
+          let bytes = 0, files = 0;
+          const canonicalWork = await fs.realpath(work);
+          const inspect = async (target) => {
+            if (/\.(z64|v64|n64|rom|nrm|mnsge)$/i.test(target)) throw new Error('Game/project data is excluded from compiler diagnostics');
+            let stat = await fs.lstat(target);
+            if (stat.isSymbolicLink()) {
+              const actual = await fs.realpath(target);
+              const relative = path.relative(canonicalWork, actual);
+              if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('Diagnostic source link escapes its native work directory');
+              stat = await fs.stat(actual);
+              if (!stat.isFile()) throw new Error('Diagnostic directory links are excluded');
+            }
+            if (stat.isDirectory()) {
+              for (const name of await fs.readdir(target)) await inspect(path.join(target, name));
+            } else if (stat.isFile()) {
+              bytes += stat.size; files++;
+              if (bytes > 1024 ** 3) throw new Error('Compiler recovery snapshot exceeds its 1 GiB input budget');
+            } else throw new Error('Unsupported diagnostic source entry');
+          };
+          for (const name of entries) await inspect(path.join(work, name));
+          const cacheHomes = {};
+          for (const name of ['llvm-build', 'recomp-build']) {
+            const cache = await fs.readFile(path.join(work, name, 'CMakeCache.txt'), 'utf8');
+            cacheHomes[name] = cache.match(/^CMAKE_HOME_DIRECTORY:[^=]+=(.*)$/m)?.[1]?.trim();
+          }
+          await fs.writeFile(path.join(work, 'recovery-info.json'), JSON.stringify({
+            format: 'mnsg-native-compiler-diagnostics', version: 1, diagnosticOnly: true, automaticAdmission: false,
+            platform: process.platform, arch: process.arch, originalWorkDirectory: canonicalWork,
+            cacheSourceDirectories: cacheHomes, modToolPresent, entries, files, uncompressedBytes: bytes,
+            recovery: 'Review pinned source/cache identities and restore their recorded directories before rerunning --stage-only. No automatic cache or release reuse.',
+          }, null, 2) + '\n');
+          entries.push('recovery-info.json');
+          const archive = path.resolve(`managed-tools-recovery-${process.platform}-${process.arch}.tar.gz`);
+          execFileSync('tar', ['-czhf', archive, '-C', work, ...entries], { stdio: 'inherit', timeout: 600000, env: { ...process.env, COPYFILE_DISABLE: '1' } });
+          const packed = (await fs.stat(archive)).size;
+          if (packed > 512 * 1024 ** 2) { await fs.rm(archive); throw new Error('Compiler recovery archive exceeds its 512 MiB upload budget'); }
+          console.log(`Diagnostic compiler archive: ${files} files, ${bytes} input bytes, ${packed} compressed bytes.`);
+          if (process.env.GITHUB_OUTPUT) await fs.appendFile(process.env.GITHUB_OUTPUT, 'saved=true\n');
+          JS
+      - name: Upload preserved compilers for manual diagnostic recovery
+        if: failure() && steps.recovery.outputs.saved == 'true'
+        timeout-minutes: 10
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-compiler-diagnostics-${{ matrix.platform }}-${{ matrix.arch }}
+          path: managed-tools-recovery-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7

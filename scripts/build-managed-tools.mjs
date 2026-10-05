@@ -12,6 +12,7 @@ const options = Object.fromEntries(process.argv.slice(2).map((arg) => {
   const index = arg.indexOf('=');
   return index < 0 ? [arg.replace(/^--/, ''), true] : [arg.slice(2, index), arg.slice(index + 1)];
 }));
+if (options['preflight-only'] && !options['stage-only']) throw new Error('Preflight-only requires existing configured sources with stage-only');
 if (options['source-compile-probe'] && (options['stage-only'] || options['extract-only'])) throw new Error('Source compile probe must run separately from stage-only/extract-only modes');
 if (!['darwin', 'win32'].includes(process.platform) || !['arm64', 'x64'].includes(process.arch)
   || (process.platform === 'win32' && process.arch !== 'x64')) throw new Error('Build requires a supported native host');
@@ -66,6 +67,76 @@ for (const file of supportProvenance.files) {
   if (sha256(await readFile(path.join(template, file.path))) !== file.sha256) throw new Error(`Pinned support hash mismatch: ${file.path}`);
 }
 const patch = path.join(root, 'scripts/patches/recomp-powershell-paths.patch');
+const readCache = async (directory) => Object.fromEntries((await readFile(path.join(directory, 'CMakeCache.txt'), 'utf8'))
+  .split(/\r?\n/).filter((line) => /^[A-Za-z0-9_]+:[^=]+=/.test(line)).map((line) => {
+    const match = line.match(/^([A-Za-z0-9_]+):[^=]+=(.*)$/);
+    return [match[1], match[2]];
+  }));
+const requireCache = (cache, key, expected) => {
+  if (cache[key] !== expected) throw new Error(`Build cache ${key} must be ${expected}, found ${cache[key]}`);
+};
+const canonicalIdentity = async (value) => {
+  const resolved = await realpath(value);
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+};
+const licenseSources = [
+  [path.join(llvmSource, 'LICENSE.TXT'), 'LLVM-Apache-2.0-with-exceptions.txt'],
+  [path.join(llvmSource, 'llvm/LICENSE.TXT'), 'LLVM-legacy-notices.txt'],
+  [path.join(llvmSource, 'llvm/include/llvm/Support/LICENSE.TXT'), 'LLVM-Support-notices.txt'],
+  [path.join(llvmSource, 'llvm/lib/Support/BLAKE3/LICENSE'), 'BLAKE3.txt'],
+  [path.join(llvmSource, 'clang/LICENSE.TXT'), 'Clang-notices.txt'],
+  [path.join(llvmSource, 'lld/LICENSE.TXT'), 'LLD-notices.txt'],
+  [path.join(recompSource, 'LICENSE'), 'N64Recomp-MIT.txt'],
+  [path.join(recompSource, 'lib/fmt/LICENSE'), 'fmt.txt'],
+  [path.join(recompSource, 'lib/tomlplusplus/LICENSE'), 'tomlplusplus.txt'],
+  [path.join(recompSource, 'lib/ELFIO/LICENSE.txt'), 'ELFIO.txt'],
+];
+const admitConfiguredSources = async () => {
+  if (execFileSync('git', ['rev-parse', 'HEAD'], { cwd: recompSource, encoding: 'utf8' }).trim() !== recompCommit) throw new Error('Staged source revision mismatch');
+  for (const [submodule, commit] of Object.entries(submodules)) {
+    if (execFileSync('git', ['rev-parse', 'HEAD'], { cwd: path.join(recompSource, submodule), encoding: 'utf8' }).trim() !== commit) throw new Error(`Staged dependency pin mismatch: ${submodule}`);
+  }
+  execFileSync('git', ['apply', '--reverse', '--check', patch], { cwd: recompSource, stdio: 'pipe' });
+  const llvmCache = await readCache(llvmBuild), recompCache = await readCache(recompBuild);
+  for (const cache of [llvmCache, recompCache]) {
+    requireCache(cache, 'CMAKE_BUILD_TYPE', 'MinSizeRel');
+    requireCache(cache, 'BUILD_SHARED_LIBS', 'OFF');
+    if (process.platform === 'darwin') requireCache(cache, 'CMAKE_OSX_DEPLOYMENT_TARGET', '14.0');
+    else requireCache(cache, 'CMAKE_MSVC_RUNTIME_LIBRARY', 'MultiThreaded');
+  }
+  requireCache(llvmCache, 'LLVM_TARGETS_TO_BUILD', 'Mips');
+  for (const key of ['LLVM_BUILD_LLVM_DYLIB', 'LLVM_LINK_LLVM_DYLIB', 'CLANG_LINK_CLANG_DYLIB',
+    'CLANG_ENABLE_STATIC_ANALYZER', 'CLANG_ENABLE_ARCMT', 'LLVM_ENABLE_ZLIB', 'LLVM_ENABLE_ZSTD',
+    'LLVM_ENABLE_LIBXML2', 'LLVM_ENABLE_LIBEDIT']) requireCache(llvmCache, key, 'OFF');
+  if (process.platform === 'win32') {
+    requireCache(llvmCache, 'LLVM_USE_CRT_MINSIZEREL', 'MT');
+    requireCache(llvmCache, 'LLVM_USE_CRT_RELEASE', 'MT');
+  }
+  for (const [name, cache, expected] of [['LLVM', llvmCache, path.join(llvmSource, 'llvm')], ['Recomp', recompCache, recompSource]]) {
+    if (typeof cache.CMAKE_HOME_DIRECTORY !== 'string' || !cache.CMAKE_HOME_DIRECTORY) throw new Error(`Missing ${name} build cache source root`);
+    if (await canonicalIdentity(cache.CMAKE_HOME_DIRECTORY) !== await canonicalIdentity(expected)) throw new Error(`${name} build cache source root mismatch`);
+  }
+  for (const [header, expected] of Object.entries(llvmUnwindHeaders)) {
+    if (sha256(await readFile(path.join(llvmSource, header))) !== expected) throw new Error(`Pinned LLVM include dependency mismatch: ${header}`);
+  }
+  for (const [file] of licenseSources) if (!(await stat(file)).isFile()) throw new Error(`Missing native tool license source: ${file}`);
+  console.log('Configured source/cache/CRT/license preflight passed for LLVM and RecompModTool.');
+  return { llvmCache, recompCache };
+};
+const validateNativeDependencies = (target, label) => {
+  if (process.platform === 'darwin') {
+    const dependencies = execFileSync('/usr/bin/otool', ['-L', target], { encoding: 'utf8' });
+    if (dependencies.split('\n').slice(1).some((line) => line.trim() && !/^\s+(\/usr\/lib\/|\/System\/Library\/)/.test(line))) throw new Error(`Non-system dynamic dependency in ${label}: ${dependencies}`);
+    const load = execFileSync('/usr/bin/otool', ['-l', target], { encoding: 'utf8' });
+    const minimum = load.match(/\bminos\s+(\d+)\.(\d+)/);
+    if (!minimum || Number(minimum[1]) > 14) throw new Error(`Unsupported macOS minimum in ${label}`);
+  } else {
+    const dependencies = execFileSync('dumpbin', ['/DEPENDENTS', target], { encoding: 'utf8' });
+    const imported = [...dependencies.matchAll(/^\s+([A-Za-z0-9_.-]+\.dll)\s*$/gim)].map((match) => match[1]);
+    const system = /^(KERNEL32|USER32|ADVAPI32|SHELL32|OLE32|OLEAUT32|WS2_32|VERSION|NTDLL|CRYPT32|BCRYPT|SHLWAPI|COMDLG32|GDI32|RPCRT4|DBGHELP|PSAPI|api-ms-win-.+|ext-ms-win-.+)\.dll$/i;
+    if (!imported.length || imported.some((name) => !system.test(name))) throw new Error(`Non-system Windows DLL in ${label}: ${imported.join(', ')}`);
+  }
+};
 if (!options['stage-only']) {
   const archive = path.join(work, llvmArchiveName);
   if (!await exists(archive)) {
@@ -96,6 +167,19 @@ if (!options['stage-only']) {
     console.log(`Verified extraction-only source: ${llvmSource}; no compiler build or application launch performed.`);
     process.exit(0);
   }
+  if (!await exists(path.join(recompSource, '.git'))) {
+    await run('git', ['clone', '--no-checkout', 'https://github.com/N64Recomp/N64Recomp.git', recompSource]);
+    await run('git', ['checkout', '--detach', recompCommit], recompSource);
+    await run('git', ['submodule', 'update', '--init', '--recursive'], recompSource);
+  }
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: recompSource, encoding: 'utf8' }).trim();
+  if (head !== recompCommit) throw new Error('Recomp source revision mismatch');
+  for (const [submodule, commit] of Object.entries(submodules)) {
+    if (execFileSync('git', ['rev-parse', 'HEAD'], { cwd: path.join(recompSource, submodule), encoding: 'utf8' }).trim() !== commit) throw new Error(`Dependency pin mismatch: ${submodule}`);
+  }
+  // Apply only the tracked, auditable packaging-path patch, never remote patches.
+  try { execFileSync('git', ['apply', '--reverse', '--check', patch], { cwd: recompSource, stdio: 'pipe' }); }
+  catch { await run('git', ['apply', '--check', patch], recompSource); await run('git', ['apply', patch], recompSource); }
   const generator = options.generator || (process.platform === 'win32' ? 'Ninja' : 'Unix Makefiles');
   const native = process.platform === 'darwin'
     ? ['-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0', '-DCMAKE_C_COMPILER=/usr/bin/clang', '-DCMAKE_CXX_COMPILER=/usr/bin/clang++']
@@ -110,6 +194,10 @@ if (!options['stage-only']) {
     '-DCLANG_ENABLE_STATIC_ANALYZER=OFF', '-DCLANG_ENABLE_ARCMT=OFF',
     '-DLLVM_ENABLE_BACKTRACES=OFF', '-DLLVM_ENABLE_DUMP=OFF', '-DLLVM_ENABLE_RTTI=OFF', '-DLLVM_ENABLE_EH=OFF',
     ...(options['source-compile-probe'] ? ['-DCMAKE_EXPORT_COMPILE_COMMANDS=ON'] : [])]);
+  await run('cmake', ['-S', recompSource, '-B', recompBuild, ...common, '-DFMT_TEST=OFF', '-DFMT_DOC=OFF']);
+  await admitConfiguredSources();
+  await run('cmake', ['--build', recompBuild, '--target', 'RecompModTool', '--parallel', String(options.jobs || 3)], work, 'RecompModTool build', 15 * 60 * 1000);
+  validateNativeDependencies(path.join(recompBuild, `RecompModTool${process.platform === 'win32' ? '.exe' : ''}`), 'RecompModTool preflight');
   if (options['source-compile-probe']) {
     const object = `tools/lld/MachO/CMakeFiles/lldMachO.dir/Arch/ARM64.cpp.${process.platform === 'win32' ? 'obj' : 'o'}`;
     if (generator === 'Ninja') {
@@ -150,55 +238,13 @@ if (!options['stage-only']) {
     } else await run('/bin/sh', ['-c', entry.command], commandDirectory, 'LLVM missing-header consumer compile', 2 * 60 * 1000);
     const output = await stat(objectPath);
     if (!output.isFile() || output.size === 0) throw new Error('LLVM consumer object was not produced');
-    console.log(`Source consumer compile probe passed: ${object}; no full compiler build, Recomp source clone or bundle staging performed.`);
+    console.log(`Source consumer compile probe passed: ${object}; shared source/cache/CRT/license/DLL preflight and RecompModTool build passed; no full LLVM build or bundle staging performed.`);
     process.exit(0);
   }
-  if (!await exists(path.join(recompSource, '.git'))) {
-    await run('git', ['clone', '--no-checkout', 'https://github.com/N64Recomp/N64Recomp.git', recompSource]);
-    await run('git', ['checkout', '--detach', recompCommit], recompSource);
-    await run('git', ['submodule', 'update', '--init', '--recursive'], recompSource);
-  }
-  const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: recompSource, encoding: 'utf8' }).trim();
-  if (head !== recompCommit) throw new Error('Recomp source revision mismatch');
-  for (const [submodule, commit] of Object.entries(submodules)) {
-    if (execFileSync('git', ['rev-parse', 'HEAD'], { cwd: path.join(recompSource, submodule), encoding: 'utf8' }).trim() !== commit) throw new Error(`Dependency pin mismatch: ${submodule}`);
-  }
-  // Apply only the tracked, auditable packaging-path patch, never remote patches.
-  try { execFileSync('git', ['apply', '--reverse', '--check', patch], { cwd: recompSource, stdio: 'pipe' }); }
-  catch { await run('git', ['apply', '--check', patch], recompSource); await run('git', ['apply', patch], recompSource); }
   await run('cmake', ['--build', llvmBuild, '--target', 'clang', 'lld', '--parallel', String(options.jobs || 3)], work, 'LLVM compiler build', 150 * 60 * 1000);
-  await run('cmake', ['-S', recompSource, '-B', recompBuild, ...common, '-DFMT_TEST=OFF', '-DFMT_DOC=OFF']);
-  await run('cmake', ['--build', recompBuild, '--target', 'RecompModTool', '--parallel', String(options.jobs || 3)], work, 'RecompModTool build', 15 * 60 * 1000);
 }
-// --stage-only is for already completed builds from these same pinned sources.
-// It still checks source identity, pinned support and every packaged dependency.
-if (execFileSync('git', ['rev-parse', 'HEAD'], { cwd: recompSource, encoding: 'utf8' }).trim() !== recompCommit) throw new Error('Staged source revision mismatch');
-for (const [submodule, commit] of Object.entries(submodules)) {
-  if (execFileSync('git', ['rev-parse', 'HEAD'], { cwd: path.join(recompSource, submodule), encoding: 'utf8' }).trim() !== commit) throw new Error(`Staged dependency pin mismatch: ${submodule}`);
-}
-execFileSync('git', ['apply', '--reverse', '--check', patch], { cwd: recompSource, stdio: 'pipe' });
-const readCache = async (directory) => Object.fromEntries((await readFile(path.join(directory, 'CMakeCache.txt'), 'utf8'))
-  .split(/\r?\n/).filter((line) => /^[A-Za-z0-9_]+:[^=]+=/.test(line)).map((line) => {
-    const match = line.match(/^([A-Za-z0-9_]+):[^=]+=(.*)$/);
-    return [match[1], match[2]];
-  }));
-const llvmCache = await readCache(llvmBuild), recompCache = await readCache(recompBuild);
-const requireCache = (cache, key, expected) => {
-  if (cache[key] !== expected) throw new Error(`Build cache ${key} must be ${expected}, found ${cache[key]}`);
-};
-for (const cache of [llvmCache, recompCache]) {
-  requireCache(cache, 'CMAKE_BUILD_TYPE', 'MinSizeRel');
-  requireCache(cache, 'BUILD_SHARED_LIBS', 'OFF');
-  if (process.platform === 'darwin') requireCache(cache, 'CMAKE_OSX_DEPLOYMENT_TARGET', '14.0');
-  else requireCache(cache, 'CMAKE_MSVC_RUNTIME_LIBRARY', 'MultiThreaded');
-}
-requireCache(llvmCache, 'LLVM_TARGETS_TO_BUILD', 'Mips');
-for (const key of ['LLVM_BUILD_LLVM_DYLIB', 'LLVM_LINK_LLVM_DYLIB', 'CLANG_LINK_CLANG_DYLIB',
-  'CLANG_ENABLE_STATIC_ANALYZER', 'CLANG_ENABLE_ARCMT', 'LLVM_ENABLE_ZLIB', 'LLVM_ENABLE_ZSTD',
-  'LLVM_ENABLE_LIBXML2', 'LLVM_ENABLE_LIBEDIT']) requireCache(llvmCache, key, 'OFF');
-if (process.platform === 'win32') requireCache(llvmCache, 'LLVM_USE_CRT_MINSIZEREL', 'MT');
-if (path.resolve(llvmCache.CMAKE_HOME_DIRECTORY || '') !== path.join(llvmSource, 'llvm')
-  || path.resolve(recompCache.CMAKE_HOME_DIRECTORY || '') !== recompSource) throw new Error('Build cache source root mismatch');
+const { llvmCache, recompCache } = await admitConfiguredSources();
+if (options['preflight-only']) process.exit(0);
 const suffix = process.platform === 'win32' ? '.exe' : '';
 await mkdir(path.join(destination, 'bin'), { recursive: true });
 await cp(template, destination, { recursive: true });
@@ -211,34 +257,16 @@ for (const [source, target] of [
   await cp(source, path.join(destination, target), { dereference: true });
   if (process.platform !== 'win32') await chmod(path.join(destination, target), 0o755);
 }
-for (const [source, target] of [
-  [path.join(llvmSource, 'LICENSE.TXT'), 'LLVM-Apache-2.0-with-exceptions.txt'],
-  [path.join(llvmSource, 'llvm/LICENSE.TXT'), 'LLVM-legacy-notices.txt'],
-  [path.join(llvmSource, 'llvm/include/llvm/Support/LICENSE.TXT'), 'LLVM-Support-notices.txt'],
-  [path.join(llvmSource, 'llvm/lib/Support/BLAKE3/LICENSE'), 'BLAKE3.txt'],
-  [path.join(llvmSource, 'clang/LICENSE.TXT'), 'Clang-notices.txt'],
-  [path.join(llvmSource, 'lld/LICENSE.TXT'), 'LLD-notices.txt'],
-  [path.join(recompSource, 'LICENSE'), 'N64Recomp-MIT.txt'],
-  [path.join(recompSource, 'lib/fmt/LICENSE'), 'fmt.txt'],
-  [path.join(recompSource, 'lib/tomlplusplus/LICENSE'), 'tomlplusplus.txt'],
-  [path.join(recompSource, 'lib/ELFIO/LICENSE.txt'), 'ELFIO.txt'],
-]) await cp(source, path.join(destination, 'licenses', target));
+for (const [source, target] of licenseSources) await cp(source, path.join(destination, 'licenses', target));
 const executables = [`bin/clang${suffix}`, `bin/ld.lld${suffix}`, `bin/RecompModTool${suffix}`];
 for (const executable of executables) {
   const target = path.join(destination, executable);
   if (process.platform === 'darwin') {
     await run('/usr/bin/strip', ['-x', target]);
-    const dependencies = execFileSync('/usr/bin/otool', ['-L', target], { encoding: 'utf8' });
-    if (dependencies.split('\n').slice(1).some((line) => line.trim() && !/^\s+(\/usr\/lib\/|\/System\/Library\/)/.test(line))) throw new Error(`Non-system dynamic dependency in ${executable}: ${dependencies}`);
-    const load = execFileSync('/usr/bin/otool', ['-l', target], { encoding: 'utf8' });
-    const minimum = load.match(/\bminos\s+(\d+)\.(\d+)/);
-    if (!minimum || Number(minimum[1]) > 14) throw new Error(`Unsupported macOS minimum in ${executable}`);
+    validateNativeDependencies(target, executable);
     await run('/usr/bin/codesign', ['--force', '--sign', '-', target]);
   } else {
-    const dependencies = execFileSync('dumpbin', ['/DEPENDENTS', target], { encoding: 'utf8' });
-    const imported = [...dependencies.matchAll(/^\s+([A-Za-z0-9_.-]+\.dll)\s*$/gim)].map((match) => match[1]);
-    const system = /^(KERNEL32|USER32|ADVAPI32|SHELL32|OLE32|OLEAUT32|WS2_32|VERSION|NTDLL|CRYPT32|BCRYPT|SHLWAPI|COMDLG32|GDI32|RPCRT4|DBGHELP|PSAPI|api-ms-win-.+|ext-ms-win-.+)\.dll$/i;
-    if (!imported.length || imported.some((name) => !system.test(name))) throw new Error(`Non-system Windows DLL in ${executable}: ${imported.join(', ')}`);
+    validateNativeDependencies(target, executable);
   }
 }
 await writeFile(path.join(destination, 'build-provenance.json'), JSON.stringify({
