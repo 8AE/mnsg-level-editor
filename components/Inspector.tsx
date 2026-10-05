@@ -57,17 +57,26 @@ export function ValueField({
         disabled={disabled}
         aria-invalid={Boolean(error)}
         aria-describedby={error ? `${id}-error` : undefined}
+        onFocus={() => {
+          skipBlur.current = false;
+        }}
         onChange={(event) => setDraft(event.target.value)}
-        onBlur={() => {
+        onBlur={(event) => {
           if (skipBlur.current) {
             skipBlur.current = false;
             return;
           }
+          // Losing the native window's focus can precede its unload/adoption.
+          // Keep the draft until an explicit edit or an in-document blur.
+          if (!event.currentTarget.ownerDocument.hasFocus()) return;
           submit();
         }}
         onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
           if (event.key === "Enter") {
             event.preventDefault();
+            skipBlur.current = true;
+            submit();
             event.currentTarget.blur();
           }
           if (event.key === "Escape") {

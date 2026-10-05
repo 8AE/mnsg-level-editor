@@ -17,6 +17,7 @@
     "test:desktop": "node scripts/smoke-desktop.mjs",
     "test:authoring": "node scripts/smoke-authoring.mjs",
     "test:package": "node scripts/smoke-package.mjs",
+    "test:workspace:recovery": "node scripts/smoke-workspace-recovery.mjs",
     "release:manifest": "node scripts/release-manifest.mjs",
     "managed:build": "node scripts/build-managed-tools.mjs",
     "managed:smoke": "node scripts/smoke-managed-tools.mjs",

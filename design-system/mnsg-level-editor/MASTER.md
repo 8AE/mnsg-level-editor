@@ -151,9 +151,14 @@ redock and input routing, shared edits/Undo, camera/WASD, Console and settings. 
 footer, scroll and Cancel passed at 800px/125% and 1000px/200%. The ARM64 no-ROM candidate
 passed all six panel lifecycles and denied child IPC.
 
+The October 5 continuation passed 21 real-ROM workspace milestones and 11 isolated native
+recovery milestones. Those cover full-app restart, off-monitor main/Scene recovery, saved
+window sizes, recovery controls in all six compact popouts through 200% zoom, and exact texture
+toggle restoration in four rooms after Scene relocation. Forced closure preserves field drafts;
+Enter submits them and Escape discards them.
+
 Visual/release acceptance remains **PARTIAL**: measure contrast and wider pane/monitor sizes;
-check IME, off-monitor recovery, entire-app restart, cross-window drag and material toggles
-after Scene relocation. Normal-profile interaction and native Intel/Windows results remain
-outstanding.
+check IME and cross-window drag. Normal-profile interaction and native Intel/Windows package
+results remain outstanding.
 Use the [acceptance matrix](../../docs/WORKSPACE-AND-BUILD-PLAN.md#acceptance-matrix) for tested scopes.
 The skill search and source checks do not establish those remaining observations.

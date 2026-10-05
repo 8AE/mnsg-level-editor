@@ -64,18 +64,38 @@ jobs:
       - name: Verify application signing and resource seal
         if: runner.os == 'macOS'
         run: codesign --verify --deep --strict --verbose=2 "${{ matrix.bundle }}/../../.."
+      - name: Install actual Windows NSIS package and verify its payload
+        id: installed
+        if: runner.os == 'Windows'
+        run: node scripts/install-windows-smoke.mjs
       - name: Verify actual packaged first boot with no ROM or host toolchain
         run: node scripts/smoke-package.mjs
         env:
-          MNSG_TEST_APP: ${{ github.workspace }}/${{ matrix.app }}
+          MNSG_TEST_APP: ${{ steps.installed.outputs.executable || format('{0}/{1}', github.workspace, matrix.app) }}
           MNSG_TEST_CACHE_DIR: ${{ runner.temp }}/mnsg-ci-no-rom-cache-${{ github.run_id }}
       - name: Compile all mod settings using exclusively the packaged tools
         run: node --import tsx --test tests/export-mod-settings.test.ts
         env:
-          MNSG_EXPORT_TEST_TEMPLATE: ${{ github.workspace }}/${{ matrix.bundle }}
-          MNSG_EXPORT_TEST_CLANG: ${{ github.workspace }}/${{ matrix.bundle }}/bin/clang${{ matrix.executableSuffix }}
-          MNSG_EXPORT_TEST_LINKER: ${{ github.workspace }}/${{ matrix.bundle }}/bin/ld.lld${{ matrix.executableSuffix }}
-          MNSG_EXPORT_TEST_MOD_TOOL: ${{ github.workspace }}/${{ matrix.bundle }}/bin/RecompModTool${{ matrix.executableSuffix }}
+          MNSG_EXPORT_TEST_TEMPLATE: ${{ steps.installed.outputs.bundle || format('{0}/{1}', github.workspace, matrix.bundle) }}
+          MNSG_EXPORT_TEST_CLANG: ${{ steps.installed.outputs.bundle || format('{0}/{1}', github.workspace, matrix.bundle) }}/bin/clang${{ matrix.executableSuffix }}
+          MNSG_EXPORT_TEST_LINKER: ${{ steps.installed.outputs.bundle || format('{0}/{1}', github.workspace, matrix.bundle) }}/bin/ld.lld${{ matrix.executableSuffix }}
+          MNSG_EXPORT_TEST_MOD_TOOL: ${{ steps.installed.outputs.bundle || format('{0}/{1}', github.workspace, matrix.bundle) }}/bin/RecompModTool${{ matrix.executableSuffix }}
+      - name: Verify process restart and compact native-window recovery
+        id: recovery
+        run: npm run test:workspace:recovery
+        env:
+          MNSG_TEST_APP: ${{ steps.installed.outputs.executable || format('{0}/{1}', github.workspace, matrix.app) }}
+      - name: Retain no-ROM native recovery evidence
+        if: always() && steps.recovery.outputs.directory != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: recovery-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            ${{ steps.recovery.outputs.directory }}/recovery-checks.json
+            ${{ steps.recovery.outputs.directory }}/recovered-workspace.png
+            ${{ steps.recovery.outputs.directory }}/failure.png
+            release/windows-install-check.json
+          if-no-files-found: error
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: desktop-${{ matrix.target }}-${{ matrix.arch }}

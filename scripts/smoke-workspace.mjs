@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { cameraState, settlePose } from "./smoke-camera.mjs";
+import { checkTexturedRooms } from "./smoke-textures.mjs";
 
 // Actual editor windows, one disposable profile, and the user's own ROM. No game
 // execution, normal user projects, packaged-app installation, or generated mods.
@@ -163,6 +164,14 @@ try {
       savedOnce = true;
     }
     await button(main, "Save").click();
+    await main.waitForFunction(async () => {
+      try { await window.mnsg.getStatus(); return true; }
+      catch (error) {
+        if (error.message.includes("Another file operation is still running")) return false;
+        throw error;
+      }
+    });
+    await main.locator(".status-bar [role=status]").filter({ hasText: `Saved ${path.basename(projectPath)}` }).waitFor();
     await main.locator(".dirty-state").waitFor({ state: "hidden" });
     return JSON.parse(await readFile(projectPath, "utf8"));
   }
@@ -376,6 +385,8 @@ try {
   await inspector.close();
   await restored.waitFor();
   assert.equal(await restored.inputValue(), "Force-close draft");
+  assert.equal(await main.locator(".dirty-state").count(), 0,
+    "Forced native closure must not commit a field draft through window-focus loss");
   await restored.press("Escape");
   assert.equal(await restored.inputValue(), "Workspace probe");
   await restored.fill("Post-close verified");
@@ -1053,6 +1064,15 @@ try {
     );
   }
   await record("responsive native width and 125/200 percent zoom");
+  await app.evaluate(({ BrowserWindow }) => {
+    const main = BrowserWindow.getAllWindows().find(window => !window.getParentWindow());
+    main.setSize(1440, 900);
+    main.webContents.setZoomFactor(1);
+  });
+  const textures = await checkTexturedRooms(main, artifacts);
+  await record("native texture toggles restore exactly after Scene relocation", {
+    rooms: textures.map(room => ({ roomId: room.roomId, restoration: room.restoration })),
+  });
   assert.equal(graph(await saved()), graph(withSettings));
   assert.deepEqual(report.errors, []);
   const gone = await app.evaluate(() => globalThis.__workspaceSmoke.gone);

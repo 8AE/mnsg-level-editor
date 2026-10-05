@@ -242,12 +242,16 @@ MNSG_EXPORT_TEST_TEMPLATE="$PWD/resources/managed-tools" \
 MNSG_TEST_ROM=/path/to/us-rom.z64 npm run test:desktop
 MNSG_TEST_ROM=/path/to/us-rom.z64 npm run test:authoring
 MNSG_TEST_ROM=/path/to/us-rom.z64 node scripts/smoke-workspace.mjs
+npm run test:workspace:recovery
 ```
 
 Build the app first. Desktop and authoring smokes use bundled tools for NRM checks by default.
 `MNSG_TEST_SKIP_NRM=1` omits the desktop compiler check; `MNSG_SMOKE_UI_ONLY=1` omits authoring
 exports. Those checkpoints leave export verification incomplete. The workspace smoke checks
-layout/popout/history and project-settings interactions; it does not launch the game.
+layout/popout/history and project-settings interactions, including texture restoration after
+Scene relocation. The recovery smoke uses a disposable no-ROM profile to check a full process
+restart, saved window bounds, off-monitor recovery and compact popouts at 100%, 125% and 200%
+zoom. Set `MNSG_TEST_APP` to check an installed executable. These checks do not launch the game.
 
 ## Package and validation status
 
@@ -283,8 +287,14 @@ tools with an empty PATH and blocked HTTP/HTTPS. The installed application passe
 signature checks and matched the candidate's ASAR/tool manifest. Source ROM, cache and
 ROM-profile hashes remained unchanged.
 
-Normal-profile interactive checks, manual cross-window drag and Intel/Windows checks remain
-outstanding. IME, off-monitor recovery and entire-app restart need separate observations.
+The October 5 continuation fixed draft submission during forced popout closure and passed
+21 real-ROM workspace milestones, including four rooms' exact texture restoration after Scene
+relocation. A separate 11-milestone native-window check passed full-app restart, saved layouts
+and window sizes, off-monitor recovery, and all six compact popouts' redock controls through
+200% zoom. These checks used disposable profiles.
+
+Normal-profile interactive checks, manual cross-window drag, IME and Intel/Windows package
+checks remain outstanding.
 Read the [acceptance matrix](docs/WORKSPACE-AND-BUILD-PLAN.md#acceptance-matrix)
 for partial gates. Earlier release evidence does not certify these remaining scopes.
 

@@ -177,6 +177,16 @@ source ROM, cache and ROM-profile hashes remained unchanged. The ARM64 standalon
 artifact passed an independent local smoke. Normal-profile interaction, manual cross-window
 drag, Intel/Windows and remaining interaction scopes still need proof.
 
+The October 5 continuation repeated the actual-ROM/GPU suite (336 passes, seven optional
+export skips), installed ARM64 offline ROM/export check and five packaged-tool metadata tests.
+It found and fixed draft submission on forced popout closure: losing native window focus
+preserves a field draft, Enter submits it, and Escape discards it. The native recovery check
+passed 11 milestones for process restart, saved layout/window sizes, off-monitor main/Scene
+recovery and redock controls in six 360x300 popouts at 100%, 125% and 200% zoom. The real-ROM
+workspace check passed 21 milestones, including exact restoration of four rooms' textures
+after Scene relocation. The recovery check uses
+an isolated no-ROM profile; it does not test room editing or gameplay.
+
 A **LOCAL** status covers its named source, GUI or packaged-build observation. **PARTIAL**
 identifies remaining observations in a broader gate. This matrix does not equate a candidate
 build with an installed release or an editor check with gameplay.
@@ -184,13 +194,13 @@ build with an installed release or an editor check with gameplay.
 | Gate | Required observation | Status |
 | --- | --- | --- |
 | Layout controls | Each named pane can resize by pointer, keyboard and explicit controls; Window reopen/popout/redock/maximize/close works | LOCAL GUI PASS |
-| Presets and persistence | Default/Wide/Focus, Save/Reset and restart restore usable panes; corrupt/off-monitor preferences recover | PARTIAL: presets/reload/corrupt storage/Reset passed; app restart and off-monitor recovery pending |
-| Zoom and small windows | Native minimum size, compact popouts, wide screens and 125%/200% zoom keep actions and scroll areas reachable | PARTIAL: settings at 800/125% and 1000/200% passed; other pane/monitor sizes pending |
+| Presets and persistence | Default/Wide/Focus, Save/Reset and restart restore usable panes; corrupt/off-monitor preferences recover | LOCAL GUI PASS: presets/reload/corrupt storage/Reset, full process restart and off-monitor main/Scene recovery |
+| Zoom and small windows | Native minimum size, compact popouts, wide screens and 125%/200% zoom keep actions and scroll areas reachable | PARTIAL: settings at 800/125% and 1000/200%, redock controls in all six 360x300 popouts at 100/125/200% passed; other content/monitor sizes pending |
 | Camera/layout isolation | Resize/tab/preset/popout/redock retain camera and selection; fingerprint/history/dirty state stay unchanged | LOCAL GUI PASS |
 | Real native windows | Electron creates approved OS windows; no duplicate project bootstrap/history; close/reopen/main-close/reload clean up children | LOCAL GUI/PACKAGE PASS |
 | Shared edits and undo | Edit in popped Inspector; Undo/Redo from another window affect one document; stale drafts cannot overwrite newer edits | PARTIAL: Inspector/main Undo and uncommitted draft redock passed; concurrent stale-draft conflicts pending |
 | Focus and modality | Correct child ownerDocument events, one shortcut transaction, typing/IME guards, global busy/modal lock and focus restoration | PARTIAL: typing/modal blocks and live child input passed; IME pending |
-| GPU regression | Real rooms/actors, dual textures/TEXGEN and exact texture toggle restoration survive resizing and Scene redock without context leaks | PARTIAL: adopted native thumbnail and Scene rehost passed; material toggles after relocation pending |
+| GPU regression | Real rooms/actors, dual textures/TEXGEN and exact texture toggle restoration survive resizing and Scene redock without context leaks | PARTIAL: adopted native thumbnail, Scene rehost and four rooms' exact material-toggle restoration after relocation passed; full context leak accounting pending |
 | Asset placement | Real cross-window drag and Place at origin insert trusted IDs; save/reopen/undo retain the graph and preview limits | PARTIAL: native Place at origin/Save/Undo passed; actual cross-window drag pending |
 | Diagnostics | Console records real operations; Clear/filter is view-only; conditional/unsupported limits remain visible in cards/Inspector | LOCAL GUI PASS |
 | Portable migration | Legacy V1/V2 fixtures preserve UUID, old mod ID/filename, ROM identity and all native/authored fields; new mod data roundtrips | PARTIAL: source migration and GUI graph roundtrips passed; full legacy GUI fixture matrix pending |
