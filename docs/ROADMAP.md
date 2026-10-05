@@ -5,7 +5,8 @@ clones and editable replacements; mesh, vertex and face editing; native asset
 placement; collision generation; entrances, custom doors and sky selection.
 It adds a resizable six-pane workspace with native popouts, portable project mod settings and
 bundled offline C/H/NRM builds. Local workspace and ARM64 candidate checks passed;
-normal-profile interaction and other-platform acceptance remain partial.
+native packages/builds passed on all three hosts. Normal-profile interaction, physical Intel GPU
+and Intel/Windows own-ROM acceptance remain partial.
 The [authoring guide](room-authoring.md) covers the workflow; this roadmap tracks
 its supported bounds and remaining work.
 
@@ -72,7 +73,7 @@ future scenario behavior need their own evidence.
 | 1: Read and display | US-ROM import, byte-order normalization and decompression; textured rooms and bounded native actor parts/initial poses; actor-linked event inspection and read-only room initialization; native asset libraries and thumbnails; picking, framing, Pan/Tilt and focused WASD; conditional TEXGEN, first timed-child previews, donor-scoped 0x24C/0x35C children and bounded 0x07D/0x249 initial surfaces | Wider verified actor/helper/material coverage; later animation and spawning; native lighting, fog and filtering parity; special scenes and broader collision inspection |
 | 2: Author | Version 2 blank rooms, clones and editable replacements; independent authored geometry; mesh TRS, vertex XYZ/UV/RGBA, face topology and gizmos; actor insertion/deletion and loading policy; named entrances, editable custom-door volumes/destinations and sky inheritance/None/native assets; collision generation and linked updates; undo/redo and saved/native recovery | Direct native BSP editing and richer collision visualization; native event/script editing; migration of sparse actors across original proximity cells; broader scene support |
 | 3: C/H export | Sparse actor/translation patches and authored room payloads; owned geometry, copied or generated native collision, rebuilt authored proximity grids, metadata/admission, entrances, doors and sky; constructor-resource checks, guarded controller contracts and dependency/preimage safeguards | User gameplay validation of entry, physics, camera, progression, teardown and revisit; more verified actor/resource contexts; compatibility with mods that change native roots or allocations; arbitrary scripts |
-| 4: Prebuilt `.nrm` and desktop release | Source-integrated offline bundled MIPS Clang/ELF LLD/RecompModTool, per-project workspaces and 18-field metadata GUI; three native platform package targets | Remaining 0.3.0 normal-profile interaction and native-platform acceptance; Developer ID/notarization and Windows signing; user gameplay regression coverage |
+| 4: Prebuilt `.nrm` and desktop release | Offline bundled MIPS Clang/ELF LLD/RecompModTool, per-project workspaces and 18-field metadata GUI; three native packages/builds verified, Windows installer tested | Normal-profile interaction, physical Intel GPU and Intel/Windows own-ROM checks; Developer ID/notarization and Windows signing; user gameplay regression coverage |
 
 ## Supported bounds
 
@@ -152,8 +153,9 @@ and child-IPC checks. Its standalone-tools CI artifact passed an independent loc
 The real-ROM candidate restored 383 cached rooms and passed exact texture restoration, native
 selectors and WASD; it built an NRM with empty PATH and HTTP/HTTPS blocked. Installation passed
 strict deep signature and ASAR/tool-manifest parity, with source ROM, cache and ROM-profile
-hashes unchanged. Normal-profile interaction, manual cross-window drag and remaining
-platform/interaction gates still need observations. Read the
+hashes unchanged. The final native run passed all three package/build and window-recovery jobs,
+including Windows NSIS installation. Normal-profile interaction, manual cross-window drag,
+physical Intel GPU and Intel/Windows own-ROM gates still need observations. Read the
 [acceptance matrix](WORKSPACE-AND-BUILD-PLAN.md#acceptance-matrix) and
 [validation record](../README.md#package-and-validation-status) for the scope of each result.
 

@@ -1,6 +1,6 @@
 # Workspace and managed build plan
 
-**Status: 0.3.0 local workspace/build checks passed; release acceptance PARTIAL.** Source now
+**Status: 0.3.0 native packages/builds verified; broader interaction acceptance PARTIAL.** Source now
 contains the six-panel workspace, native portal popouts, project settings and bundled-tool
 integration. The baseline native data/admission rules remain. Earlier release checks do not
 prove untested platform or installed-application behavior.
@@ -202,6 +202,19 @@ A **LOCAL** status covers its named source, GUI or packaged-build observation. *
 identifies remaining observations in a broader gate. This matrix does not equate a candidate
 build with an installed release or an editor check with gameplay.
 
+[Native desktop run 37318750246](https://github.com/8AE/mnsg-level-editor/actions/runs/37318750246)
+passed at `df597e88d94bb1dc38cef9f1c834c685f05802aa`. Each host passed 254 source tests with
+89 optional skips, five packaged-tool metadata/archive tests, offline no-ROM first boot, and
+all 11 recovery milestones. Mac packages passed strict deep signature verification. Windows
+executed its NSIS installer in a space/apostrophe/Japanese path, verified payload hashes, then
+tested the installed executable and tools. Intel's virtual guest could not create WebGL;
+the test required its visible rendering diagnostic and still exercised all native panes.
+Physical Intel viewport rendering and Intel/Windows own-ROM editing remain unverified.
+
+These checks caught a popout-size persistence bug on Intel and Windows. Snapshot every live
+window before its opener closes and before application quit, then flush the pending atomic
+writes. That fix passed all three hosts and repeated installed ARM64 recovery/cached-ROM export.
+
 | Gate | Required observation | Status |
 | --- | --- | --- |
 | Layout controls | Each named pane can resize by pointer, keyboard and explicit controls; Window reopen/popout/redock/maximize/close works | LOCAL GUI PASS |
@@ -222,10 +235,10 @@ build with an installed release or an editor check with gameplay.
 | Injection and corruption | Reject traversal, absolute/drive/UNC paths, symlink escapes, unsafe quoting, executable/URL fields, altered tool/symbol bundles | PARTIAL: source guards and packaged child-IPC denial passed; complete hostile-path runtime matrix pending |
 | Admission regression | Invalid native preimages/dependencies/donors/budgets still reject after metadata edits; old output survives failed/cancelled builds | PARTIAL: source and 30 host-tool exports passed; installed cancelled export/incomplete-symbol rejection preserved old NRM; later compiler-failure preservation remains separate |
 | macOS ARM64 offline package | Clean profile, network off and host tools hidden; installed package uses bundled tools to compile/link/NRM and verify mod.json/ZIP | LOCAL INSTALLED PASS: isolated cached-ROM build with empty PATH/HTTP blocked, five metadata/archive tests and 11 native recovery milestones; normal-profile/manual drag checks remain separate |
-| macOS Intel offline package | Same test on a native x64 host; audit architecture/minimum OS/libraries and verify output, without ARM/Rosetta substitution | PENDING |
-| Windows x64 offline package | Same test on native Windows; spaces/Unicode/quoting paths and runtime dependencies work without installed LLVM/VS tools | PENDING |
+| macOS Intel offline package | Same test on a native x64 host; audit architecture/minimum OS/libraries and verify output, without ARM/Rosetta substitution | NATIVE CI PASS: packaged tools, five metadata/archive checks, offline first boot and 11 recovery checks; guest WebGL diagnostic checked, physical GPU/own-ROM editing remain unverified |
+| Windows x64 offline package | Same test on native Windows; spaces/Unicode/quoting paths and runtime dependencies work without installed LLVM/VS tools | NATIVE INSTALLED CI PASS: actual NSIS/payload parity, installed tools and executable, five metadata/archive checks, first boot and 11 recovery checks; own-ROM editing remains unverified |
 | Packaging and onboarding | Own-ROM/cached-ROM paths, signed-package resource discovery and baseline project flows pass; no ROM/project/NRM/private assets bundled | PARTIAL: first boot/cached-ROM/signature/installed byte parity passed; normal-profile interaction pending |
-| Release reporting | Source tests/build, three host compiler exports, package/installed UI and CI results have separate evidence; gameplay remains separate | PARTIAL: local/package/installation scopes separated; normal-profile and Intel/Windows evidence pending |
+| Release reporting | Source tests/build, three host compiler exports, package/installed UI and CI results have separate evidence; gameplay remains separate | NATIVE PACKAGE SCOPES VERIFIED: linked exact-revision CI, installed ARM64 own-ROM and Windows no-ROM scopes; normal-profile/physical Intel GPU/gameplay remain separate |
 
 Do not install or launch generated NRMs as an acceptance shortcut. Builds and editor previews
 do not prove Goemon64Recomp gameplay. The user chooses any mod installation/gameplay test.

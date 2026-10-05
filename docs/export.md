@@ -260,7 +260,10 @@ unedited actors before distributing an export. Earlier macOS package checks are 
 The 0.3.0 ARM64 candidate passed bundled metadata/archive checks (5/5), and authoring passed
 15 milestones with C/H and bundled-tool NRM compilation. The real-ROM ARM64 candidate built an
 NRM with empty PATH and blocked HTTP/HTTPS, and installation matched its verified bytes.
-Normal-profile interaction, other-platform and in-game behavior remain separate gates; read the
+Native ARM64/Intel/Windows packages passed five metadata/archive tests each, offline first boot
+and 11 recovery milestones per host. Windows tested the actual installed NSIS payload. Intel's
+virtual guest checked its unavailable-WebGL diagnostic; physical Intel viewport rendering and
+Intel/Windows own-ROM editing remain unverified. Normal-profile interaction and in-game behavior remain separate gates; read the
 [current validation record](../README.md#package-and-validation-status).
 An additional host harness compiles and executes the generated geometry
 C against controlled resources. It checks missing/null resources, opaque

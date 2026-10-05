@@ -3,7 +3,8 @@
 **Status: 0.3.0 local workspace checks passed; visual/release acceptance PARTIAL.** The
 source implements this six-pane design with native portal popouts. Real-ROM GUI and no-ROM
 ARM64 candidate checks passed. Installation matches that candidate; normal-profile interaction
-and other-platform results remain outstanding.
+and physical Intel GPU/Intel-Windows own-ROM results remain separate. All three native package
+checks passed, including Windows installation and 11 recovery milestones per host.
 The root retains final release decisions.
 
 ## Design direction and source fit
@@ -160,7 +161,8 @@ The installed ARM64 copy repeated the 11 recovery checks after a fix that flushe
 window-position writes before quitting.
 
 Visual/release acceptance remains **PARTIAL**: measure contrast and wider pane/monitor sizes;
-check IME and cross-window drag. Normal-profile interaction and native Intel/Windows package
-results remain outstanding.
+check IME and cross-window drag. Native ARM64/Intel/Windows package and recovery checks passed;
+Intel's virtual guest checked the unavailable-WebGL diagnostic and native panes. Normal-profile
+interaction, physical Intel viewport rendering and Intel/Windows own-ROM editing remain separate.
 Use the [acceptance matrix](../../docs/WORKSPACE-AND-BUILD-PLAN.md#acceptance-matrix) for tested scopes.
 The skill search and source checks do not establish those remaining observations.

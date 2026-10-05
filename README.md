@@ -10,6 +10,10 @@ outside the supported package targets. The app uses Electron, Next.js,
 [Once UI](https://docs.once-ui.com/ai-coding) and Three.js. Bring your own US ROM; installers
 contain no ROM or decoded game assets.
 
+[Download 0.3.0 for macOS or Windows](https://github.com/8AE/mnsg-level-editor/releases/tag/v0.3.0).
+Install the app, import your ROM, create a project, configure **Settings**, and export an NRM.
+The app supplies the compiler, mod packager and each project's template.
+
 ## Import your ROM
 
 Select your ROM on first launch. The importer accepts `.z64`, `.v64` and `.n64`
@@ -305,8 +309,18 @@ An installed-AppApi A/B check also built two projects offline with distinct temp
 config options and imported icons. Reopen restored the saved settings, the other project's files
 stayed unchanged, and cancellation or incomplete symbols preserved the earlier NRM.
 
-Normal-profile interactive checks, manual cross-window drag, IME and Intel/Windows package
-checks remain outstanding.
+[Native desktop CI](https://github.com/8AE/mnsg-level-editor/actions/runs/37318750246) passed at
+`df597e88`: ARM64, Intel and Windows each passed 254 source tests (89 optional skips), five
+packaged-tool metadata/archive tests, offline first boot and 11 native recovery milestones.
+Windows ran the actual NSIS installer into a path containing spaces, an apostrophe and Japanese
+text, verified installed payload parity, and used those installed tools/executable for the checks.
+Mac packages passed strict deep signature verification. The shutdown snapshot now captures all
+live popouts before their opener destroys them, preserving their current size on every host.
+The installed ARM64 copy repeated recovery and cached-ROM offline export after that fix.
+
+The Intel CI guest has no usable WebGL: its visible rendering diagnostic and native panes were
+checked, while physical Intel viewport rendering remains unverified. Normal-profile interactive
+checks, manual cross-window drag, IME and Intel/Windows own-ROM editing remain separate.
 Read the [acceptance matrix](docs/WORKSPACE-AND-BUILD-PLAN.md#acceptance-matrix)
 for partial gates. Earlier release evidence does not certify these remaining scopes.
 

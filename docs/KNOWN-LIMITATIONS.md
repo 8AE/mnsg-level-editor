@@ -1,8 +1,8 @@
 # Known limitations
 
 The 0.3.0 workspace, authoring and ARM64 real-ROM candidate have local passing checks.
-Installation passed signature/byte-parity checks; normal-profile interaction and other-platform
-results remain outstanding. Consult the
+Native package checks passed on ARM64, Intel and Windows, including Windows installation.
+Normal-profile interaction and physical Intel GPU/Intel-Windows own-ROM checks remain separate. Consult the
 [validation record](../README.md#package-and-validation-status) for completed scopes.
 
 ## Native scenes and actors
@@ -30,8 +30,8 @@ and [export bounds](export.md).
 Layout controls and native popouts share one editor session. Layout preferences stay outside
 project history; closing the main application closes its children. The workspace is a six-pane
 layout, not Unity's full arbitrary docking/tab-group system. Local checks covered Scene camera,
-redock, input and shared Undo. Actual cross-window drag, IME, off-monitor recovery and entire-app
-restart remain unverified.
+redock, input and shared Undo. All three native hosts passed off-monitor recovery, full-process
+restart and compact popout recovery. Actual cross-window drag and IME remain unverified.
 
 Each .mnsgproj remains authoritative. The app-owned build directory is regenerable output;
 external edits there do not update the portable project. Settings and uploaded attachments
@@ -63,7 +63,10 @@ unsupported even when the compiler is ready.
 Package targets are macOS 14+ ARM64/x64 and Windows x64. Linux has no supported package.
 The ARM64 candidate passed no-ROM/cached-ROM startup, bundled metadata builds and an NRM build
 with empty PATH and blocked HTTP/HTTPS. The installed app matches that candidate; normal-profile
-interaction and native Intel/Windows checks remain outstanding. Source tests, compile/link and
+interaction remains separate. Native Intel/Windows packages passed offline first boot, all-field
+metadata/archive builds and window recovery; Windows also passed actual NSIS installation.
+The Intel CI guest has no usable WebGL: its diagnostic/panes were checked, but physical Intel
+viewport rendering and Intel/Windows own-ROM editing remain unverified. Source tests, compile/link and
 NRM archive checks do not prove Goemon64Recomp gameplay. For any handoff, record the output path,
 affected rooms, changes and uncertainties. The user chooses mod installation and game testing;
 this task does not launch the game or install generated NRMs.

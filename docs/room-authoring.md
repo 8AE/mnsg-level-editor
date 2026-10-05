@@ -5,8 +5,9 @@ room authoring and adds project settings with bundled offline C/H/NRM builds. Re
 [validation record](../README.md#package-and-validation-status) for completed checks and
 remaining release gates. The 0.3.0 authoring check passed 15 milestones with C/H and bundled
 NRM compilation. The ARM64 real-ROM candidate built an NRM with empty PATH and blocked
-HTTP/HTTPS. Installation matched its verified bytes; normal-profile interaction, other-platform
-and live gameplay checks remain separate.
+HTTP/HTTPS. Installation matched its verified bytes. Native packages/builds passed on all three
+hosts, including Windows installation and native window recovery. Normal-profile interaction,
+physical Intel GPU, Intel/Windows own-ROM editing and gameplay checks remain separate.
 
 ## Choose a starting room
 
