@@ -1,0 +1,27 @@
+diff --git a/RecompModTool/main.cpp b/RecompModTool/main.cpp
+--- a/RecompModTool/main.cpp
++++ b/RecompModTool/main.cpp
+@@ -1013,11 +1013,21 @@ bool create_mod_zip(const std::filesystem::path& output_dir, const ModConfig& config
+ #ifdef _WIN32
+     std::filesystem::path temp_zip_path = output_path;
+     temp_zip_path.replace_extension(".zip");
++    // PowerShell single-quoted literals escape an apostrophe by doubling it.
++    // Keep filesystem paths as data when a user's profile contains an apostrophe.
++    auto powershell_literal = [](const std::string& value) {
++        std::string escaped;
++        for (char character : value) {
++            escaped += character;
++            if (character == '\'') escaped += '\'';
++        }
++        return escaped;
++    };
+     std::string command_string = fmt::format("powershell -command Compress-Archive -Force -CompressionLevel Optimal -DestinationPath '{}' -Path '{}','{}','{}'",
+-        temp_zip_path.string(), (output_dir / symbol_filename).string(), (output_dir / binary_filename).string(), (output_dir / manifest_filename).string());
++        powershell_literal(temp_zip_path.string()), powershell_literal((output_dir / symbol_filename).string()), powershell_literal((output_dir / binary_filename).string()), powershell_literal((output_dir / manifest_filename).string()));
+ 
+     for (const auto& cur_file : config.inputs.additional_files) {
+-        command_string += fmt::format(",'{}'", cur_file.string());
++        command_string += fmt::format(",'{}'", powershell_literal(cur_file.string()));
+     }
+ 
+     STARTUPINFOA si{};

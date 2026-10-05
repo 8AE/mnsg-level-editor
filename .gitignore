@@ -19,6 +19,7 @@ coverage/
 rom-cache/
 user-data/
 decoded-assets/
+resources/managed-tools/
 test-mods/
 *.mnsgproj
 *.mnsgproj.tmp

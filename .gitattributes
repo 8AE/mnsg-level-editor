@@ -1,0 +1,5 @@
+# Preserve checksum-pinned upstream symbol metadata byte for byte.
+resources/managed-template/** -text
+resources/managed-template/Goemon64RecompSyms/*.toml whitespace=-blank-at-eof
+# Unified diff context lines carry a leading space even on empty lines.
+scripts/patches/*.patch -text whitespace=-trailing-space

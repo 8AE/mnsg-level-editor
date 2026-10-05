@@ -1,0 +1,13 @@
+{
+  "format": "mnsg-managed-template-provenance",
+  "version": 1,
+  "template": {"repository": "https://github.com/klorfmorf/MNSGRecompModTemplate", "commit": "3f52a0fafdc04429080e3f4d8d072d8025c8cbdb", "license": "CC0-1.0"},
+  "symbols": {"repository": "https://github.com/klorfmorf/Goemon64RecompSyms", "commit": "49f4e3269f05c737cb4bf698b9ef7142c92f1ac7", "permission": "licenses/Goemon64RecompSyms-permission.md"},
+  "files": [
+    {"path": "include/modding.h", "sha256": "daf641ff09b85b5b19ab3cd01be2a399e5217926529376846cd3a6a2b10f3bd9"},
+    {"path": "Goemon64RecompSyms/mnsg.us.syms.toml", "sha256": "705ced76961997efe1fc96bc1ad88395fd443ed473c2d3b7b2cba318c15dbe77"},
+    {"path": "Goemon64RecompSyms/mnsg.us.datasyms.toml", "sha256": "af7855b91d29f74351faaf8052c21f1e378badb4c322b9784d205da5016e9ce2"},
+    {"path": "licenses/MNSGRecompModTemplate-CC0.txt", "sha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499"},
+    {"path": "licenses/Goemon64RecompSyms-permission.md", "sha256": "8be6438b82ed3b390f57cf8bbb27d21eca2ea64f0a39cc375532d2be962292e4"}
+  ]
+}

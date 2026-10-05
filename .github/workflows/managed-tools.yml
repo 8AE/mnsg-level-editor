@@ -1,0 +1,53 @@
+name: Managed offline tools
+on:
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  tools:
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            platform: darwin
+            arch: arm64
+          - os: macos-15-intel
+            platform: darwin
+            arch: x64
+          - os: windows-2022
+            platform: win32
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Native MSVC build environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
+        with:
+          arch: amd64
+      - name: Restore exact verified bundle
+        id: cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: resources/managed-tools
+          key: managed-tools-v1-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('scripts/build-managed-tools.mjs', 'scripts/managed-tools-contract.mjs', 'scripts/patches/**', 'resources/managed-template/**') }}
+      - name: Build pinned native MIPS compiler and mod tool
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: node scripts/build-managed-tools.mjs --generator=Ninja --jobs=3
+      - name: Verify complete bundle and offline compile/link/NRM contract
+        run: node scripts/smoke-managed-tools.mjs
+      - name: Archive bundle preserving native executable permissions
+        run: tar -czf managed-tools-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz -C resources managed-tools
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: managed-tools-${{ matrix.platform }}-${{ matrix.arch }}
+          path: managed-tools-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+          compression-level: 6
+          retention-days: 30
