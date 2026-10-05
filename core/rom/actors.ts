@@ -19,7 +19,7 @@ const AXES=["x","y","z"] as const;
 interface ReadonlyResource {address:number;fileId:number;byteLength:number;scope?:"cold-world-loader"}
 const identity=()=>[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];
 const digest=(value:unknown)=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
-const bytesFor=(model:ActorModel)=>model.meshes.reduce((sum,m)=>sum+(m.positions.length+m.indices.length+(m.uvs?.length??0)+(m.colors?.length??0)+(m.normals?.length??0))*8+(m.material?.texgen?128:0),0)+model.textures.reduce((sum,t)=>sum+t.width*t.height*4+t.rgbaBase64.length*2,0);
+const bytesFor=(model:ActorModel)=>model.meshes.reduce((sum,m)=>sum+(m.positions.length+m.indices.length+(m.uvs?.length??0)+(m.secondaryUvs?.length??0)+(m.colors?.length??0)+(m.normals?.length??0))*8+(m.material?.texgen?128:0)+(m.material?.dualTexture?256:0),0)+model.textures.reduce((sum,t)=>sum+t.width*t.height*4+t.rgbaBase64.length*2,0);
 
 function inverse(matrix:number[]):number[] {
   const [a,b,c]=[matrix[0],matrix[4],matrix[8]],[d,e,f]=[matrix[1],matrix[5],matrix[9]],[g,h,i]=[matrix[2],matrix[6],matrix[10]],det=a*(e*i-f*h)-b*(d*i-f*g)+c*(d*h-e*g);

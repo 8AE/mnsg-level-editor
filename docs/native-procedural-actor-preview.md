@@ -104,3 +104,12 @@ this initial preview.
 Read [actor coverage](native-actors.md#version-025-procedural-preview-and-coverage),
 [native room evidence](native-room-authoring.md#editor-025-procedural-setup-boundary) and
 [export constraints](export.md) for the related boundaries.
+
+## Related water surface
+
+Version 0.2.6 adds the [0x249 water preview](native-water-actor-preview.md) for the actor in
+native room 313. It retains the record's placement and uses a different dynamic constructor,
+material and callback path. This 07D guide describes its fixed transform and File15 scope;
+do not transfer those assumptions to 0x249. Both previews stop at finite initial setup. The
+water preview adds no export closure; its existing original-definition, same-room policy
+remains separate from 07D's rejection.

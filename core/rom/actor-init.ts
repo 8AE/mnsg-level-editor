@@ -8,6 +8,7 @@ import {NativeLoaderPreview,LOADER_REGISTRY_ADDRESS,LOADER_ARENA_DESCRIPTOR,veri
 import {nativeActorControllerClassification} from "./actor-controller-classification";
 import {nativeSceneControllerClassification} from "./actor-scene-controller";
 import {nativeEmptyControllerClassification} from "./actor-empty-controllers";
+import {nativeWaterActorPreview} from "./actor-init-water-preview";
 import {nativeProceduralActorPreview} from "./actor-init-procedural-preview";
 
 export interface NativeActorSceneDeclaration {prototypeId:string;parameters:[number,number,number];position:Vec3;rotation:Vec3}
@@ -219,6 +220,7 @@ export class ActorMemory implements InitMemory {
 export class ActorInitializer {
   constructor(readonly reader:RomReader,readonly files:Map<number,RomFile>,readonly waves:Pick<RenderWaves,"wave">&Partial<Pick<RenderWaves,"image">>){}
   resolve(input:NativeActorInitInput):NativeActorInitResult {
+    const water=nativeWaterActorPreview(this.reader,this.files,input,this.waves);if(water)return water;
     const procedural=nativeProceduralActorPreview(this.reader,this.files,input,this.waves);if(procedural)return procedural;
     const observed=new Set<number>(),initial=new Map<number,boolean>();
     const baseline=this.evaluate(input,initial,observed,12000);let used=baseline.instructionCount;

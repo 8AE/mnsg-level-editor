@@ -463,7 +463,8 @@ live gameplay remain separate evidence boundaries.
 
 ## Version 0.2.5 procedural preview and coverage
 
-Actor 0x07D now has a conditional initial-surface preview: one part with 392 textured triangles.
+Version 0.2.5 introduced a conditional initial-surface preview for actor 0x07D: one part with
+392 textured triangles.
 The editor executes the guarded fixed File15 constructor `801CC978_65F828`, then finite native
 setup `80024160_24D60`, in owned task/object/arena memory. It stops before `80025B38_26738` and
 File15 `801CC710_65F5C0`. The result keeps `completed=false` and grants no export admission.
@@ -475,7 +476,7 @@ part has direct slot -1 and source files 15/1229; registry codeFile25 identifies
 namespace. Read the [procedural preview guide](native-procedural-actor-preview.md) for the
 resource, material and readiness boundaries.
 
-| 0.2.5 census | IDs | Supported | Conditional | Nonvisual | Unresolved |
+| Historical 0.2.5 census | IDs | Supported | Conditional | Nonvisual | Unresolved |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Library seed previews | 361 | 74 | 173 | 19 | 95 |
 | Canonical native placements | 255 | 54 | 154 | 15 | 32 |
@@ -490,3 +491,43 @@ Ten focused tests and an isolated Electron/GPU check covered the initial surface
 placement, save and undo/redo. Full source and release checks have their own revision scopes in
 the [validation record](../README.md#package-and-validation-status). Native lighting/filtering,
 future waves and live-game behavior remain unverified.
+
+
+## Version 0.2.6 water preview
+
+Actor 0x249, The Water (Husband and Wife Rocks), has one canonical placement in native room 313.
+The finite native constructor/setup/D8 path retains XYZ [0,53,0] and zero angles, sets float32
+scale 0.16, and produces two identical 225-vertex flat buffers with 392 triangles per list.
+D8 writes a deferred heightfield after vertex generation; it leaves the captured initial
+vertices and commands unchanged. Future 25B38 and File25 038C remain pending.
+
+The native constructor belongs to dynamic File25, distinct from 07D's fixed File15. Its initial
+material uses two-cycle texture0 × texture1 × shade RGB and primitive alpha 208/255. Ordered
+TMEM loads produce distinct sampling images and quarter-texel origins. A single multiplied
+bitmap cannot preserve the two filtered samples. Read the
+[water guide](native-water-actor-preview.md) for the workflow, boundary and appearance limits.
+
+The guarded evaluation establishes finite native setup. The raw result retains
+`completed=false`; isolated allocation readiness,
+future wave behavior and export admission remain separate. The preview grants no new export
+closure. Existing canonical-context admission accepts the original three parameter words in
+native room 313 or a replacement with room ID 313 and template 313, including placement and
+angle edits. Changed parameters or a foreign/new-room context reject without a completed closure.
+The fresh 0.2.6 census changes only actor 0x249 from unavailable to conditional. It adds one
+392-triangle textured part to both library and canonical totals; normalized ROM bytes remain
+unchanged.
+
+| Current 0.2.6 census | IDs | Supported | Conditional | Nonvisual | Unresolved |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Library seeds | 361 | 74 | 174 | 19 | 94 |
+| Canonical placed IDs | 255 | 54 | 155 | 15 | 31 |
+
+The library contains 502 parts and 27,223 triangles: 23,834 textured and 3,389 untextured.
+Its unresolved group includes seven partial previews. The canonical census contains 455 parts
+and 24,508 triangles: 21,667 textured and 2,841 untextured, with six partial previews among
+unresolved IDs. These initial declarations do not establish later behavior or export admission.
+The actual-ROM/toolchain/GPU suite passed all 315 tests without failures or skips. Source,
+build, candidate-package and actual water/library/history Electron checks passed. Texture
+on/off restored exact pixels in the isolated checks. Normal installed-app launch restored the
+ROM cache and displayed canonical room-313 water and its conditional library details.
+Read the [validation record](../README.md#package-and-validation-status).

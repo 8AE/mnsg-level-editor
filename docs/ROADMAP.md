@@ -1,6 +1,6 @@
 # Development roadmap
 
-Version 0.2.5 supports version 2 room authoring: blank rooms, native
+Version 0.2.6 supports version 2 room authoring: blank rooms, native
 clones and editable replacements; mesh, vertex and face editing; native asset
 placement; collision generation; entrances, custom doors and sky selection.
 Export produces C/H source or an optional `.nrm` through the local toolchain.
@@ -10,17 +10,17 @@ its supported bounds and remaining work.
 ## Preview coverage
 
 The supported US ROM contains 383 decoded room records, including 378 with
-visual geometry. The 0.2.5 actor census distinguishes library seed previews from
+visual geometry. The 0.2.6 actor census distinguishes library seed previews from
 canonical native placements:
 
 | Census | Candidate IDs | Supported | Conditional | Nonvisual | Unresolved |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Library seeds | 361 | 74 | 173 | 19 | 95 |
-| IDs with canonical placements | 255 | 54 | 154 | 15 | 32 |
+| Library seeds | 361 | 74 | 174 | 19 | 94 |
+| IDs with canonical placements | 255 | 54 | 155 | 15 | 31 |
 
-The library contains 501 parts and 26,831 triangles: 23,442 textured and 3,389 untextured.
-Its unresolved group includes seven partial previews. The canonical census retains 454 parts
-and 24,116 triangles, with 21,275 textured and 2,841 untextured. These counts
+The library contains 502 parts and 27,223 triangles: 23,834 textured and 3,389 untextured.
+Its unresolved group includes seven partial previews. The canonical census contains 455 parts
+and 24,508 triangles, with 21,667 textured and 2,841 untextured. These counts
 cover bounded initialization and initial model declarations. Library scene
 hints can differ from canonical placement state; neither census establishes
 later visibility, animation or export admission for each candidate.
@@ -51,6 +51,13 @@ transform, so actor dragging and transform edits cannot reposition it. Future wa
 first game draw and foreign-room readiness remain unproved; the exporter rejects 07D. This
 unplaced library candidate changes no canonical-placement count.
 
+The 0.2.6 water increment adds a conditional [0x249 initial surface](native-water-actor-preview.md)
+for The Water (Husband and Wife Rocks), with canonical placement in room 313. Its finite setup
+keeps a flat 392-triangle surface and distinct native texture samples. The preview adds no
+export admission: the existing original-parameter policy for room 313 or its template-313
+replacement remains; changed parameters and foreign/new-room contexts reject. Future waves,
+live scene readiness, wider actor coverage and later animation remain open work.
+
 The read-only [Room initialization](room-initialization.md) section covers the finite setup
 schema for 374 world metadata callbacks and nine special geometry aliases. It distinguishes
 native/template provenance from an authored export resource plan. Actor-linked Events and
@@ -60,7 +67,7 @@ future scenario behavior need their own evidence.
 
 | Phase | Current capability | Work remaining |
 | --- | --- | --- |
-| 1: Read and display | US-ROM import, byte-order normalization and decompression; textured rooms and bounded native actor parts/initial poses; actor-linked event inspection and read-only room initialization; native asset libraries and thumbnails; picking, framing, Pan/Tilt and focused WASD; conditional TEXGEN, first timed-child previews, donor-scoped 0x24C/0x35C children and the bounded 0x07D initial surface | Wider verified actor/helper/material coverage; later animation and spawning; native lighting, fog and filtering parity; special scenes and broader collision inspection |
+| 1: Read and display | US-ROM import, byte-order normalization and decompression; textured rooms and bounded native actor parts/initial poses; actor-linked event inspection and read-only room initialization; native asset libraries and thumbnails; picking, framing, Pan/Tilt and focused WASD; conditional TEXGEN, first timed-child previews, donor-scoped 0x24C/0x35C children and bounded 0x07D/0x249 initial surfaces | Wider verified actor/helper/material coverage; later animation and spawning; native lighting, fog and filtering parity; special scenes and broader collision inspection |
 | 2: Author | Version 2 blank rooms, clones and editable replacements; independent authored geometry; mesh TRS, vertex XYZ/UV/RGBA, face topology and gizmos; actor insertion/deletion and loading policy; named entrances, editable custom-door volumes/destinations and sky inheritance/None/native assets; collision generation and linked updates; undo/redo and saved/native recovery | Direct native BSP editing and richer collision visualization; native event/script editing; migration of sparse actors across original proximity cells; broader scene support |
 | 3: C/H export | Sparse actor/translation patches and authored room payloads; owned geometry, copied or generated native collision, rebuilt authored proximity grids, metadata/admission, entrances, doors and sky; constructor-resource checks, guarded controller contracts and dependency/preimage safeguards | User gameplay validation of entry, physics, camera, progression, teardown and revisit; more verified actor/resource contexts; compatibility with mods that change native roots or allocations; arbitrary scripts |
 | 4: Prebuilt `.nrm` and desktop release | Optional local LLVM/LLD/RecompModTool pipeline using an initialized template; macOS ARM64 ad hoc signed package and installed-app checks | Toolchain distribution or guided installation; Intel macOS and Windows native runtime checks; Developer ID/notarization and Windows signing; user gameplay regression coverage |
@@ -132,31 +139,16 @@ identity and sparse edits. Continue testing malformed input, bounded native
 fields, shared sources, graph references and saved-state recovery. Projects
 must not supply native pointers, executable paths or toolchain arguments.
 
-The 0.2.5 typecheck, versioned build and actual-ROM/toolchain suite passed: 296 tests total,
-293 passed, none failed and three optional GPU checks skipped. Ten focused procedural tests
-and an isolated Electron/GPU run covered the library surface, drag/drop, save and history.
-The ARM64 package passed signature, build-byte parity and candidate packaged-app smoke checks.
-The installed 0.2.5 ARM64 app passed signature and candidate-byte checks. Its normal launch
-restored 383 cached rooms, displayed House geometry/textures and the conditional 07D library
-card, and preserved a clean project and ROM/profile/cache hashes. The
-[0.2.5 CI run](https://github.com/8AE/mnsg-level-editor/actions/runs/37251790474)
-passed all three platform package jobs. Intel macOS and Windows runtime checks remain open;
-consult the [validation record](../README.md#package-and-validation-status) for the exact scope.
-
-The historical 0.2.4 source checks passed fresh nonincremental typecheck, production build and the
-actual-ROM/toolchain suite: 286 tests, 283 passed, none failed and three optional GPU checks
-skipped. Four Electron initialization cases passed without errors or project-history changes.
-The installed macOS ARM64 package passed signature and isolated cached-profile checks for 383
-rooms, four native textured rooms, body/selector refresh, geometry visibility and focused WASD.
-Texture toggles restored exact pixels; normal ROM/profile/cache hashes stayed unchanged.
-A normal installed launch also restored 383 rooms and House 465's native initialization order,
-actors, textures and Pan/Tilt controls.
-
-Earlier GPU/thumbnail and full authoring smokes remain historical evidence. Consult the
-[validation record](../README.md#package-and-validation-status) for the scope and counts, and the
-[desktop workflow](https://github.com/8AE/mnsg-level-editor/actions/workflows/build.yml) for each
-revision's platform builds. Intel macOS and Windows native runtime checks remain open;
-packaging or CI alone does not establish editor behavior there.
+Version 0.2.6 passed the 315-test actual-ROM/toolchain/GPU suite without failures or skips,
+fresh nonincremental TypeScript and production builds, and ARM64 candidate-package signature
+and tested-build parity checks. Actual water/library/history Electron checks and isolated
+candidate-package smoke passed. The installed ARM64 app matched the candidate, restored the
+normal 383-room cache, displayed room-313 water and its library limits, and kept the project and
+source ROM, cache and ROM-profile hashes unchanged.
+Read the [validation record](../README.md#package-and-validation-status)
+for completed scopes and the
+[desktop workflow](https://github.com/8AE/mnsg-level-editor/actions/workflows/build.yml) for
+platform packaging results. Intel macOS and Windows runtime behavior remains unverified.
 
 Static analysis, editor previews and successful native builds do not establish
 Goemon64Recomp gameplay. Hand generated mods to the user with their paths,

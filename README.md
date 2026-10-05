@@ -19,9 +19,10 @@ without selecting the ROM again.
 
 ## Editing scope
 
-Version 0.2.5 supports version 2 room authoring and C/H or `.nrm` export. It adds a conditional
-initial surface preview for procedural actor 0x07D. Native textured models, read-only room
-initialization and the existing geometry, collision, door and sky tools remain available.
+Version 0.2.6 supports version 2 room authoring and C/H or `.nrm` export for admitted data.
+The water increment adds a conditional initial surface for **The Water (Husband and Wife Rocks)**,
+actor 0x249. Native textured rooms, project editing, Pan/Tilt controls and the existing geometry,
+collision, door and sky tools remain available.
 
 - **Rooms:** browse 383 native room records, including 378 with decoded visual
   geometry. View original static textures, UVs, indexed palettes and supported
@@ -83,42 +84,33 @@ of game behavior:
 | Unavailable | A placement marker and diagnostic details for an unresolved model. |
 | Nonvisual controller | A hollow placement marker for a verified controller without a primary mesh. |
 
-The 0.2.5 actor library includes 361 candidate IDs: 74 supported, 173 conditional,
-19 nonvisual and 95 unresolved. The unresolved group includes seven partial
+The 0.2.6 actor library includes 361 candidate IDs: 74 supported, 174 conditional,
+19 nonvisual and 94 unresolved. The unresolved group includes seven partial
 previews. These counts describe bounded decoder results; they do not establish
 later gameplay behavior or export admission for each candidate.
 
-The census contains 501 decoded parts and 26,831 triangles: 23,442 textured and 3,389
-untextured. Across 255 IDs with canonical native placements, the results are 54 supported, 154
-conditional, 15 nonvisual and 32 unresolved. Library seed previews can use different scene hints
+The census contains 502 decoded parts and 27,223 triangles: 23,834 textured and 3,389
+untextured. Across 255 IDs with canonical native placements, the results are 54 supported, 155
+conditional, 15 nonvisual and 31 unresolved. Library seed previews can use different scene hints
 from the original placements, so their status can differ.
 
-Actor 0x24C previews two immediate children in native donor 306, totaling 170 triangles.
-Actor 0x35C previews its first texture-sequence image in donor 193: two textured triangles
-using one bitmap.
-Authored previews require the matching template and zero payload words/definition halfword.
-Both remain conditional with incomplete CPU/export results. The nonvisual 0x23B/0x35E/0x1BF
-classifications execute no native instructions. Only 0x23B adds a static File43 resource contract;
-audio, camera, player and UI effects remain outside those metadata markers.
+**Water preview:** open native room 313 and select actor 0x249 to inspect its initial flat
+surface, or use its actor-library card. The canonical record retains XYZ [0, 53, 0] and zero
+angles, with native scale 0.16. The preview uses 392 textured triangles and two texture samples
+with distinct coordinates. It stops before future waves and adds no export admission. The
+existing policy permits its original parameter words in native room 313 or a room-313
+replacement with template 313, including position and angle edits. Changed parameters or a
+foreign/new-room context still reject. Read the [water guide](docs/native-water-actor-preview.md).
 
-Actor 0x07D previews one initial flat surface with 392 textured triangles. Its native constructor
-fixes XYZ at [10, 0, -300], phase angles at [256, 0, 0] and scale at 0.2; dragging the record or
-editing its transform does not reposition this surface. The preview stops before future wave
-callbacks, keeps its conditional status and rejects export. Read the
-[procedural preview guide](docs/native-procedural-actor-preview.md) for texture and readiness limits.
+Actor 0x07D also previews an initial 392-triangle surface. Its constructor fixes XYZ at
+[10, 0, -300], angles at [256, 0, 0] and scale at 0.2, so dragging or editing its record cannot
+reposition that surface. It remains conditional and rejects export. Read the
+[procedural guide](docs/native-procedural-actor-preview.md) for its separate native setup.
 
-Version 0.2.4 classifies empty constructors 0x079/0x07A/0x07B/0x07C and Tsurami scene controller
-0x357 without executing native instructions. Only 0x079/0x07C add static File24 resource closure
-for authored export; fixed File12 entries 0x07A/0x07B and scene controller 0x357 remain outside
-that admission. Live player, progression, camera, audio and UI behavior remain unverified.
-
-Falling Barrel (0x19A) previews its first child with 36 textured triangles and two CI4 textures.
-Slicer (0x19D) previews eight textured triangles using a 32 by 64 RGBA16 bitmap from File384 and
-native generated texture coordinates (TEXGEN). Unknown inherited LookAt state uses an explicit,
-conditional editor-camera basis. Mixed vertex state or unsupported load/draw roots retain an
-untextured fallback. Both timed previews stop after the first child initializer. The decoder
-does not establish later movement, repeated spawning or export resource closure for an edited or
-foreign room context.
+Other conditional previews include donor-scoped child models, Barrel/Slicer's first child and
+Slicer's generated texture coordinates. Metadata-only controllers retain live effects outside
+their markers. Some candidates remain partial or unavailable. Read the
+[actor evidence](docs/native-actors.md) for per-family limits and resource admission.
 
 Some initial poses sit behind room surfaces. Geometry is visible by default.
 Turn **Geometry** off below the viewport to inspect those models; this view
@@ -265,71 +257,25 @@ Developer ID release, override `mac.identity` with your certificate identity and
 configure notarization credentials in electron-builder. Windows distribution
 builds need code-signing credentials.
 
-Version 0.2.5 passed fresh typecheck, the versioned production build and the actual-ROM/toolchain
-suite: 296 tests total, 293 passed, none failed and three optional GPU checks skipped. Ten
-focused procedural checks and a separate isolated Electron/GPU run covered the 07D library
-preview, drag/drop, save, undo/redo and the blank-room notice. Texture toggles restored exact
-pixels, with no page or console errors. These checks establish an initial editor surface;
-future waves, export admission and gameplay remain unverified.
+Version 0.2.6 passed all 315 tests in the actual-ROM/toolchain/GPU suite, with no failures or
+skips. Fresh nonincremental TypeScript and production builds passed. The ARM64 candidate
+package passed strict deep ad hoc signature checks; its bundled main and HTML match the tested
+build, and it contains no ROM, project or NRM. Actual Electron checks covered canonical water,
+library thumbnail/drag placement, saved history and exact texture off/on pixel restoration.
+The candidate-package smoke restored 383 cached rooms and checked four textured rooms, native
+body/door selectors and focused WASD without changing the original cache. The installed
+0.2.6 ARM64 app passed strict signature and candidate-byte parity checks. Normal launch restored
+383 cached rooms without ROM reselection; room 313 displayed native textured water and its
+conditional library details. Pan/Tilt responded, the project stayed clean, and source ROM,
+cache and ROM-profile hashes remained unchanged. Consult the
+[desktop workflow](https://github.com/8AE/mnsg-level-editor/actions/workflows/build.yml) for the
+revision's platform packaging results; CI packaging does not establish platform runtime behavior.
 
-The macOS ARM64 0.2.5 package passed strict deep ad hoc signature verification. Its bundled
-main and HTML match the tested build; it contains no ROM, projects or generated NRM. The
-candidate packaged-app smoke passed with version 0.2.5 and preserved the existing ROM cache.
-The installed 0.2.5 ARM64 app passed strict signature verification and matches the candidate
-package. A normal-profile launch restored 383 cached rooms without ROM reselection. House
-465's native textures rendered, Pan/Tilt controls responded, and the 07D library card showed
-its textured surface and conditional, fixed-transform and export limits. The project stayed
-clean, with Undo/Redo/Export disabled. ROM profile, cache and original source hashes remained
-unchanged. Exact-pixel texture restoration belongs to the isolated checks above.
-
-The [0.2.5 CI run](https://github.com/8AE/mnsg-level-editor/actions/runs/37251790474)
-for code revision `108a0d5` passed macOS ARM64, macOS x64 and Windows x64 package jobs.
-These results verify platform builds and packages; Intel macOS and Windows runtime checks
-remain open.
-
-The historical 0.2.4 checks passed fresh nonincremental typecheck, production build and the
-actual-ROM/toolchain suite: 286 tests total, 283 passed, none failed and three optional GPU
-checks skipped. Four
-actual Electron initialization cases covered native, special-alias, clone and replacement
-rooms with no page, console or process errors and no changes to project history. The fresh
-census changed only the five new nonvisual IDs; ROM bytes, parts and triangle totals stayed
-unchanged.
-
-macOS ARM64 packaging and strict deep ad hoc signature verification passed. The installed
-0.2.4 app matches the tested build. Its isolated-package smoke loaded 383 cached rooms and
-checked native textures in rooms 0, 465, 376 and 322 through actual GPU rendering. Texture
-on/off restored exact pixels. Native House body and door-selector refresh, geometry visibility,
-focused WASD and clean project state passed. The checks preserved the normal ROM profile/cache
-and original ROM hashes. A normal installed launch also restored 383 rooms. House 465 retained
-eight actors and 247 textured triangles out of 249, and initialization showed the exact 19
-callback and four cold-load file IDs. Pan/Tilt controls responded, with export and history
-controls disabled for the clean project. Intel macOS and Windows runtime behavior remains
-unverified.
-
-The historical 0.2.3 source suite passed 250 tests: 247 passed and three optional GPU checks
-skipped. Separate runs passed 16 texture/actor and 19 thumbnail-framing checks, and four
-Electron cases covered the scoped loader placements and library cards. Its ARM64 package,
-installed smoke and normal cached launch passed. Those earlier GPU/card fixtures remain
-historical; the 0.2.4 and 0.2.5 source suites skipped their optional GPU targets.
-
-The prior 0.2.2 Electron authoring smoke passed 14 milestones, preserving the eight House actors
-and File96 through C/H export. That run did not request `.nrm` packaging.
-
-These are editor, build and package results. No generated mod was installed or run, and native
-gameplay parity remains unverified.
-
-The historical 0.2.1 full-roster House handoff remains unchanged. Its C/H, MIPS/link and `.nrm`
-checks passed; room 465 keeps eight native actors and a checker door to room 620, which copies
-the House geometry/BSP, retains those actors, adds a coin and return door, and selects sky
-resource 123. Static controller closure includes File27 and File61/File96; later camera
-callbacks and scenario VM behavior remain unverified.
-
-Consult the linked desktop workflow for each revision's macOS ARM64, macOS x64 and Windows x64
-build results. Intel macOS and Windows runtime checks remain open.
-
-Compile, link, package and editor checks do not establish in-game collision,
-reload behavior or compatibility with other mods. Test the affected rooms and
-their shared sources in Goemon64Recomp before releasing an export.
+Intel macOS and Windows runtime checks remain open. Native lighting, filtering, future waves
+and gameplay parity remain unverified. This water increment creates no new generated NRM and
+adds no actor export admission. Existing C/H and `.nrm` export keeps its canonical-context
+policy for water in room 313; changed parameters or a foreign/new-room context remain rejected.
+The user chooses whether to install and test generated mods in Goemon64Recomp.
 
 ## Source and native evidence
 

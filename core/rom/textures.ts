@@ -60,7 +60,12 @@ export class NativeTextureMemory {
   decode(tileIndex:number,tlut:number):GeometryTexture {
     const tile=this.tiles[tileIndex];
     const extentS=(tile.lrs-tile.uls)/4+1,extentT=(tile.lrt-tile.ult)/4+1;
-    if(!Number.isInteger(extentS)||!Number.isInteger(extentT)||extentS<1||extentT<1)throw new Error("Texture tile bounds are invalid or fractional.");
+    // Quarter-texel origins may yield fractional window extents while a
+    // nonclamped native mask still selects an exact integer sampling period.
+    const maskedS=!(tile.cms&2)&&tile.masks>0,maskedT=!(tile.cmt&2)&&tile.maskt>0;
+    if(![tile.uls,tile.ult,tile.lrs,tile.lrt].every(v=>Number.isInteger(v)&&v>=0&&v<=4095)||
+      !Number.isFinite(extentS)||!Number.isFinite(extentT)||extentS<1||extentT<1||
+      (!maskedS&&!Number.isInteger(extentS))||(!maskedT&&!Number.isInteger(extentT)))throw new Error("Texture tile bounds are invalid or fractional.");
     const width=(tile.cms&2)||!tile.masks?extentS:2**tile.masks,height=(tile.cmt&2)||!tile.maskt?extentT:2**tile.maskt;
     if(width>1024||height>1024||width*height>262144)throw new Error("Decoded texture exceeds its pixel budget.");
     if(tile.line===0&&height>1)throw new Error("Texture tile has no row stride.");

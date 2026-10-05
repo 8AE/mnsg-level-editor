@@ -15,6 +15,7 @@ import {
 } from "../core/rom/actors-pose";
 import {
   createNativeSurfaceMaterial,
+  bindNativeDualAttributes,
   hasNativeNormals,
   linearNativeColors,
   RoomTexturePool,
@@ -417,7 +418,11 @@ export class ActorModelLayer {
             new THREE.Float32BufferAttribute(data.uvs, 2),
           );
         if (hasNativeNormals(data))
-          geometry.setAttribute("normal", new THREE.Float32BufferAttribute(data.normals!, 3));
+          geometry.setAttribute(
+            "normal",
+            new THREE.Float32BufferAttribute(data.normals!, 3),
+          );
+        bindNativeDualAttributes(geometry, data);
         const native = createNativeSurfaceMaterial(data, pool);
         if (native.textured) texturedTriangles += data.indices.length / 3;
         if (native.warning) warnings.add(native.warning);

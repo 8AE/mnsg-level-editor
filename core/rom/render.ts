@@ -6,19 +6,23 @@ import {NativeTextureMemory,textureCoordinate,type TextureTile} from "./textures
 import {RenderWaves} from "./waves";
 import {actorTextureColorVariant,actorTextureProductVariant,actorPrimitiveAlphaTexture,nativeCombinerClamp,type ActorTextureColor} from "./actors-colors";
 
-interface RenderVertex {position:number[];uv:number[];color:number[];normal:number[];lighting:boolean;texgen?:{mode:NativeTexgen["mode"];basis?:NativeTexgen["basis"];scale:[number,number]};loadRoot:number;sourceAddress:number}
+interface RenderVertex {position:number[];uv:number[];color:number[];normal:number[];lighting:boolean;shadeEnabled:boolean;texgen?:{mode:NativeTexgen["mode"];basis?:NativeTexgen["basis"];scale:[number,number]};loadRoot:number;sourceAddress:number}
 export interface RenderCoverage {triangles:number;textured:number;untextured:number;unsupported:number;formats:Record<string,number>}
 export interface RenderedRoom {meshes:GeometryMesh[];textures:GeometryTexture[];warnings:string[];coverage:RenderCoverage;complete:boolean;vertexAddresses?:number[][];materialCommands?:number[][][];materialStates?:RenderTriangleState[]}
 export interface ModelDisplayRoot {displayList:number;material?:number;label?:string;matrix?:number[];preserveVertexCache?:boolean}
 export interface RenderTriangleState {combine0:number;combine1:number;otherH:number;otherL:number;tile:number;tiles:TextureTile[]}
 export interface ModelRenderOptions {inheritedTextureFallback?:boolean;vertexProvenance?:boolean;materialProvenance?:boolean}
-interface Combiner {texture:boolean;shade:boolean;primitive:boolean;alphaPrimitive:boolean;alphaEnvironment?:boolean;environment?:"constant-add"|"shade-add"|ActorTextureColor;cycle?:number;explicitCycle?:boolean;primitiveAlphaOnly?:boolean;environmentAfterShade?:boolean;secondTexture?:boolean}
+interface Combiner {texture:boolean;shade:boolean;primitive:boolean;alphaPrimitive:boolean;alphaEnvironment?:boolean;environment?:"constant-add"|"shade-add"|ActorTextureColor;cycle?:number;explicitCycle?:boolean;primitiveAlphaOnly?:boolean;environmentAfterShade?:boolean;secondTexture?:boolean;dualTexture?:boolean}
 const COMBINERS:Record<string,Combiner>={
   "fc127e24:fffff3f9":{texture:true,shade:true,primitive:false,alphaPrimitive:false},
   // 07D/24FAC: nested 8006D198 BA001402/0 establishes one-cycle.
   // SDK banks0/1: RGB=(TEXEL0-0)*SHADE+0, alpha=(0-0)*0+PRIM_A.
   // RT64 one-cycle selects bank1 without the two-cycle texel swap.
   "fc127e24:fffff7fb":{texture:true,shade:true,primitive:false,alphaPrimitive:true,primitiveAlphaOnly:true,cycle:0,explicitCycle:true},
+  // 249/26FE8, explicit two-cycle: (TEXEL0*TEXEL1)*SHADE, A=PRIM_A.
+  // Alpha comparison consumes first-cycle TEXEL0_A*TEXEL1_A, so both
+  // independently decoded tiles must be opaque before exposing this rule.
+  "fc111404:fffffffb":{texture:true,shade:true,primitive:false,alphaPrimitive:true,dualTexture:true,cycle:1,explicitCycle:true},
   "fc127fff:fffff238":{texture:true,shade:true,primitive:false,alphaPrimitive:false},
   "fc327e64:fffffdfe":{texture:false,shade:true,primitive:true,alphaPrimitive:false},
   "fc327fff:fffff638":{texture:false,shade:true,primitive:true,alphaPrimitive:true},
@@ -46,7 +50,8 @@ export function renderModelLists(read:(address:number,size:number)=>Uint8Array,r
   const stateCommands:number[][]=[];
   const warnings=new Set<string>(),images=new Map<string,GeometryTexture>(),textureCache=new Map<string,GeometryTexture|Error>(),variants=new Map<string,GeometryTexture>(),failedProducts=new Set<string>();
   const memory=new NativeTextureMemory(read);
-  let mode=0,otherH=0,otherL=0,cycleBitsKnown=0,tile=0,textureOn=false,scaleS=1,scaleT=1,primitive=[1,1,1,1],environment=[0,0,0,1],blendAlpha=0;
+  const dualRequiredH=0x37f000,opaqueImages=new Map<string,boolean>(); // cycle/filter/TLUT/LOD/detail
+  let mode=0,otherH=0,otherL=0,cycleBitsKnown=0,dualOtherBitsKnown=0,alphaBitsKnown=0,primitiveKnown=false,tile=0,textureOn=false,scaleS=1,scaleT=1,primitive=[1,1,1,1],environment=[0,0,0,1],blendAlpha=0;
   let rootMatrix:number[]|undefined,drawRoot=0;
   // Scene LookAt state is unknown until both explicit MOVEMEM records are read.
   // Never substitute task-reset defaults for inherited native frame state.
@@ -69,7 +74,12 @@ export function renderModelLists(read:(address:number,size:number)=>Uint8Array,r
     const unsupportedGen=generated&&!homogeneousGen;
     const unknownCycle=!!combiner?.explicitCycle&&cycleBitsKnown!==0x300000;
     const wrongCycle=combiner?.cycle!==undefined&&combiner.cycle!==((otherH>>>20)&3);
-    let texture:GeometryTexture|undefined,unsupported=unsupportedState||unsupportedGen||!combiner||wrongCycle||unknownCycle||inheritedFallback;
+    const dualStateUnavailable=!!combiner?.dualTexture&&(generated||!textureOn||!primitiveKnown||(mode&0x200)===0||
+      dualOtherBitsKnown!==dualRequiredH||alphaBitsKnown!==3||(otherL&3)>1||(otherH&0x7c000)!==0||
+      ![0,2].includes((otherH>>>12)&3)||rows.some(v=>!v.shadeEnabled||!v.uv.every(Number.isFinite))||
+      rows.some(v=>v.lighting!==rows[0].lighting));
+    let texture:GeometryTexture|undefined,secondaryTexture:GeometryTexture|undefined,unsupported=unsupportedState||unsupportedGen||!combiner||wrongCycle||unknownCycle||dualStateUnavailable||inheritedFallback;
+    if(dualStateUnavailable)warnings.add("Native dual-texture material has generated, flat, inherited or unsupported shade/primitive/filter/LOD/TLUT/alpha state; affected surfaces use an untextured fallback.");
     if(combiner?.environmentAfterShade&&rows.some(vertex=>!vertex.lighting)){unsupported=true;warnings.add("Native texture/shade plus environment color requires a per-pixel unlit combiner; affected surfaces use an untextured fallback.");}
     if(wrongCycle)warnings.add("Unsupported native actor combiner cycle type; affected surfaces use an untextured fallback.");
     if(unknownCycle)warnings.add("Native procedural combiner cycle type is inherited or incomplete; affected surfaces use an untextured fallback.");
@@ -82,6 +92,18 @@ export function renderModelLists(read:(address:number,size:number)=>Uint8Array,r
       if(!decoded){if(textureCache.size>=4096)throw new Error("Native texture state cache budget exceeded.");try{decoded=memory.decode(tile,(otherH>>>14)&3);addImage(decoded);}catch(error){decoded=error instanceof Error?error:new Error(String(error));}textureCache.set(textureKey,decoded);}
       if(decoded instanceof Error){unsupported=true;warnings.add(`Texture unavailable: ${decoded.message}`);}else{
         texture=decoded;
+        if(combiner.dualTexture){
+          const secondIndex=(tile+1)&7,second=memory.tiles[secondIndex];
+          try{
+            if([descriptor,second].some(t=>t.fmt!==0||t.siz!==2))throw new Error("Only independently decoded RGBA16 dual tiles are verified.");
+            const key=JSON.stringify([memory.version,second,(otherH>>>14)&3]);let other=textureCache.get(key);
+            if(!other){if(textureCache.size>=4096)throw new Error("Native texture state cache budget exceeded.");other=memory.decode(secondIndex,0);addImage(other);textureCache.set(key,other);}
+            if(other instanceof Error)throw other;
+            const opaque=(image:GeometryTexture)=>{let known=opaqueImages.get(image.id);if(known===undefined){const pixels=Buffer.from(image.rgbaBase64,"base64");known=pixels.length===image.width*image.height*4&&pixels.every((value,i)=>i%4!==3||value===255);opaqueImages.set(image.id,known);}return known;};
+            if(!opaque(decoded)||!opaque(other))throw new Error("Dual-texture first-cycle alpha is not proven opaque.");
+            secondaryTexture=other;
+          }catch(error){unsupported=true;texture=undefined;secondaryTexture=undefined;warnings.add(`Native dual-texture unavailable: ${error instanceof Error?error.message:String(error)}`);}
+        }
         if(combiner.primitiveAlphaOnly){
           const key=`${decoded.id}:native-primitive-alpha`;let variant=variants.get(key);
           if(!variant){if(variants.size>=128)throw new Error("Actor color variant budget exceeded.");variant=actorPrimitiveAlphaTexture(decoded);addImage(variant);variants.set(key,variant);}texture=variant;
@@ -117,17 +139,21 @@ export function renderModelLists(read:(address:number,size:number)=>Uint8Array,r
     const texgen:NativeTexgen|undefined=texture&&homogeneousGen?{mode:gen!.mode,basis:gen!.basis!,
       scale:[gen!.scale[0]*shiftFactor(descriptor.shifts)/texture.width,gen!.scale[1]*shiftFactor(descriptor.shiftt)/texture.height],
       offset:[(-descriptor.uls/4+(filter==="linear"?.5:0))/texture.width,(-descriptor.ult/4+(filter==="linear"?.5:0))/texture.height]}:undefined;
-    const material:NonNullable<GeometryMesh["material"]>={textureId:texture?.id,texgen,wrapS:wrap(descriptor.cms),wrapT:wrap(descriptor.cmt),filter,color,
-      opacity:combiner?.alphaEnvironment?environment[3]:combiner?.alphaPrimitive?primitive[3]:1,alphaTest:!inheritedFallback&&!combiner?.secondTexture&&(otherL&3)===1?Math.max(blendAlpha,1/255):0,vertexColors:!!combiner?.shade&&!rows[0].lighting&&!mixed,lighting};
+    const secondDescriptor=memory.tiles[(tile+1)&7];
+    const material:NonNullable<GeometryMesh["material"]>={textureId:texture?.id,texgen,
+      dualTexture:secondaryTexture?{textureId:secondaryTexture.id,wrapS:wrap(secondDescriptor.cms),wrapT:wrap(secondDescriptor.cmt),filter,mode:"multiply-shade-primitive-alpha",opaqueFirstCycle:true}:undefined,
+      wrapS:wrap(descriptor.cms),wrapT:wrap(descriptor.cmt),filter,color,
+      opacity:combiner?.alphaEnvironment?environment[3]:combiner?.alphaPrimitive?primitive[3]:1,alphaTest:!inheritedFallback&&!combiner?.secondTexture&&!combiner?.dualTexture&&(otherL&3)===1?Math.max(blendAlpha,1/255):0,vertexColors:!!combiner?.shade&&!rows[0].lighting&&!mixed,lighting};
     // Preserve contiguous command order, including translucent surfaces.
-    const key=JSON.stringify([material,combine0,combine1,primitive,environment]);
+    const key=JSON.stringify([material,combine0,combine1,primitive,environment,combiner?.dualTexture?[descriptor,secondDescriptor]:undefined]);
     let mesh=result.meshes[result.meshes.length-1];
     if(key!==currentKey||!mesh){if(result.meshes.length>=1024)throw new Error("Room material batch budget exceeded.");currentKey=key;mesh={id:`${rootLabel}:${roomId}:${result.meshes.length}`,source:"display-list",positions:[],indices:[],material,
-      uvs:texture&&!texgen?[]:undefined,colors:material.vertexColors?[]:undefined,normals:lighting||texgen?[]:undefined};result.meshes.push(mesh);result.vertexAddresses?.push([]);
+      uvs:texture&&!texgen?[]:undefined,secondaryUvs:secondaryTexture?[]:undefined,colors:material.vertexColors?[]:undefined,normals:lighting||texgen?[]:undefined};result.meshes.push(mesh);result.vertexAddresses?.push([]);
       result.materialCommands?.push(stateCommands.map(command=>[...command]));result.materialStates?.push(structuredClone({combine0,combine1,otherH,otherL,tile,tiles:memory.tiles}));}
     for(const vertex of rows){mesh.indices.push(mesh.positions.length/3);mesh.positions.push(...vertex.position);
       result.vertexAddresses?.[result.meshes.length-1].push(vertex.sourceAddress);
       if(mesh.uvs&&texture)mesh.uvs.push(textureCoordinate(vertex.uv[0],descriptor.shifts,descriptor.uls,texture.width,filter),textureCoordinate(vertex.uv[1],descriptor.shiftt,descriptor.ult,texture.height,filter));
+      if(mesh.secondaryUvs&&secondaryTexture)mesh.secondaryUvs.push(textureCoordinate(vertex.uv[0],secondDescriptor.shifts,secondDescriptor.uls,secondaryTexture.width,filter),textureCoordinate(vertex.uv[1],secondDescriptor.shiftt,secondDescriptor.ult,secondaryTexture.height,filter));
       mesh.colors?.push(...(combiner?.environment==="shade-add"?vertex.color.map((shade,i)=>nativeCombinerClamp(primitive[i]*shade+environment[i])):vertex.color));mesh.normals?.push(...vertex.normal);}
     if(texture){result.coverage.textured++;result.coverage.formats[texture.format]=(result.coverage.formats[texture.format]??0)+1;}else result.coverage.untextured++;
     if(unsupported)result.coverage.unsupported++;
@@ -143,18 +169,18 @@ export function renderModelLists(read:(address:number,size:number)=>Uint8Array,r
           const p=[dv.getInt16(at),dv.getInt16(at+2),dv.getInt16(at+4)],m=rootMatrix;
           const position=m?[m[0]*p[0]+m[4]*p[1]+m[8]*p[2]+m[12],m[1]*p[0]+m[5]*p[1]+m[9]*p[2]+m[13],m[2]*p[0]+m[6]*p[1]+m[10]*p[2]+m[14]]:p;
           vertexCache.set(first+i,{position,uv:[dv.getInt16(at+8)/32*scaleS,dv.getInt16(at+10)/32*scaleT],loadRoot:drawRoot,sourceAddress:w1+at,
-            color:[data[at+12]/255,data[at+13]/255,data[at+14]/255],normal:[signed(data[at+12])/127,signed(data[at+13])/127,signed(data[at+14])/127],lighting,texgen:(mode&0x60000)===0x60000?{mode:(mode&0x80000)?"linear":"sphere",basis:capturedBasis(),scale:[scaleS,scaleT]}:undefined});}}
+            color:[data[at+12]/255,data[at+13]/255,data[at+14]/255],normal:[signed(data[at+12])/127,signed(data[at+13])/127,signed(data[at+14])/127],lighting,shadeEnabled:(mode&4)!==0,texgen:(mode&0x60000)===0x60000?{mode:(mode&0x80000)?"linear":"sphere",basis:capturedBasis(),scale:[scaleS,scaleT]}:undefined});}}
       else if(op===0xbf)triangle([((w1>>>16)&255)/2,((w1>>>8)&255)/2,(w1&255)/2]);
       else if(op===0xb1){triangle([((w0>>>16)&255)/2,((w0>>>8)&255)/2,(w0&255)/2]);triangle([((w1>>>16)&255)/2,((w1>>>8)&255)/2,(w1&255)/2]);}
       else if(op===0xb6)mode&=~w1;else if(op===0xb7)mode|=w1;
       else if(op===0xbb){textureOn=(w0&255)!==0;tile=(w0>>>8)&7;scaleS=(w1>>>16)/65536;scaleT=(w1&65535)/65536;}
-      else if(op===0xba||op===0xb9){const shift=(w0>>>8)&255,length=w0&255;if(shift+length>32||!length)throw new Error("Invalid RDP other-mode field.");const mask=(length===32?0xffffffff:((2**length-1)<<shift))>>>0;if(op===0xba){otherH=((otherH&~mask)|(w1&mask))>>>0;cycleBitsKnown|=mask&0x300000;}else otherL=((otherL&~mask)|(w1&mask))>>>0;}
+      else if(op===0xba||op===0xb9){const shift=(w0>>>8)&255,length=w0&255;if(shift+length>32||!length)throw new Error("Invalid RDP other-mode field.");const mask=(length===32?0xffffffff:((2**length-1)<<shift))>>>0;if(op===0xba){otherH=((otherH&~mask)|(w1&mask))>>>0;cycleBitsKnown|=mask&0x300000;dualOtherBitsKnown|=mask&dualRequiredH;}else{otherL=((otherL&~mask)|(w1&mask))>>>0;alphaBitsKnown|=mask&3;}}
       // Full RDP SETOTHERMODE is not decoded here. It invalidates the new
       // procedural rule's cycle proof until explicit RSP cycle bits follow.
-      else if(op===0xef)cycleBitsKnown=0;
+      else if(op===0xef){cycleBitsKnown=0;dualOtherBitsKnown=0;alphaBitsKnown=0;}
       else if(op===0xfd)memory.setImage(w0,w1);else if(op===0xf5)memory.setTile(w0,w1);else if(op===0xf2)memory.setTileSize(w0,w1);
       else if([0xf0,0xf3,0xf4].includes(op)){try{memory.load(op,w0,w1);}catch(error){memory.initialized.fill(0);memory.version++;warnings.add(`Texture load failed: ${error instanceof Error?error.message:String(error)}`);}}
-      else if(op===0xfa)primitive=rgba(w1);else if(op===0xfb)environment=rgba(w1);else if(op===0xf9)blendAlpha=(w1&255)/255;else if(op===0xfc){combine0=w0;combine1=w1;}
+      else if(op===0xfa){primitive=rgba(w1);primitiveKnown=true;}else if(op===0xfb)environment=rgba(w1);else if(op===0xf9)blendAlpha=(w1&255)/255;else if(op===0xfc){combine0=w0;combine1=w1;}
       else if([0x01,0xb0,0xb2,0xbe].includes(op))throw new Error(`Unsupported position-changing render command 0x${op.toString(16)}.`);
       else if(op===0x03){
         const selector=(w0>>>16)&255;

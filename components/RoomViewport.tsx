@@ -7,6 +7,7 @@ import { TransformControls } from "three/examples/jsm/controls/TransformControls
 import type { RoomData, ProjectRoomScene, Vec3 } from "../shared/types";
 import {
   createNativeSurfaceMaterial,
+  bindNativeDualAttributes,
   hasNativeNormals,
   linearNativeColors,
   RoomTexturePool,
@@ -205,6 +206,7 @@ export default function RoomViewport({
         side: THREE.DoubleSide,
         vertexColors: Boolean(data.colors?.length),
       });
+      bindNativeDualAttributes(geometry, data);
       const native = createNativeSurfaceMaterial(data, texturePool);
       if (data.colorItemSize === 4) {
         material.transparent = native.material.transparent;

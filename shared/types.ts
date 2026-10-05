@@ -53,6 +53,16 @@ export interface NativeTexgen {
   scale: [number,number];
   offset: [number,number];
 }
+/** Exact two-cycle TEXEL0*TEXEL1*SHADE with independently sampled native tiles. */
+export interface NativeDualTexture {
+  textureId: string;
+  wrapS: "repeat" | "mirror" | "clamp";
+  wrapT: "repeat" | "mirror" | "clamp";
+  filter: "nearest" | "linear";
+  mode: "multiply-shade-primitive-alpha";
+  /** Both decoded tile images are opaque, proving first-cycle alpha comparison passes. */
+  opaqueFirstCycle: true;
+}
 export interface GeometryMesh {
   id: string;
   /** Stable ROM-backed material library ID; never a native pointer. */
@@ -62,10 +72,12 @@ export interface GeometryMesh {
   colors?: number[];
   colorItemSize?: 3 | 4;
   uvs?: number[];
+  secondaryUvs?: number[];
   normals?: number[];
   material?: {
     textureId?: string;
     texgen?: NativeTexgen;
+    dualTexture?: NativeDualTexture;
     wrapS: "repeat" | "mirror" | "clamp";
     wrapT: "repeat" | "mirror" | "clamp";
     filter: "nearest" | "linear";

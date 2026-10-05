@@ -147,14 +147,18 @@ test("path parameters choose native NPC slots and authored relocation while segm
   const gem=initializer.resolve({actorId:0x82,parameters:[0,0,0],position:zero,rotation:zero});assert.ok(gem.bindings.find(b=>b.slot===4)!.segments.some(s=>s.segment===11&&s.fileId===0x152&&s.offset===2432));
 });
 test("all original placement constructors receive bounded evaluation without inventing model absence",{skip:!process.env.MNSG_TEST_ROM},()=>{
-  const {rom,initializer}=native(),seen=new Set<string>();let total=0;const ids=new Set<number>();
+  const {rom,initializer}=native(),seen=new Set<string>();let total=0,waterPlacements=0;const ids=new Set<number>();
   for(const room of rom.listRooms())for(const actor of rom.loadRoom(room.id).actors){if(seen.has(actor.id))continue;seen.add(actor.id);ids.add(actor.actorId);total++;
     const result=initializer.resolve({actorId:actor.actorId,parameters:actor.parameters,position:actor.position,rotation:actor.rotation,roomId:room.id});
-    assert.ok(result.instructionCount<=12000);assert.ok(result.bindings.length<=64);if(result.status==="nonvisual")assert.ok(result.diagnostics.some(d=>/no.*3D|no intrinsic 3D|without.*3D/i.test(d)),`Actor 0x${actor.actorId.toString(16)} in room ${room.id}: ${result.diagnostics.join("; ")}`);
+    if(actor.actorId===0x249){
+      waterPlacements++;assert.equal(room.id,313);assert.ok(result.instructionCount<=200000);assert.equal(result.instructionCount,80382);assert.equal(result.status,"conditional");assert.equal(result.completed,false);assert.equal(result.bindings.length,1);
+      const binding=result.bindings[0];assert.equal(binding.identity,0x249);assert.equal(binding.slot,-1);assert.deepEqual(binding.sourceFileIds,[25,338,353]);assert.deepEqual(binding.segments,[]);
+    }else assert.ok(result.instructionCount<=12000,`Actor 0x${actor.actorId.toString(16)} in room ${room.id} exceeded its unchanged ordinary budget`);
+    assert.ok(result.bindings.length<=64);if(result.status==="nonvisual")assert.ok(result.diagnostics.some(d=>/no.*3D|no intrinsic 3D|without.*3D/i.test(d)),`Actor 0x${actor.actorId.toString(16)} in room ${room.id}: ${result.diagnostics.join("; ")}`);
     if(!result.bindings.length)assert.ok(result.status==="unsupported"||result.status==="nonvisual");
-    for(const b of result.bindings)assert.ok(b.provenance.length&&b.segments.length);
+    for(const b of result.bindings){assert.ok(b.provenance.length);if(actor.actorId!==0x249)assert.ok(b.segments.length);}
   }
-  assert.equal(total,3888);assert.equal(ids.size,255);
+  assert.equal(total,3888);assert.equal(ids.size,255);assert.equal(waterPlacements,1);
 });
 
 test("verified private CP0 Status disable/restore preserves IE and rejects other hardware registers",()=>{
