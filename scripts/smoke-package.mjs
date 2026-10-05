@@ -38,28 +38,186 @@ try {
 const env = { ...process.env };
 delete env.ELECTRON_RUN_AS_NODE;
 delete env.MNSG_DEV_URL;
+env.PATH = "";
+for (const key of ["CPATH", "C_INCLUDE_PATH", "LIBRARY_PATH", "DYLD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES", "LLVM_CONFIG_PATH", "CLANG_CONFIG_FILE_SYSTEM_DIR", "CLANG_CONFIG_FILE_USER_DIR"]) delete env[key];
 // Packaged Electron ignores Node's -r preload. Its native bootstrap applies this
 // switch before ASAR startup, so cache restoration also uses the isolated copy.
 const args = [`--user-data-dir=${userData}`];
+
+async function checkProceduralWorkspace(app, page, artifacts, observe) {
+  const evidence = { panels: [], resizes: [], search: [], project: "No ROM or project; editing/history stay disabled." };
+  const panelIds = ["rooms", "scene", "hierarchy", "inspector", "assets", "console"];
+  const button = (scope, name) => scope.getByRole("button", { name, exact: true });
+  const windowMenu = () => page.locator(".workspace-menu-popup").filter({
+    has: page.locator("summary").filter({ hasText: /^Window$/ }),
+  });
+  async function pop(id) {
+    const label = id[0].toUpperCase() + id.slice(1);
+    const menu = windowMenu();
+    await menu.locator("summary").click();
+    const waiting = app.waitForEvent("window", { timeout: 30_000 });
+    await button(menu, `Pop out ${label} from menu`).click();
+    const child = await waiting;
+    observe(child);
+    await child.getByTestId(`workspace-panel-${id}`).waitFor();
+    await menu.locator("summary").click();
+    assert.equal(await child.evaluate(() => window.name), `mnsg-panel-${id}`);
+    assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length), 2, "A popout creates exactly one native child");
+    assert.equal(await child.locator(".app-toolbar").count(), 0, "A panel portal must not bootstrap a second editor");
+    assert.equal(await child.locator('[data-testid^="workspace-panel-"]').count(), 1);
+    const native = await app.browserWindow(child);
+    const preferences = await native.evaluate(window => {
+      const value = window.webContents.getLastWebPreferences();
+      return { sandbox: value.sandbox, contextIsolation: value.contextIsolation, nodeIntegration: value.nodeIntegration };
+    });
+    assert.deepEqual(preferences, { sandbox: true, contextIsolation: true, nodeIntegration: false });
+    const ipc = await child.evaluate(async () => {
+      if (!window.mnsg) return { exposed: false };
+      try { await window.mnsg.getStatus(); return { exposed: true, rejected: false }; }
+      catch (error) { return { exposed: true, rejected: true, message: error.message }; }
+    });
+    assert(!ipc.exposed || ipc.rejected, "Native child must not gain privileged IPC authority");
+    return { child, ipc, preferences };
+  }
+  async function closeNative(child) {
+    const closing = child.waitForEvent("close", { timeout: 30_000 });
+    const native = await app.browserWindow(child);
+    await native.evaluate(window => window.close());
+    await closing;
+  }
+  async function search(scope, phase) {
+    const rooms = scope.getByTestId("workspace-panel-rooms");
+    const input = rooms.getByLabel("Search rooms", { exact: true });
+    await input.fill("no-such-procedural-room");
+    await scope.waitForFunction(() => document.querySelectorAll('[data-testid="room-button"]').length === 0);
+    await input.fill("Procedural study");
+    await rooms.getByTestId("room-button").waitFor();
+    assert.equal(await rooms.getByTestId("room-button").count(), 1);
+    await input.fill("");
+    evidence.search.push({ phase, unmatched: 0, matched: 1, cleared: await rooms.getByTestId("room-button").count() });
+  }
+  async function cleanSample() {
+    const current = await page.evaluate(() => window.mnsg.getStatus());
+    assert.equal(current.rom, null);
+    assert.equal(current.project, null);
+    assert.equal(current.roomCount, 0, "Procedural portals must not populate the native ROM database");
+    assert(await button(page.getByTestId("workspace-panel-scene"), "Undo").isDisabled());
+    assert(await button(page.getByTestId("workspace-panel-scene"), "Redo").isDisabled());
+    assert(await button(page.locator(".app-toolbar"), "Save").isDisabled());
+    assert.equal(await page.locator(".dirty-state").count(), 0);
+    assert.equal(await page.locator(".app-toolbar").count(), 1);
+  }
+  const nativeMain = await app.browserWindow(page);
+  // Use a real native window size so compact-display CI hosts can exercise the
+  // desktop separators; do not emulate a browser viewport or disable sandboxing.
+  await nativeMain.evaluate(window => window.setSize(1440, 900));
+  evidence.nativeWindowSize = await nativeMain.evaluate(window => window.getSize());
+  await button(page, "Open procedural sample").click();
+  await page.getByTestId("viewport-navigation-canvas").waitFor();
+  await page.getByTestId("workspace-panel-rooms").getByTestId("room-button").waitFor();
+  await cleanSample();
+  for (const [id, label] of [["left", "Rooms width"], ["right", "Hierarchy and Inspector width"]]) {
+    const separator = page.getByTestId(`resize-${id}`);
+    const panel = page.getByTestId(id === "left" ? "workspace-panel-rooms" : "workspace-panel-inspector");
+    const widthBefore = (await panel.boundingBox()).width;
+    const before = Number(await separator.getAttribute("aria-valuenow"));
+    const max = Number(await separator.getAttribute("aria-valuemax"));
+    const direction = before + 16 <= max ? 1 : -1;
+    await separator.focus();
+    await separator.press(direction === 1 ? "ArrowRight" : "ArrowLeft");
+    await page.waitForFunction(({ id, expected }) => Number(document.querySelector(`[data-testid="resize-${id}"]`)?.getAttribute("aria-valuenow")) === expected, { id, expected: before + direction * 16 });
+    const widthKeyboard = (await panel.boundingBox()).width;
+    assert(Math.abs(widthKeyboard - widthBefore - direction * 16) < 1, "Keyboard resize must change the actual panel width");
+    await button(separator, `${direction === 1 ? "Decrease" : "Increase"} ${label}`).click();
+    assert.equal(Number(await separator.getAttribute("aria-valuenow")), before);
+    evidence.resizes.push({ id, before, keyboard: before + direction * 16, buttonRestored: before, widthBefore, widthKeyboard });
+  }
+  await search(page, "main-before-popouts");
+  for (const id of panelIds) {
+    const label = id[0].toUpperCase() + id.slice(1);
+    const first = await pop(id);
+    if (id === "rooms") await search(first.child, "rooms-child-before-redock");
+    const closed = first.child.waitForEvent("close", { timeout: 30_000 });
+    await button(first.child, `Redock ${label}`).click();
+    await closed;
+    await page.getByTestId(`workspace-panel-${id}`).waitFor();
+    const second = await pop(id);
+    if (id === "rooms") await search(second.child, "rooms-child-before-native-close");
+    await closeNative(second.child);
+    await page.getByTestId(`workspace-panel-${id}`).waitFor();
+    // An actual filter transition catches adopted nodes whose listeners were lost
+    // during a native close, even when the preserved DOM looks intact.
+    await search(page, `main-after-${id}-native-close`);
+    await cleanSample();
+    assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length), 1, "Redocked/native-closed panels must not leave child windows behind");
+    evidence.panels.push({ id, frameName: `mnsg-panel-${id}`, redock: "passed", nativeClose: "passed", childIpc: second.ipc, preferences: second.preferences });
+  }
+  evidence.snapshot = path.join(artifacts, "packaged-procedural-workspace.png");
+  await page.screenshot({ path: evidence.snapshot, fullPage: true });
+  const final = await pop("rooms");
+  await search(final.child, "rooms-child-before-main-close");
+  return { evidence, finalChild: final.child };
+}
+
 const app = await electron.launch({ executablePath: binary, args, env, timeout: 30_000 });
+let appClosed = false;
+app.on("close", () => { appClosed = true; });
+let finalPanel;
+let page;
+const errors = [], dialogs = [], dialogTasks = new Set();
+const observe = observed => {
+  observed.on("pageerror", error => errors.push(error.message));
+  observed.on("dialog", dialog => {
+    const entry = { type: dialog.type(), message: dialog.message(), handling: "pending" };
+    dialogs.push(entry);
+    if (dialog.type() !== "beforeunload") errors.push(`Unexpected ${dialog.type()} dialog: ${dialog.message()}`);
+    const handling = (dialog.type() === "beforeunload" ? dialog.accept() : dialog.dismiss())
+      .then(() => { entry.handling = "handled"; })
+      .catch(error => {
+        entry.handling = error.message;
+        // Electron may finish native closure before CDP answers the unload dialog.
+        // Only that precise completed-dialog race is diagnostic; closure/input
+        // assertions remain mandatory and every other protocol failure is fatal.
+        if (!(dialog.type() === "beforeunload" && /No dialog is showing/.test(error.message))) errors.push(error.message);
+      }).finally(() => dialogTasks.delete(handling));
+    dialogTasks.add(handling);
+  });
+};
 try {
-  const page = await app.firstWindow();
+  await app.evaluate(({ session }) => session.defaultSession.webRequest.onBeforeRequest({ urls: ["http://*/*", "https://*/*"] }, (_request, callback) => callback({ cancel: true })));
+  await app.evaluate(({ BrowserWindow, app }) => {
+    globalThis.__packageRenderGone = [];
+    const observe = window => window.webContents.on("render-process-gone", (_event, details) => globalThis.__packageRenderGone.push(details));
+    BrowserWindow.getAllWindows().forEach(observe);
+    app.on("browser-window-created", (_event, window) => observe(window));
+  });
+  page = await app.firstWindow();
   const runtime = await app.evaluate(({ app }) => ({ name: app.getName(), userData: app.getPath("userData") }));
   assert.equal(await realpath(runtime.userData), await realpath(userData), "Packaged tests must never use the existing application data directory");
-  const errors = [];
-  page.on("pageerror", (error) => errors.push(error.message));
+  observe(page);
   await page.waitForFunction(() => Boolean(window.mnsg));
   const status = await page.evaluate(() => window.mnsg.getStatus());
   const expected = JSON.parse(await readFile("package.json", "utf8")).version;
   assert.equal(status.appVersion, expected);
+  assert.equal(status.toolchain.ready, true, JSON.stringify(status.toolchain));
+  await assert.rejects(readFile(path.join(userData, "toolchain.json")), { code: "ENOENT" });
   assert.equal(page.url(), "app://editor/");
   await page.locator("body").waitFor();
   await page.waitForTimeout(500);
   assert((await page.locator("body").innerText()).includes("MNSG"));
   assert.equal(await page.evaluate(() => typeof window.mnsg.loadActorVisuals), "function", "Packaged preload must expose validated native actor previews");
+  let proceduralWorkspace = null;
   let geometryTab = "No cached ROM; first-launch screen checked.";
   let textures = [];
   let actors = { skipped: "No canonical cached ROM is available." };
+  let managedBuild = { skipped: "No canonical cached ROM is available; fixed bundled compiler probe still passed." };
+  if (!status.rom) {
+    assert.equal(status.project, null);
+    assert.equal(status.roomCount, 0);
+    const result = await checkProceduralWorkspace(app, page, artifacts, observe);
+    proceduralWorkspace = result.evidence;
+    finalPanel = result.finalChild;
+  }
   if (status.rom) {
     await page.getByTestId("room-geometry-tab").click();
     await page.getByTestId("geometry-panel").waitFor();
@@ -104,15 +262,56 @@ try {
     assert(Math.hypot(...after.map((axis, index) => axis - before[index])) > 1, "Packaged focused WASD must move the actual camera");
     assert.equal(await page.locator(".dirty-state").count(), 0, "Native previews and view controls must preserve project state");
     actors = { ...actors, geometryVisibility: "passed", nativeWasd: "passed" };
+    const buildProject = await page.evaluate(async () => {
+      const project = await window.mnsg.newProject("Packaged offline compiler check");
+      const room = await window.mnsg.loadRoom(465);
+      const door = room.actors.find(actor => actor.actorId === 0x256);
+      if (!door?.editable) throw new Error("Packaged native door fixture must remain editable.");
+      project.roomOverrides = { 465: { actors: { [door.id]: { position: { ...door.position, x: door.position.x + 1 } } }, events: {} } };
+      return project;
+    });
+    const projectPath = path.join(artifacts, "managed-build.mnsgproj"), nrmPath = path.join(artifacts, "managed-build.nrm");
+    await app.evaluate(({ dialog }, paths) => { const queue = [...paths]; dialog.showSaveDialog = async () => ({ canceled: false, filePath: queue.shift() }); }, [projectPath, nrmPath]);
+    await page.evaluate(value => window.mnsg.saveProject(value), buildProject);
+    const workspace = await page.evaluate(value => window.mnsg.workspaceStatus(value), buildProject);
+    assert(workspace.path.startsWith(path.join(userData, "project-workspaces")), "Project templates stay in the isolated app-owned workspace");
+    const snapshot = JSON.parse(await readFile(path.join(workspace.path, "project.mnsgproj"), "utf8"));
+    assert.deepEqual(snapshot.roomOverrides, buildProject.roomOverrides);
+    assert((await readFile(path.join(workspace.path, "mod.toml"), "utf8")).includes('game_id = "mnsg"'));
+    const built = await page.evaluate(value => window.mnsg.exportNrm(value), buildProject);
+    assert.equal(built.kind, "nrm"); assert.equal(built.outputPaths[0], nrmPath); assert((await stat(nrmPath)).size > 100);
+    await writeFile(path.join(artifacts, "managed-build.log"), built.buildLog ?? "");
+    assert((await readFile(path.join(workspace.path, "mnsg_level_patch.c"), "utf8")).includes("RECOMP_HOOK"));
+    managedBuild = { toolchain: status.toolchain, workspace, outputPaths: built.outputPaths, roomIds: built.roomIds, changes: built.changes, hostPath: "empty", network: "HTTP/HTTPS blocked", gameplay: "Not run or installed" };
   }
   if (cache.copied) {
     assert.equal(sha256(await readFile(path.join(cacheSource, "rom.json"))), cache.identitySha256);
     assert.equal(sha256(await readFile(path.join(cacheSource, "rom-cache", cache.romName))), cache.normalizedSha256);
   }
+  await Promise.all([...dialogTasks]);
   assert.deepEqual(errors, []);
+  const renderGone = await app.evaluate(() => globalThis.__packageRenderGone);
+  assert.deepEqual(renderGone, []);
   const snapshot = path.join(artifacts, "packaged-app.png");
   await page.screenshot({ path: snapshot, fullPage: true });
-  const report = { status: "passed", binary, runtime, appVersion: status.appVersion, roomCount: status.roomCount, romCached: Boolean(status.rom), existingCacheUnchanged: cache.copied, geometryTab, textures, actors, url: page.url(), snapshot };
+  const report = { status: "passed", binary, runtime, appVersion: status.appVersion, roomCount: status.roomCount, romCached: Boolean(status.rom), existingCacheUnchanged: cache.copied, geometryTab, textures, actors, managedBuild, proceduralWorkspace, renderGone, dialogs, evidenceScope: status.rom ? "Own-ROM native editor and managed NRM build; no gameplay." : "Packaged offline first boot and procedural native panels; real-ROM editing/rendering not exercised.", url: page.url(), snapshot };
+  if (finalPanel) {
+    const mainClosed = page.waitForEvent("close", { timeout: 30_000 });
+    const childClosed = finalPanel.waitForEvent("close", { timeout: 30_000 });
+    const native = await app.browserWindow(page);
+    // Return from the native evaluation before Windows closes the app process.
+    await native.evaluate(window => { setTimeout(() => window.close(), 0); });
+    await Promise.all([mainClosed, childClosed]);
+    await Promise.all([...dialogTasks]);
+    assert.deepEqual(errors, []);
+    proceduralWorkspace.mainCloseCleansChildren = "passed";
+  }
   await writeFile(path.join(artifacts, "packaged-checks.json"), JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report, null, 2));
-} finally { await app.close(); }
+} catch (error) {
+  const failure = { status: "failed", binary, artifacts, message: error.stack, errors, dialogs };
+  if (page && !page.isClosed()) await page.screenshot({ path: path.join(artifacts, "packaged-failure.png"), fullPage: true }).catch(screenshotError => { failure.screenshotError = screenshotError.message; });
+  await writeFile(path.join(artifacts, "packaged-failure.json"), JSON.stringify(failure, null, 2));
+  console.error(`Packaged smoke failed; evidence: ${artifacts}`);
+  throw error;
+} finally { if (!appClosed) await app.close(); }

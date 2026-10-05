@@ -20,5 +20,7 @@ const api: AppApi = Object.freeze({
   exportNrm: (project: EditorProject) => ipcRenderer.invoke("mnsg:export-nrm", project),
   configureToolchain: () => ipcRenderer.invoke("mnsg:configure-toolchain"),
   getToolchainStatus: () => ipcRenderer.invoke("mnsg:toolchain-status"),
+  importModFile: (kind: "icon" | "additional" | "symbols" | "native-library") => ipcRenderer.invoke("mnsg:import-mod-file", kind),
+  workspaceStatus: (project: EditorProject) => ipcRenderer.invoke("mnsg:workspace-status", project),
 });
 contextBridge.exposeInMainWorld("mnsg", api);

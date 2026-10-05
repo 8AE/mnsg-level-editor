@@ -40,7 +40,8 @@ async function checkActorPreview(page, artifacts, projectPath) {
   // with the real Geometry view toggle; retain constructor offsets and camera.
   // Keep canvas focus neutral before comparison: focus changes its HTML border.
   await page.locator(".inspector-content .vector-fields").first().locator("input").first().focus();
-  const geometry = page.getByRole("button", { name: "Geometry", exact: true });
+  const scene = page.getByTestId("workspace-panel-scene");
+  const geometry = scene.getByRole("button", { name: "Geometry", exact: true }).and(scene.locator(".view-toggle"));
   assert.equal(await geometry.getAttribute("aria-pressed"), "true", "Room geometry must be visible by default");
   const geometryBefore = await snapshot(page, canvas, path.join(artifacts, "actor-house-geometry-on-canvas.png"));
   await geometry.click();
@@ -62,7 +63,7 @@ async function checkActorPreview(page, artifacts, projectPath) {
   await textures.click();
   const restored = await snapshot(page, canvas, path.join(artifacts, "actor-house-restored-canvas.png"));
   assert.equal(restored.sha256, textured.sha256, "Texture restoration must preserve the settled actor scene exactly");
-  const actors = page.getByRole("button", { name: "Actors", exact: true });
+  const actors = scene.getByRole("button", { name: "Actors", exact: true }).and(scene.locator(".view-toggle"));
   await actors.click();
   const hidden = await snapshot(page, canvas, path.join(artifacts, "actor-house-hidden-canvas.png"));
   assert.notEqual(hidden.sha256, textured.sha256, "Hiding actors must visibly remove the actual model surfaces");
@@ -165,7 +166,6 @@ async function checkActorPreview(page, artifacts, projectPath) {
 
 const romPath = process.env.MNSG_TEST_ROM;
 if (!romPath) throw new Error("Set MNSG_TEST_ROM to your US MNSG ROM. The smoke test never downloads or includes a ROM.");
-const templatePath = process.env.MNSG_TEST_TEMPLATE;
 const temporary = await mkdtemp(path.join(tmpdir(), "mnsg-editor-smoke-"));
 const projectPath = path.join(temporary, "smoke.mnsgproj");
 const bundlePath = path.join(temporary, "patch-bundle");
@@ -177,10 +177,10 @@ const wrapperPath = path.join(temporary, "launch.cjs");
 await writeFile(wrapperPath, `const native=require('electron');const {app,dialog}=native;
 if(process.env.MNSG_TEST_BACKGROUND==='1'){const Module=require('node:module');const original=Module._load;const Window=native.BrowserWindow;const wrapped=Object.create(native);Object.defineProperty(wrapped,'BrowserWindow',{value:class extends Window{constructor(options){super({...options,show:false,webPreferences:{...options.webPreferences,backgroundThrottling:false}})}}});Module._load=function(request){return request==='electron'?wrapped:original.apply(this,arguments)};}
 app.setPath('userData',${JSON.stringify(path.join(temporary, "user-data"))});
-globalThis.__mnsgSmoke={open:[],save:[],dialogs:[],unload:[],windows:[]};
+globalThis.__mnsgSmoke={open:[],save:[],dialogs:[],saveOptions:[],unload:[],windows:[]};
 app.on('browser-window-created',(_event,window)=>{globalThis.__mnsgSmoke.windows.push(window);window.on('closed',()=>{globalThis.__mnsgSmoke.windows=globalThis.__mnsgSmoke.windows.filter(entry=>entry!==window)})});
 dialog.showOpenDialog=async(_window,options)=>{globalThis.__mnsgSmoke.dialogs.push(options.title);const paths=globalThis.__mnsgSmoke.open.shift();if(!paths)throw new Error('No open dialog answer queued');return {canceled:false,filePaths:paths}};
-dialog.showSaveDialog=async(_window,options)=>{globalThis.__mnsgSmoke.dialogs.push(options.title);const filePath=globalThis.__mnsgSmoke.save.shift();if(!filePath)throw new Error('No save dialog answer queued');return {canceled:false,filePath}};
+dialog.showSaveDialog=async(_window,options)=>{globalThis.__mnsgSmoke.dialogs.push(options.title);globalThis.__mnsgSmoke.saveOptions.push(options);const filePath=globalThis.__mnsgSmoke.save.shift();if(!filePath)throw new Error('No save dialog answer queued');return {canceled:false,filePath}};
 dialog.showMessageBox=async()=>({response:0,checkboxChecked:false});
 dialog.showMessageBoxSync=()=>globalThis.__mnsgSmoke.unload.shift()??0;
 require(${JSON.stringify(path.resolve("dist-electron/main.cjs"))});
@@ -367,17 +367,26 @@ try {
   const patchSource = await readFile(path.join(bundlePath, "mnsg_level_patch.c"), "utf8");
   for (const symbol of ["mnsg_level_apply_geometry_edits", "mnsg_level_geometry_before_collision", "mnsg_level_geometry_before_render"]) assert(patchSource.includes(symbol), `Mixed patch source must contain ${symbol}`);
   assert(patchSource.includes("func_801F8C4C_5B4B5C") && patchSource.includes("func_801F95D8_5B54E8"), "Geometry patch must hook both verified native collision and render paths");
-  let nrm = { skipped: "Set MNSG_TEST_TEMPLATE to enable the native mod toolchain export check." };
-  if (templatePath) {
-    await desktop.evaluate((_electron, input) => { globalThis.__mnsgSmoke.open.push([input]); }, templatePath);
-    const tools = await page.evaluate(() => window.mnsg.configureToolchain());
+  let nrm = { skipped: "Explicit MNSG_TEST_SKIP_NRM=1; bundled compiler checks were not requested in this run." };
+  if (process.env.MNSG_TEST_SKIP_NRM !== "1") {
+    const tools = await page.evaluate(() => window.mnsg.getToolchainStatus());
     assert.equal(tools.ready, true, `Toolchain is incomplete: ${tools.missing.join(", ")}`);
+    const customProject = structuredClone(reopened);
+    customProject.mod.inputs.mod_filename = "desktop_custom_filename";
+    const invalidNrmPath = path.join(temporary, "library.dll");
+    await writeFile(invalidNrmPath, "existing native library must stay intact");
+    await desktop.evaluate((_electron, input) => { globalThis.__mnsgSmoke.save.push(input); }, invalidNrmPath);
+    const outputRejection = await page.evaluate(async input => { try { await window.mnsg.exportNrm(input); return null; } catch (error) { return error.message; } }, customProject);
+    assert.match(outputRejection, /ending in \.nrm/);
+    assert.equal(await readFile(invalidNrmPath, "utf8"), "existing native library must stay intact");
+    const saveSeed = await desktop.evaluate(() => globalThis.__mnsgSmoke.saveOptions.at(-1).defaultPath);
+    assert.equal(saveSeed, "desktop_custom_filename.nrm", "Native dialog uses the project's configured mod filename");
     await desktop.evaluate((_electron, input) => { globalThis.__mnsgSmoke.save.push(input); }, nrmPath);
-    const built = await page.evaluate((input) => window.mnsg.exportNrm(input), reopened);
+    const built = await page.evaluate((input) => window.mnsg.exportNrm(input), customProject);
     assert.equal(built.kind, "nrm");
     assert((await stat(nrmPath)).size > 0);
     await writeFile(path.join(temporary, "nrm-build.log"), built.buildLog);
-    nrm = { path: nrmPath, bytes: (await stat(nrmPath)).size };
+    nrm = { path: nrmPath, bytes: (await stat(nrmPath)).size, tools, configuredFilename: saveSeed, invalidOutputRejected: invalidNrmPath };
   }
   const textures = await checkTexturedRooms(page, temporary);
   await page.reload();

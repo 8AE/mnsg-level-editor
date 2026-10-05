@@ -55,7 +55,7 @@ export async function settlePose(page, host) {
 }
 
 export async function snapshot(page, canvas, destination) {
-  const toolbar = page.locator(".view-tool-stack");
+  const toolbar = page.getByTestId("workspace-panel-scene").locator(".view-tool-stack");
   assert.equal(await toolbar.count(), 1);
   assert(await toolbar.isVisible());
   await page.mouse.move(0, 0);
@@ -89,7 +89,7 @@ async function checkTransformGestures(page, host, canvas, input, gizmo, artifact
     return value.split(",").map(Number);
   };
   const hitXAxis = async () => {
-    await page.getByRole("button", { name: "Frame selected record", exact: true }).click();
+    await page.getByTestId("workspace-panel-scene").getByRole("button", { name: "Frame selected record", exact: true }).click();
     await settlePose(page, host);
     const pose = await cameraState(host);
     const box = await canvas.boundingBox();
@@ -159,11 +159,12 @@ async function checkTransformGestures(page, host, canvas, input, gizmo, artifact
 
 /** Call after selecting a saved project's editable actor in the native app. */
 export async function checkCameraNavigation(page, artifacts, { projectPath } = {}) {
-  const host = page.getByTestId("viewport-canvas");
-  const canvas = page.getByTestId("viewport-navigation-canvas");
-  const frame = page.getByRole("button", { name: "Frame all geometry", exact: true });
-  const gizmo = page.getByRole("button", { name: "Toggle translation gizmo", exact: true });
-  const grid = page.getByRole("button", { name: "Grid", exact: true });
+  const scene = page.getByTestId("workspace-panel-scene");
+  const host = scene.getByTestId("viewport-canvas");
+  const canvas = scene.getByTestId("viewport-navigation-canvas");
+  const frame = scene.getByRole("button", { name: "Frame all geometry", exact: true });
+  const gizmo = scene.getByRole("button", { name: "Toggle translation gizmo", exact: true });
+  const grid = scene.getByRole("button", { name: "Grid", exact: true }).and(scene.locator(".view-toggle"));
   const input = page.locator(".inspector-content .vector-fields").first().locator("input").first();
   await input.waitFor();
   assert(await input.isEnabled(), "Camera smoke requires an editable actor inspector");

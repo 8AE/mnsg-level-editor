@@ -1,9 +1,11 @@
 # Development roadmap
 
-Version 0.2.6 supports version 2 room authoring: blank rooms, native
+The 0.3.0 source retains version 2 room authoring: blank rooms, native
 clones and editable replacements; mesh, vertex and face editing; native asset
 placement; collision generation; entrances, custom doors and sky selection.
-Export produces C/H source or an optional `.nrm` through the local toolchain.
+It adds a resizable six-pane workspace with native popouts, portable project mod settings and
+bundled offline C/H/NRM builds. Local workspace and ARM64 candidate checks passed;
+normal-profile interaction and other-platform acceptance remain partial.
 The [authoring guide](room-authoring.md) covers the workflow; this roadmap tracks
 its supported bounds and remaining work.
 
@@ -70,7 +72,7 @@ future scenario behavior need their own evidence.
 | 1: Read and display | US-ROM import, byte-order normalization and decompression; textured rooms and bounded native actor parts/initial poses; actor-linked event inspection and read-only room initialization; native asset libraries and thumbnails; picking, framing, Pan/Tilt and focused WASD; conditional TEXGEN, first timed-child previews, donor-scoped 0x24C/0x35C children and bounded 0x07D/0x249 initial surfaces | Wider verified actor/helper/material coverage; later animation and spawning; native lighting, fog and filtering parity; special scenes and broader collision inspection |
 | 2: Author | Version 2 blank rooms, clones and editable replacements; independent authored geometry; mesh TRS, vertex XYZ/UV/RGBA, face topology and gizmos; actor insertion/deletion and loading policy; named entrances, editable custom-door volumes/destinations and sky inheritance/None/native assets; collision generation and linked updates; undo/redo and saved/native recovery | Direct native BSP editing and richer collision visualization; native event/script editing; migration of sparse actors across original proximity cells; broader scene support |
 | 3: C/H export | Sparse actor/translation patches and authored room payloads; owned geometry, copied or generated native collision, rebuilt authored proximity grids, metadata/admission, entrances, doors and sky; constructor-resource checks, guarded controller contracts and dependency/preimage safeguards | User gameplay validation of entry, physics, camera, progression, teardown and revisit; more verified actor/resource contexts; compatibility with mods that change native roots or allocations; arbitrary scripts |
-| 4: Prebuilt `.nrm` and desktop release | Optional local LLVM/LLD/RecompModTool pipeline using an initialized template; macOS ARM64 ad hoc signed package and installed-app checks | Toolchain distribution or guided installation; Intel macOS and Windows native runtime checks; Developer ID/notarization and Windows signing; user gameplay regression coverage |
+| 4: Prebuilt `.nrm` and desktop release | Source-integrated offline bundled MIPS Clang/ELF LLD/RecompModTool, per-project workspaces and 18-field metadata GUI; three native platform package targets | Remaining 0.3.0 normal-profile interaction and native-platform acceptance; Developer ID/notarization and Windows signing; user gameplay regression coverage |
 
 ## Supported bounds
 
@@ -139,16 +141,21 @@ identity and sparse edits. Continue testing malformed input, bounded native
 fields, shared sources, graph references and saved-state recovery. Projects
 must not supply native pointers, executable paths or toolchain arguments.
 
-Version 0.2.6 passed the 315-test actual-ROM/toolchain/GPU suite without failures or skips,
-fresh nonincremental TypeScript and production builds, and ARM64 candidate-package signature
-and tested-build parity checks. Actual water/library/history Electron checks and isolated
-candidate-package smoke passed. The installed ARM64 app matched the candidate, restored the
-normal 383-room cache, displayed room-313 water and its library limits, and kept the project and
-source ROM, cache and ROM-profile hashes unchanged.
-Read the [validation record](../README.md#package-and-validation-status)
-for completed scopes and the
-[desktop workflow](https://github.com/8AE/mnsg-level-editor/actions/workflows/build.yml) for
-platform packaging results. Intel macOS and Windows runtime behavior remains unverified.
+The 0.3.0 actual-ROM/GPU suite passed 336 of 343 tests with seven optional export skips and no
+failures. The ARM64 package's bundled metadata/archive tests passed 5/5; host-LLVM regression
+exports passed 30/30 as a separate scope. Production build, desktop smoke and the 15-milestone
+C/H/bundled-NRM authoring check passed. The real-ROM workspace check passed 20 milestones,
+including six native popouts, redock, shared Undo, camera and settings.
+
+The ARM64 candidate passed strict deep signature, 44-file parity, no-ROM native-panel startup
+and child-IPC checks. Its standalone-tools CI artifact passed an independent local smoke.
+The real-ROM candidate restored 383 cached rooms and passed exact texture restoration, native
+selectors and WASD; it built an NRM with empty PATH and HTTP/HTTPS blocked. Installation passed
+strict deep signature and ASAR/tool-manifest parity, with source ROM, cache and ROM-profile
+hashes unchanged. Normal-profile interaction, manual cross-window drag and remaining
+platform/interaction gates still need observations. Read the
+[acceptance matrix](WORKSPACE-AND-BUILD-PLAN.md#acceptance-matrix) and
+[validation record](../README.md#package-and-validation-status) for the scope of each result.
 
 Static analysis, editor previews and successful native builds do not establish
 Goemon64Recomp gameplay. Hand generated mods to the user with their paths,

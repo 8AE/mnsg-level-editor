@@ -9,7 +9,7 @@ async function settledCanvas(page, canvas, artifactPath) {
   // A locator screenshot also includes HTML controls stacked above the canvas.
   // Remove pointer hover consistently before comparing their rendered pixels.
   await page.mouse.move(0, 0);
-  const toolbar = page.locator(".view-tool-stack");
+  const toolbar = page.getByTestId("workspace-panel-scene").locator(".view-tool-stack");
   assert.equal(await toolbar.count(), 1, "Scene comparison expects one HTML viewport toolbar");
   assert(await toolbar.isVisible(), "Scene comparison toolbar must be visible");
   const samples = [];
@@ -108,13 +108,14 @@ export async function checkTexturedRooms(page, artifacts, roomIds = [0, 465, 376
     }
     await page.locator(`[data-testid="room-button"][data-room-id="${roomId}"]`).click();
     await page.waitForFunction((id) => document.querySelector(`[data-testid="room-button"][data-room-id="${id}"]`)?.getAttribute("aria-current") === "true", roomId);
-    const toggle = page.getByTestId("textures-toggle");
+    const scene = page.getByTestId("workspace-panel-scene");
+    const toggle = scene.getByTestId("textures-toggle");
     assert.equal(await toggle.getAttribute("aria-pressed"), "true", "ROM textures must be enabled by default");
-    await page.getByRole("button", { name: "Frame all geometry", exact: true }).click();
-    const host = page.getByTestId("viewport-canvas");
+    await scene.getByRole("button", { name: "Frame all geometry", exact: true }).click();
+    const host = scene.getByTestId("viewport-canvas");
     await page.waitForFunction((triangles) => Number(document.querySelector('[data-testid="viewport-canvas"]')?.getAttribute("data-textured-triangles")) === triangles, data.mappedTriangleCount);
     const canvas = host.locator("canvas");
-    const actorsToggle = page.getByRole("button", { name: "Actors", exact: true });
+    const actorsToggle = scene.getByRole("button", { name: "Actors", exact: true }).and(scene.locator(".view-toggle"));
     const hideHouseMarkers = roomId === 465 && await actorsToggle.getAttribute("aria-pressed") === "true";
     if (roomId === 465) {
       if (hideHouseMarkers) await actorsToggle.click();

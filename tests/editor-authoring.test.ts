@@ -184,6 +184,14 @@ import {
   linearNativeColors,
   RoomTexturePool,
 } from "../components/roomMaterials";
+const projectMetadata = {
+  format: "mnsg-level-project" as const,
+  id: "editor-authoring-fixture",
+  name: "Editor authoring fixture",
+  createdAt: "2026-10-04T00:00:00Z",
+  updatedAt: "2026-10-04T00:00:00Z",
+  rom: { sha256: "a".repeat(64), normalizedSha256: "b".repeat(64), title: "MYSTICAL NINJA", gameCode: "NG5E", region: "US" as const, byteLength: 33554432, decompressed: true },
+};
 const catalog = {
   actorPrototypes: [
     {
@@ -294,7 +302,8 @@ test("promotion preserves edited native coordinates/parameters, retires only bak
     ],
   );
   assert.deepEqual(promoted.actors[0].parameters, [10, 20, 30]);
-  const project = {
+  const project: EditorProject = {
+    ...projectMetadata,
     version: 1,
     roomOverrides: {
       "0": {
@@ -303,7 +312,7 @@ test("promotion preserves edited native coordinates/parameters, retires only bak
       },
       "1": { actors: { keep: { parameters: [1, 2, 3] } }, events: {} },
     },
-  } as unknown as EditorProject;
+  };
   const next = updateAuthoredRoom(project, promoted);
   assert.equal(next.version, 2);
   assert.equal(next.roomOverrides["0"], undefined);
@@ -574,7 +583,8 @@ test("translated native promotion copies template collision delta and transfers 
   );
   assert.deepEqual(promoted.collisionTranslation, source.collisionTranslation);
   assert.equal(promoted.collisionMode, "template");
-  const project = {
+  const project: EditorProject = {
+    ...projectMetadata,
     version: 2,
     authoredRooms: {},
     roomOverrides: {
@@ -585,7 +595,7 @@ test("translated native promotion copies template collision delta and transfers 
       },
       "483": { actors: { keep: { parameters: [1, 2, 3] } }, events: {} },
     },
-  } as unknown as EditorProject;
+  };
   const next = updateAuthoredRoom(project, promoted, [465, 483]);
   assert.equal(next.roomOverrides["465"], undefined);
   assert.deepEqual(next.roomOverrides["483"].geometry, {

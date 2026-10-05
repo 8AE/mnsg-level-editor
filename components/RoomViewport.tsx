@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
@@ -28,6 +28,8 @@ import type { LibraryDrop } from "./AssetLibrary";
 import { applyCameraMouseMode, type CameraMouseMode } from "./cameraMouse";
 import { ActorModelLayer, type ActorRenderCoverage } from "./actorModelScene";
 
+import { validCameraSnapshot, type CameraSnapshot } from "./workspaceModel";
+
 export interface ViewOptions {
   geometry: boolean;
   textures: boolean;
@@ -40,6 +42,9 @@ export interface ViewOptions {
 }
 interface Props {
   room: RoomData | ProjectRoomScene;
+  cameraSnapshot?: RefObject<CameraSnapshot | undefined>;
+  hostWindow?: Window | null;
+  sceneVisible?: boolean;
   selected: string | null;
   options: ViewOptions;
   frame: { version: number; selected: boolean };
@@ -56,6 +61,9 @@ interface Props {
 
 export default function RoomViewport({
   room,
+  cameraSnapshot,
+  hostWindow,
+  sceneVisible = true,
   selected,
   options,
   frame,
@@ -90,6 +98,8 @@ export default function RoomViewport({
   geometryChoice.current = geometrySelection;
   const mousePreference = useRef(mouseMode);
   mousePreference.current = mouseMode;
+  const sceneShown = useRef(sceneVisible);
+  sceneShown.current = sceneVisible;
   const navigationAllowed = useRef(navigationEnabled);
   navigationAllowed.current = navigationEnabled;
   const latestRoom = useRef(room);
@@ -106,14 +116,27 @@ export default function RoomViewport({
     update(selected: string | null, options: ViewOptions): void;
     syncRoom(room: RoomData | ProjectRoomScene): void;
     setMouseMode(mode: CameraMouseMode): void;
+    setVisible(visible: boolean): void;
   } | null>(null);
 
   useEffect(() => {
     const container = host.current;
     if (!container) return;
+    const document = container.ownerDocument;
+    const viewWindow = document.defaultView;
+    if (
+      !viewWindow ||
+      hostWindow === null ||
+      (hostWindow && hostWindow !== viewWindow)
+    )
+      return;
     let renderer: THREE.WebGLRenderer;
     try {
-      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+      renderer = new THREE.WebGLRenderer({
+        canvas: document.createElement("canvas"),
+        antialias: true,
+        alpha: false,
+      });
     } catch {
       setFailure(
         "3D rendering could not start. Enable hardware acceleration or update your graphics driver. Room data remains available in the inspector.",
@@ -121,7 +144,7 @@ export default function RoomViewport({
       return;
     }
     setFailure(null);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(viewWindow.devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(renderer.domElement);
     renderer.domElement.tabIndex = 0;
@@ -446,6 +469,7 @@ export default function RoomViewport({
       ),
       blocked:
         !navigationAllowed.current ||
+        !sceneShown.current ||
         moving ||
         document.hidden ||
         Boolean(document.querySelector("[role='dialog'][aria-modal='true']")),
@@ -566,7 +590,12 @@ export default function RoomViewport({
     };
     const detachKeyboard = bindCameraKeyboardInput(
       keyboard,
-      { keyboard: window, canvas: renderer.domElement, window, document },
+      {
+        keyboard: viewWindow,
+        canvas: renderer.domElement,
+        window: viewWindow,
+        document,
+      },
       navigationContext,
       () => document.hidden,
     );
@@ -575,7 +604,7 @@ export default function RoomViewport({
     renderer.domElement.addEventListener("pointerup", normalPointerUp, true);
     renderer.domElement.addEventListener("pointercancel", canceledPointer);
     renderer.domElement.addEventListener("lostpointercapture", canceledPointer);
-    window.addEventListener("blur", clearMovement);
+    viewWindow.addEventListener("blur", clearMovement);
     document.addEventListener("visibilitychange", visibilityChanged);
     transform.addEventListener("dragging-changed", (event) => {
       moving = Boolean(event.value);
@@ -615,6 +644,16 @@ export default function RoomViewport({
     };
     let selectedId: string | null = null;
     runtime.current = {
+      setVisible(visible) {
+        clearMovement();
+        if (visible && !animation) {
+          previousFrame = viewWindow.performance.now();
+          animation = viewWindow.requestAnimationFrame(draw);
+        } else if (!visible) {
+          viewWindow.cancelAnimationFrame(animation);
+          animation = 0;
+        }
+      },
       setMouseMode(mode) {
         applyCameraMouseMode(orbit, mode);
         container.dataset.primaryDrag = mode;
@@ -774,7 +813,14 @@ export default function RoomViewport({
     runtime.current.setMouseMode(mousePreference.current);
     runtime.current.update(selected, options);
     focus(false);
-    const previousCamera = cameraState.current;
+    const sharedCamera = cameraSnapshot?.current;
+    const previousCamera = validCameraSnapshot(sharedCamera, room.id)
+      ? {
+          roomId: sharedCamera.roomId,
+          position: new THREE.Vector3(...sharedCamera.position),
+          target: new THREE.Vector3(...sharedCamera.target),
+        }
+      : cameraState.current;
     if (previousCamera?.roomId === room.id) {
       camera.position.copy(previousCamera.position);
       orbit.target.copy(previousCamera.target);
@@ -940,7 +986,9 @@ export default function RoomViewport({
     renderer.domElement.addEventListener("drop", drop);
     renderer.domElement.addEventListener("pointerdown", pointerDown);
     renderer.domElement.addEventListener("pointerup", pointerUp);
-    const resize = new ResizeObserver(() => {
+    const resize = new (
+      viewWindow as Window & typeof globalThis
+    ).ResizeObserver(() => {
       const width = container.clientWidth;
       const height = container.clientHeight;
       if (width < 1 || height < 1) return;
@@ -950,26 +998,41 @@ export default function RoomViewport({
     });
     resize.observe(container);
     let animation = 0;
-    let previousFrame = performance.now();
+    let previousFrame = viewWindow.performance.now();
     const draw = (now: number) => {
-      animation = requestAnimationFrame(draw);
+      animation = 0;
+      if (!sceneShown.current) return;
+      animation = viewWindow.requestAnimationFrame(draw);
       const deltaSeconds = (now - previousFrame) / 1000;
       previousFrame = now;
       orbit.update();
       keyboard.step(deltaSeconds, navigationContext());
       // Orbit's change threshold can omit the final damping increments.
       publishCamera();
+      if (cameraSnapshot)
+        cameraSnapshot.current = {
+          roomId: room.id,
+          position: camera.position.toArray() as [number, number, number],
+          target: orbit.target.toArray() as [number, number, number],
+        };
       actorModels.updateCamera(camera);
-      renderer.render(scene, camera);
+      if (container.clientWidth && container.clientHeight)
+        renderer.render(scene, camera);
     };
-    animation = requestAnimationFrame(draw);
+    animation = viewWindow.requestAnimationFrame(draw);
     return () => {
+      if (cameraSnapshot)
+        cameraSnapshot.current = {
+          roomId: room.id,
+          position: camera.position.toArray() as [number, number, number],
+          target: orbit.target.toArray() as [number, number, number],
+        };
       cameraState.current = {
         roomId: room.id,
         position: camera.position.clone(),
         target: orbit.target.clone(),
       };
-      cancelAnimationFrame(animation);
+      viewWindow.cancelAnimationFrame(animation);
       clearMovement();
       detachKeyboard();
       renderer.domElement.removeEventListener("focus", canvasFocus);
@@ -984,7 +1047,7 @@ export default function RoomViewport({
         "lostpointercapture",
         canceledPointer,
       );
-      window.removeEventListener("blur", clearMovement);
+      viewWindow.removeEventListener("blur", clearMovement);
       document.removeEventListener("visibilitychange", visibilityChanged);
       resize.disconnect();
       renderer.domElement.removeEventListener("pointerdown", pointerDown);
@@ -1029,6 +1092,7 @@ export default function RoomViewport({
     // Selection and visibility update separately below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
+    hostWindow,
     room.id,
     room.meshes,
     room.textures,
@@ -1036,6 +1100,9 @@ export default function RoomViewport({
     "skybox" in room ? room.skybox : undefined,
   ]);
 
+  useEffect(() => {
+    runtime.current?.setVisible(sceneVisible);
+  }, [sceneVisible]);
   useEffect(() => {
     runtime.current?.setMouseMode(mouseMode);
   }, [mouseMode]);

@@ -1,10 +1,12 @@
 # Author rooms
 
-Use the desktop app with your own supported US ROM. Version 0.2.2 adds native generated
-texture-coordinate previews to the version 2 authoring workflow. The 14-milestone authoring
-smoke passed with C/H export and the full House roster. Read the [validation
-record](../README.md#package-and-validation-status) for source, GPU, package and installed-app
-checks. Live gameplay remains open.
+Use the desktop app with your own supported US ROM. The 0.3.0 workspace retains version 2
+room authoring and adds project settings with bundled offline C/H/NRM builds. Read the
+[validation record](../README.md#package-and-validation-status) for completed checks and
+remaining release gates. The 0.3.0 authoring check passed 15 milestones with C/H and bundled
+NRM compilation. The ARM64 real-ROM candidate built an NRM with empty PATH and blocked
+HTTP/HTTPS. Installation matched its verified bytes; normal-profile interaction, other-platform
+and live gameplay checks remain separate.
 
 ## Choose a starting room
 
@@ -200,8 +202,8 @@ to resume. Camera navigation leaves project data unchanged.
 
 ## Check an export
 
-Choose C/H to generate a source bundle, or configure the native toolchain for
-`.nrm` output. Export validates geometry, native services and actor resources
+Choose C/H to generate a source bundle, or use the bundled offline tools for `.nrm` output.
+Export validates geometry, native services and actor resources
 before generating an authored room. A context with unresolved resource children
 or progression requirements rejects the export. Simplify that room or choose a
 verified prototype, then retry. Keep the saved project for further editing.
@@ -211,8 +213,9 @@ package checks confirm the build path; gameplay needs a separate check.
 
 A House 465 clone can preserve all eight native actors through guarded static
 resource contracts for camera actor 0x308 and progression controller 0x34E.
-Their nonvisual status does not mean they have no dependencies. The desktop authoring smoke retained all eight in a room 621 clone, verified
-File96 in its inventory, and exported C/H and `.nrm`. The compiled full-roster
+These nonvisual controllers still require resources. Historical desktop authoring checks
+retained all eight in a room 621 clone, verified File96 in its inventory, and exported C/H
+and `.nrm`. The compiled full-roster
 room 620 handoff includes their resources and a native coin, copied House
 geometry/BSP and reciprocal checker doors. Test the camera and progression
 behavior in your save; static closure does not establish gameplay parity.
@@ -224,15 +227,14 @@ Export keeps rejected actors in the project until you choose to remove them.
 Build the app, then run the authoring integration check with your own ROM:
 
 ```sh
-MNSG_TEST_ROM=/path/to/us-rom.z64 \
-  MNSG_TEST_TEMPLATE=/path/to/initialized/template npm run test:authoring
+MNSG_TEST_ROM=/path/to/us-rom.z64 npm run test:authoring
 ```
 
-The default check requires C/H export. `MNSG_TEST_TEMPLATE` adds optional
-`.nrm` compile/link checks. `MNSG_SMOKE_UI_ONLY=1` runs an editor checkpoint and
+The default check requires C/H export and `.nrm` compile/link with the staged bundled tools.
+`MNSG_SMOKE_UI_ONLY=1` runs an editor checkpoint and
 leaves export verification pending.
 
-Read [export details](export.md) for the toolchain, and
+Read [export details](export.md) for managed builds, and
 [native room authoring](native-room-authoring.md) for the native layouts and
 remaining lifecycle requirements. You install and test a generated mod in your
 chosen Goemon64Recomp profile. Check entry, collision, camera behavior, actors,

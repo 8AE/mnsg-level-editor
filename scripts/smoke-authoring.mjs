@@ -548,17 +548,16 @@ try {
     assert.equal(fingerprint((await page.evaluate(() => window.mnsg.getStatus())).project), fingerprint(exportProject), "Export must not remove or rewrite cloned controllers");
     await record("full eight-actor clone export retains controller roster and File96", { roomId: cloneId, templateRoomId: cloneDonorId, actorTypes: clonedTypes, actorRoster: clonedActorRoster, scenarioResource, inventoryPath, runtime: "Constructor resource contracts only; live camera/player inputs and subsequent script/gameplay behavior are unverified." });
     await record("authored C/H export", { outputPaths: exported.outputPaths, roomIds: exported.roomIds, changes: exported.changes, warnings: exported.warnings });
-    if (env.MNSG_TEST_TEMPLATE) {
-      await app.evaluate((_electron, value) => globalThis.__authoringSmoke.open.push([value]), env.MNSG_TEST_TEMPLATE);
-      const tools = await page.evaluate(() => window.mnsg.configureToolchain());
+    {
+      const tools = await page.evaluate(() => window.mnsg.getToolchainStatus());
       assert(tools.ready, JSON.stringify(tools));
       const nrmPath = path.join(artifacts, "authoring.nrm");
       await app.evaluate((_electron, value) => globalThis.__authoringSmoke.save.push(value), nrmPath);
       const built = await page.evaluate(value => window.mnsg.exportNrm(value), exportProject);
       assert.equal(built.kind, "nrm"); assert((await stat(nrmPath)).size > 0);
       await writeFile(path.join(artifacts, "authoring-nrm-build.log"), built.buildLog ?? "");
-      await record("authored NRM compile/link only", { outputPaths: built.outputPaths, roomIds: built.roomIds, changes: built.changes, bytes: (await stat(nrmPath)).size });
-    } else report.nrm = "Not requested; set MNSG_TEST_TEMPLATE for optional compile/link verification.";
+      await record("authored NRM compile/link with bundled offline tools only", { toolchain: tools, outputPaths: built.outputPaths, roomIds: built.roomIds, changes: built.changes, bytes: (await stat(nrmPath)).size });
+    }
   }
   assert.equal(hash(await readFile(romPath)), sourceHash, "ROM source must stay unchanged");
   assert.deepEqual(diagnostics.pageErrors, [], "Authoring must not introduce renderer exceptions");

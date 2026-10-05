@@ -134,10 +134,10 @@ test("contextual preview receives complete authored spawn order and removes dele
 });
 
 test("V1 migration preserves timestamps, identity and sparse edits without authoring data loss", () => {
-  const fresh = createProject("Legacy", rom), { authoredRooms: _rooms, ...metadata } = fresh;
+  const fresh = createProject("Legacy", rom), { authoredRooms: _rooms, mod: _mod, ...metadata } = fresh;
   const legacy: LegacyEditorProject = { ...metadata, version: 1, rom: { ...rom, sha256: "c".repeat(64), decompressed: false }, roomOverrides: { "0": { actors: { "actor:100": { position: { x: 1, y: 2, z: 3 }, parameters: [0, 1, 0xffffffff] } }, events: {} } } };
   const canonical = validate(legacy);
-  assert.deepEqual(canonical, { ...legacy, version: 2, authoredRooms: {} });
+  assert.deepEqual(canonical, { ...legacy, version: 2, authoredRooms: {}, mod: fresh.mod });
   assert.equal(legacy.version, 1);
 });
 test("V2 round trip is independent and preserves explicit authored records", () => {

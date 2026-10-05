@@ -5,9 +5,10 @@ Browse textured rooms and native actor models from the US version of
 edit room and actor data, save projects, and export patches for
 [Goemon64Recomp](https://github.com/klorfmorf/Goemon64Recomp).
 
-The app uses Electron, Next.js, [Once UI](https://docs.once-ui.com/ai-coding)
-and Three.js. Bring your own US ROM; this repository and its installers contain
-no ROM or decoded game assets.
+The desktop targets macOS 14 or newer on Apple Silicon and Intel, and Windows x64. Linux is
+outside the supported package targets. The app uses Electron, Next.js,
+[Once UI](https://docs.once-ui.com/ai-coding) and Three.js. Bring your own US ROM; installers
+contain no ROM or decoded game assets.
 
 ## Import your ROM
 
@@ -17,12 +18,22 @@ LZKN64 resources. It preserves your input file and saves a verified, normalized
 ROM cache in Electron's application data directory. You can reopen the editor
 without selecting the ROM again.
 
+## Workspace
+
+The 0.3.0 workspace has six panels: Rooms on the left, Scene in the center, separate Hierarchy
+and Inspector panels on the right, and Assets/Console tabs below Scene. Drag a separator,
+focus it and use the keyboard, or use its size buttons. Each panel has its own scroll area.
+
+Use **Window** to reopen, pop out, redock, maximize or close a panel. Popouts are native desktop
+windows sharing one project and Undo/Redo history. **Layout** offers Default, Wide and Focus,
+saved layouts and Reset. Layout changes, camera movement and panel visibility leave project
+history and dirty state unchanged. Read the local checks and remaining release gates below.
+
 ## Editing scope
 
-Version 0.2.6 supports version 2 room authoring and C/H or `.nrm` export for admitted data.
-The water increment adds a conditional initial surface for **The Water (Husband and Wife Rocks)**,
-actor 0x249. Native textured rooms, project editing, Pan/Tilt controls and the existing geometry,
-collision, door and sky tools remain available.
+Create version 2 projects, author rooms and export C/H or `.nrm` for admitted native data.
+The existing geometry, collision, custom-door and sky tools remain available. Native preview
+limits remain in force; the workspace overhaul does not add actor export admission.
 
 - **Rooms:** browse 383 native room records, including 378 with decoded visual
   geometry. View original static textures, UVs, indexed palettes and supported
@@ -84,7 +95,7 @@ of game behavior:
 | Unavailable | A placement marker and diagnostic details for an unresolved model. |
 | Nonvisual controller | A hollow placement marker for a verified controller without a primary mesh. |
 
-The 0.2.6 actor library includes 361 candidate IDs: 74 supported, 174 conditional,
+The latest native census, recorded for 0.2.6, includes 361 candidate IDs: 74 supported, 174 conditional,
 19 nonvisual and 94 unresolved. The unresolved group includes seven partial
 previews. These counts describe bounded decoder results; they do not establish
 later gameplay behavior or export admission for each candidate.
@@ -158,43 +169,56 @@ gameplay correctness.
 **C/H export** creates a dedicated patch bundle with `mnsg_level_patch.c`,
 `mnsg_level_patch.h`, standalone build files and integration instructions.
 Copy the C/H pair into your compatible MNSG mod and retain your mod's manifest.
-You need no compiler to generate these source files.
+No separate compiler installation is required.
 
-**Prebuilt `.nrm` export** requires these tools on your computer:
+**Prebuilt `.nrm` export** uses the app's bundled offline MIPS Clang, ELF linker and RecompModTool.
+You do not select LLVM executables or an external template checkout. The desktop prepares a
+separate managed build workspace for each project, then validates, compiles, links and packages
+its current data. If bundled tools are missing or corrupt, repair/reinstall the application.
 
-- An initialized [MNSGRecompModTemplate](https://github.com/klorfmorf/MNSGRecompModTemplate)
-  checkout, including its symbol submodules and modding header.
-- LLVM Clang with a MIPS target and LLVM `ld.lld`. On macOS, select LLVM Clang;
-  Apple Clang lacks the required target.
-- `RecompModTool` for packaging the linked mod.
+Open **Project and build settings** to edit the mod identity, version, descriptions, authors,
+dependencies and native-library declarations. **Options** supports Enum, Number and String;
+**Files** imports an icon, additional files, symbol tables or native-library sidecars; **Build
+inputs** sets workspace-relative ELF/symbol paths and the NRM filename. Apply settings, then save
+the project. The app normalizes PNG/JPEG icons to portable `thumb.png` data. It preserves these
+settings and attachments when you save/reopen, with independent values for each project.
 
-Choose **Configure toolchain** in the export dialog to select the template and
-any tools the editor cannot find. The exporter compiles the validated project into a `.nrm` file. Install and test that file
-in Goemon64Recomp.
+The GUI covers all 13 manifest and five input fields recognized by the pinned tool. Config
+options define mod-menu fields; generated room code does not consume their values automatically.
+The pinned Goemon runtime ignores `custom_gamemode`; `enabled_by_default` is not an effective
+TOML option. Native-library filenames do not establish platform/ABI compatibility. Read the
+[managed build contract](docs/WORKSPACE-AND-BUILD-PLAN.md) and
+[known limitations](docs/KNOWN-LIMITATIONS.md) before distributing an export.
 
 Generated patches check native source bytes and geometry dependencies before
 writing. Mods that replace resource allocations or rebind the native geometry
 tables can conflict with these edits. See [export details](docs/export.md) for
-hook timing, compatibility limits and toolchain setup. Arbitrary event-script
+hook timing, compatibility limits and managed-build boundaries. Arbitrary event-script
 editing remains outside the current export scope.
 
 ## Develop
 
-Install Node.js 22 or newer and npm:
+Install Node.js 22 or newer and npm. Source developers also need a native C/C++ build environment,
+CMake/Ninja, git, curl and tar to build the pinned tool bundle. Those prerequisites belong to
+source development; installed users receive the tools with the app.
 
 ```sh
 git clone https://github.com/8AE/mnsg-level-editor.git
 cd mnsg-level-editor
 npm ci
+npm run managed:build -- --generator=Ninja --jobs=3
+npm run managed:smoke
 npm run dev
 ```
 
-For the production UI, run `npm run build` followed by `npm start`.
-`npm run dev:web` serves a procedural preview at `http://127.0.0.1:3000`.
-Open that URL in your browser. Use the Electron app for ROM import, native
-dialogs, project files and export.
+`managed:build` downloads verified source pins and builds the host's MIPS compiler/linker and
+mod packager into ignored `resources/managed-tools/`. It can take substantial time. A matching
+verified artifact from the [managed-tools workflow](https://github.com/8AE/mnsg-level-editor/actions/workflows/managed-tools.yml)
+can supply the same bundle. Build and stage each architecture on its native host.
 
-Run the default checks:
+For production UI, run `npm run build` followed by `npm start`. `npm run dev:web` serves a
+procedural preview at `http://127.0.0.1:3000`; use Electron for ROM import, project files,
+native popouts and export. Run the default source checks:
 
 ```sh
 npm run typecheck
@@ -202,80 +226,72 @@ npm test
 npm run build
 ```
 
-The default test suite skips checks that need a ROM, native toolchain or GPU
-browser. Supply your own inputs to run those checks. These examples use a POSIX
-shell; in PowerShell, assign each variable with `$env:NAME = 'value'` before
-running the npm command.
+Optional checks use your ROM, a staged tool bundle or a GPU browser. The metadata export
+example uses the managed executables; Windows uses the `.exe` filenames and PowerShell
+`$env:NAME = 'value'` assignments.
 
 ```sh
-MNSG_TEST_ROM=/path/to/us-rom.z64 \
-  MNSG_EXPORT_TEST_TEMPLATE=/path/to/initialized/template npm test
+MNSG_TEST_ROM=/path/to/us-rom.z64 MNSG_GPU_TEST=1 npm test
 
-MNSG_TEST_ROM=/path/to/us-rom.z64 \
-  MNSG_TEST_TEMPLATE=/path/to/initialized/template npm run test:desktop
+MNSG_EXPORT_TEST_TEMPLATE="$PWD/resources/managed-tools" \
+  MNSG_EXPORT_TEST_CLANG="$PWD/resources/managed-tools/bin/clang" \
+  MNSG_EXPORT_TEST_LINKER="$PWD/resources/managed-tools/bin/ld.lld" \
+  MNSG_EXPORT_TEST_MOD_TOOL="$PWD/resources/managed-tools/bin/RecompModTool" \
+  node --import tsx --test tests/export-mod-settings.test.ts
 
-MNSG_TEST_ROM=/path/to/us-rom.z64 \
-  MNSG_TEST_TEMPLATE=/path/to/initialized/template npm run test:authoring
-
-# Optional renderer fixture; requires an installed Google Chrome.
-MNSG_GPU_TEST=1 node --import tsx --test tests/editor-textures.test.ts
+MNSG_TEST_ROM=/path/to/us-rom.z64 npm run test:desktop
+MNSG_TEST_ROM=/path/to/us-rom.z64 npm run test:authoring
+MNSG_TEST_ROM=/path/to/us-rom.z64 node scripts/smoke-workspace.mjs
 ```
 
-The desktop smoke checks ROM import and cache reuse, editing, save/reopen,
-validation failures, textured rendering, actor model refresh, camera controls
-and source export. Set
-`MNSG_TEST_TEMPLATE` to include `.nrm` compilation. Build the app before running
-this smoke test.
-
-`npm run test:authoring` checks the authored-room editor workflow and requires
-C/H export by default. Set `MNSG_TEST_TEMPLATE` to include `.nrm` compile/link
-checks. `MNSG_SMOKE_UI_ONLY=1` selects an editor checkpoint that leaves export
-verification pending; it does not count as the full authoring check.
+Build the app first. Desktop and authoring smokes use bundled tools for NRM checks by default.
+`MNSG_TEST_SKIP_NRM=1` omits the desktop compiler check; `MNSG_SMOKE_UI_ONLY=1` omits authoring
+exports. Those checkpoints leave export verification incomplete. The workspace smoke checks
+layout/popout/history and project-settings interactions; it does not launch the game.
 
 ## Package and validation status
+
+After staging and checking the native tool bundle, package on the corresponding host:
 
 ```sh
 npm run package:mac
 npm run package:win
 ```
 
-These commands rebuild the app and use the host's architecture. For the release
-targets used in this project, build once and select each architecture:
+Find installers in `release/`. The build rejects a mismatched or incomplete tool bundle.
+The [desktop workflow](https://github.com/8AE/mnsg-level-editor/actions/workflows/build.yml)
+uses native macOS ARM64, macOS x64 and Windows x64 jobs. It stages pinned tools and includes
+packaged offline probes; consult the revision's run for completed results. macOS packages use
+ad hoc signing. Developer ID/notarization and Windows code signing require release credentials.
 
-```sh
-npm run build
-npx electron-builder --mac dmg zip --arm64 --publish never
-npx electron-builder --mac zip --x64 --publish never
-npx electron-builder --win nsis --x64 --publish never
-```
+The 0.3.0 actual-ROM/GPU source suite passed 336 of 343 tests, with seven optional export skips
+and no failures. Metadata/archive checks passed 5/5 with the ARM64 package's bundled tools,
+covering the 18 fields, Unicode, PNG, uploaded symbols, additional files and config options.
+Legacy-template exports passed 30/30 with host LLVM; that is separate from bundled-tool proof.
+Production build, desktop smoke and the 15-milestone C/H/bundled-NRM authoring check passed.
 
-Find installers in `release/`. The [desktop build workflow](https://github.com/8AE/mnsg-level-editor/actions/workflows/build.yml)
-checks and packages source revisions for macOS ARM64, macOS x64 and Windows x64
-on pushes to `main`. Consult its runs for a revision's results and build artifacts.
-The macOS configuration uses ad hoc signing (`mac.identity: "-"`). For a
-Developer ID release, override `mac.identity` with your certificate identity and
-configure notarization credentials in electron-builder. Windows distribution
-builds need code-signing credentials.
+The real-ROM workspace check passed 20 milestones: six native popouts, resize and redock,
+shared editing/Undo, camera/WASD, saved-layout reload, Console and project settings. Settings
+remained usable at the tested 125% and 200% zoom sizes. The ARM64 candidate passed strict deep
+ad hoc signature and 44-file embedded-build parity checks. Its isolated no-ROM first boot
+passed all six native panel lifecycles and child-IPC checks; its package contains no ROM,
+project or NRM. The ARM64 standalone-tools CI bundle passed an independent local smoke.
 
-Version 0.2.6 passed all 315 tests in the actual-ROM/toolchain/GPU suite, with no failures or
-skips. Fresh nonincremental TypeScript and production builds passed. The ARM64 candidate
-package passed strict deep ad hoc signature checks; its bundled main and HTML match the tested
-build, and it contains no ROM, project or NRM. Actual Electron checks covered canonical water,
-library thumbnail/drag placement, saved history and exact texture off/on pixel restoration.
-The candidate-package smoke restored 383 cached rooms and checked four textured rooms, native
-body/door selectors and focused WASD without changing the original cache. The installed
-0.2.6 ARM64 app passed strict signature and candidate-byte parity checks. Normal launch restored
-383 cached rooms without ROM reselection; room 313 displayed native textured water and its
-conditional library details. Pan/Tilt responded, the project stayed clean, and source ROM,
-cache and ROM-profile hashes remained unchanged. Consult the
-[desktop workflow](https://github.com/8AE/mnsg-level-editor/actions/workflows/build.yml) for the
-revision's platform packaging results; CI packaging does not establish platform runtime behavior.
+The ARM64 candidate also passed isolated real-ROM checks: 383 cached rooms, native actor
+selectors, four rooms' exact texture restoration and WASD. It built an NRM using only packaged
+tools with an empty PATH and blocked HTTP/HTTPS. The installed application passed strict deep
+signature checks and matched the candidate's ASAR/tool manifest. Source ROM, cache and
+ROM-profile hashes remained unchanged.
 
-Intel macOS and Windows runtime checks remain open. Native lighting, filtering, future waves
-and gameplay parity remain unverified. This water increment creates no new generated NRM and
-adds no actor export admission. Existing C/H and `.nrm` export keeps its canonical-context
-policy for water in room 313; changed parameters or a foreign/new-room context remain rejected.
-The user chooses whether to install and test generated mods in Goemon64Recomp.
+Normal-profile interactive checks, manual cross-window drag and Intel/Windows checks remain
+outstanding. IME, off-monitor recovery and entire-app restart need separate observations.
+Read the [acceptance matrix](docs/WORKSPACE-AND-BUILD-PLAN.md#acceptance-matrix)
+for partial gates. Earlier release evidence does not certify these remaining scopes.
+
+Native lighting, filtering, future waves and gameplay parity remain unverified. The workspace
+and tool changes add no actor export admission. When handing off a generated mod, record its
+path, affected rooms, changes and remaining uncertainties. You choose whether to install and
+test it in Goemon64Recomp; the editor's build checks do not establish gameplay.
 
 ## Source and native evidence
 

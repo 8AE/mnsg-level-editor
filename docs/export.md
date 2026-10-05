@@ -6,24 +6,22 @@ pair to a compatible MNSG mod's source tree. Preserve the existing mod's manifes
 when integrating into another mod. The desktop export dialog creates a new
 bundle directory to keep the supplied standalone files together.
 
-For a ready-to-load `.nrm`, configure an initialized
-[MNSGRecompModTemplate](https://github.com/klorfmorf/MNSGRecompModTemplate)
-checkout, LLVM Clang with a MIPS backend, LLVM `ld.lld`, and `RecompModTool`.
-Template submodules must supply the US game symbol files. The exporter accepts
-both `mnsg.us.syms.toml`/`mnsg.us.datasyms.toml` and the newer
-`mnsg.syms.toml`/`mnsg.datasyms.toml` names. On macOS select Homebrew LLVM;
-Apple Clang does not provide the required target. The template documents the
-LLVM 19.1 MIPS problem on Windows and recommends a compatible LLVM release.
+For `.nrm` output, the 0.3.0 desktop uses bundled offline MIPS Clang 21.1.8, ELF LLD and a pinned
+RecompModTool. It includes the macro header and compatible US symbol tables. No external LLVM
+installation or template-folder selection is required. The app prepares each project's owned
+build workspace and checks the bundle before compiling.
 
-The desktop process selects toolchain paths. Projects never supply executable
-paths or command arguments. Builds use fixed argument arrays with `execFile`,
-without a shell, in a temporary directory. Only the template's modding header
-and two symbol tables are copied; its source tree and original files remain
-unchanged. No complete ROM is bundled. Sparse patches contain native records
-and dependency preimages. Authored bundles also contain user-edited vertex and
-display-list data, native collision, room metadata and runtime code, with
-relocations to the required ROM material and asset resources. Keep generated
-bundles and decoded game data out of this repository.
+Open Project and build settings for manifest fields, config options, portable uploads and
+managed input paths. The builder honors the workspace-relative ELF/symbol paths and output
+filename. Projects do not choose executables or command arguments. Builds use fixed argument
+arrays without a shell and retain native symbol/admission checks. Uploaded native-library
+sidecars are separate from archive attachments; their names do not prove runtime compatibility.
+Read the [managed build contract](WORKSPACE-AND-BUILD-PLAN.md) for the complete field inventory.
+
+No complete ROM is bundled. Sparse patches contain native records and dependency preimages.
+Authored bundles contain edited vertices/display lists, native collision, metadata and runtime
+code, with relocations to required ROM materials/assets. Keep generated bundles and decoded
+game data out of this repository.
 
 ## Authored rooms
 
@@ -244,20 +242,27 @@ Run the export checks with:
 node --import tsx --test tests/export*.test.ts
 ```
 
-To include a real local MIPS compile, link, package, and ZIP manifest check:
+For real managed-tool metadata, MIPS compile/link and ZIP manifest checks:
 
 ```sh
-MNSG_EXPORT_TEST_TEMPLATE=/path/to/initialized/template \
-  node --import tsx --test tests/export*.test.ts
+MNSG_EXPORT_TEST_TEMPLATE="$PWD/resources/managed-tools" \
+  MNSG_EXPORT_TEST_CLANG="$PWD/resources/managed-tools/bin/clang" \
+  MNSG_EXPORT_TEST_LINKER="$PWD/resources/managed-tools/bin/ld.lld" \
+  MNSG_EXPORT_TEST_MOD_TOOL="$PWD/resources/managed-tools/bin/RecompModTool" \
+  node --import tsx --test tests/export-mod-settings.test.ts
 ```
 
 The integration tests compile actor, geometry and authored-room fixtures, read
 the resulting `mod.json`, and verify the `mnsg` game ID and generated mod ID. This confirms
 the build/package pipeline; it does not establish gameplay correctness. Test
 the actual room, reload it, visit a room sharing its source resources, and check
-unedited actors before distributing an export. macOS local packaging has been
-checked; native Windows execution and in-game actor/collision behavior still need
-testing. An additional host harness compiles and executes the generated geometry
+unedited actors before distributing an export. Earlier macOS package checks are historical;
+The 0.3.0 ARM64 candidate passed bundled metadata/archive checks (5/5), and authoring passed
+15 milestones with C/H and bundled-tool NRM compilation. The real-ROM ARM64 candidate built an
+NRM with empty PATH and blocked HTTP/HTTPS, and installation matched its verified bytes.
+Normal-profile interaction, other-platform and in-game behavior remain separate gates; read the
+[current validation record](../README.md#package-and-validation-status).
+An additional host harness compiles and executes the generated geometry
 C against controlled resources. It checks missing/null resources, opaque
 handles, each dependency-guard mismatch, bad/mixed write preimages, atomic writes,
 idempotence, remapping after reload and adjacent-byte preservation. On arm64
@@ -265,12 +270,13 @@ macOS it uses an x86_64 executable under Rosetta so synthetic resource addresses
 can fit the native 32-bit ABI. The harness exercises the generated helper but
 does not execute Goemon64Recomp's mapper or live game hooks.
 
-Version 0.2.2 adds TEXGEN presentation without changing offline CPU completion or export
+Version 0.2.2 added TEXGEN presentation without changing offline CPU completion or export
 admission. Flattening generated actor texture coordinates into static custom-door UVs remains
 rejected.
 
-The actual-ROM/toolchain suite passed 208 of 211 tests with three optional GPU skips, including
-strict MIPS/link/NRM fixtures. The 0.2.2 authoring smoke passed 14 milestones, retaining all
+The historical 0.2.2 actual-ROM/toolchain suite passed 208 of 211 tests with three optional
+GPU skips, including strict MIPS/link/NRM fixtures. The 0.2.2 authoring smoke passed 14 milestones,
+retaining all
 eight House actors and File96 and exporting C/H; that smoke did not request NRM packaging. Read
 the [validation record](../README.md#package-and-validation-status) for GPU, package and
 installed-app results. No generated mod was installed or run.
@@ -295,11 +301,10 @@ compilation does not establish camera, progression, collision or door behavior.
 Build the app and check the desktop authoring workflow with your own ROM:
 
 ```sh
-MNSG_TEST_ROM=/path/to/us-rom.z64 \
-  MNSG_TEST_TEMPLATE=/path/to/initialized/template npm run test:authoring
+MNSG_TEST_ROM=/path/to/us-rom.z64 npm run test:authoring
 ```
 
-That check requires C/H export by default; the template adds `.nrm` compilation.
+That check requires C/H and bundled-tool `.nrm` compilation by default.
 `MNSG_SMOKE_UI_ONLY=1` selects a temporary editor checkpoint and leaves export
 verification pending. Check actual entry, collision, camera startup, proximity
 spawning, door traversal, teardown and revisits in Goemon64Recomp before sharing

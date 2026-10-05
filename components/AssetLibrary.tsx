@@ -1,9 +1,10 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { Button, Column, Media, Row, Text } from "@once-ui-system/core";
 import type { ActorVisual, AppApi, AuthoringCatalog } from "../shared/types";
 import { assetThumbnail } from "./assetThumbnails";
 import { PreviewStatus, PreviewDetails } from "./PreviewDiagnostics";
+import { WorkspacePanelWindowContext } from "./DockWorkspace";
 export interface LibraryDrop {
   kind: "actor" | "geometry" | "skybox";
   id: string;
@@ -16,7 +17,9 @@ function AssetCard({
   catalog,
   disabled,
   onInsert,
+  ownerWindow,
 }: {
+  ownerWindow: Window | null;
   id: string;
   name: string;
   kind: LibraryDrop["kind"];
@@ -31,9 +34,16 @@ function AssetCard({
   const [visual, setVisual] = useState<ActorVisual>();
   const [messages, setMessages] = useState<string[]>([]);
   useEffect(() => {
+    // Finished previews survive adoption; only pending/offscreen observers rebind.
+    if (image || note) return;
     let active = true,
       started = false;
-    const observer = new IntersectionObserver(
+    const actualWindow = host.current?.ownerDocument.defaultView;
+    const viewWindow = ownerWindow ?? actualWindow;
+    if (!viewWindow || viewWindow !== actualWindow) return;
+    const observer = new (
+      viewWindow as Window & typeof globalThis
+    ).IntersectionObserver(
       (entries) => {
         if (started || !entries.some((e) => e.isIntersecting)) return;
         started = true;
@@ -71,7 +81,7 @@ function AssetCard({
       active = false;
       observer.disconnect();
     };
-  }, [id, kind, api, catalog]);
+  }, [id, kind, api, catalog, ownerWindow]);
   return (
     <div
       ref={host}
@@ -142,6 +152,7 @@ export default function AssetLibrary({
   onInsert(asset: LibraryDrop): void;
   onClose(): void;
 }) {
+  const ownerWindow = useContext(WorkspacePanelWindowContext);
   const [kind, setKind] = useState<LibraryDrop["kind"]>("actor"),
     [search, setSearch] = useState("");
   const items =
@@ -201,6 +212,7 @@ export default function AssetLibrary({
             {...item}
             kind={kind}
             catalog={catalog}
+            ownerWindow={ownerWindow}
             api={api}
             disabled={disabled}
             onInsert={onInsert}

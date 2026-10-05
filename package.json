@@ -1,6 +1,6 @@
 {
   "name": "mnsg-level-editor",
-  "version": "0.2.6",
+  "version": "0.3.0",
   "private": true,
   "description": "Local MNSG room and actor editor for macOS and Windows",
   "author": "MNSG Level Editor contributors",
@@ -18,9 +18,11 @@
     "test:authoring": "node scripts/smoke-authoring.mjs",
     "test:package": "node scripts/smoke-package.mjs",
     "release:manifest": "node scripts/release-manifest.mjs",
-    "package": "npm run build && electron-builder --publish never",
-    "package:mac": "npm run build && electron-builder --mac --publish never",
-    "package:win": "npm run build && electron-builder --win --publish never"
+    "managed:build": "node scripts/build-managed-tools.mjs",
+    "managed:smoke": "node scripts/smoke-managed-tools.mjs",
+    "package": "npm run managed:smoke && npm run build && electron-builder --publish never",
+    "package:mac": "npm run managed:smoke && npm run build && electron-builder --mac --publish never",
+    "package:win": "npm run managed:smoke && npm run build && electron-builder --win --publish never"
   },
   "dependencies": {
     "@once-ui-system/core": "2.0.0",
@@ -47,6 +49,14 @@
     "appId": "io.mnsg.level-editor",
     "productName": "MNSG Level Editor",
     "asar": true,
+    "beforePack": "scripts/verify-managed-pack.mjs",
+    "extraResources": [
+      {
+        "from": "resources/managed-tools",
+        "to": "managed-tools",
+        "filter": ["**/*"]
+      }
+    ],
     "directories": {
       "output": "release"
     },
@@ -59,6 +69,8 @@
     "npmRebuild": false,
     "mac": {
       "identity": "-",
+      "minimumSystemVersion": "14.0",
+      "signIgnore": ["/managed-tools/"],
       "category": "public.app-category.developer-tools",
       "target": [
         "dmg",

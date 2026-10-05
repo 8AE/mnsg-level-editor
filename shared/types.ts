@@ -1,3 +1,5 @@
+import type { ModSettings, ModAttachment } from "./mod-settings";
+export type { ModSettings, ModAttachment, ModConfigOption } from "./mod-settings";
 import type { RoomInitialization } from "./room-initialization";
 export type { RoomInitialization, NativeInitializationSource } from "./room-initialization";
 /** The renderer contract contains data only. Filesystem paths stay in Electron. */
@@ -254,6 +256,7 @@ export interface AuthoredRoom {
 export interface EditorProjectV2 extends Omit<LegacyEditorProject, "version"> {
   version: 2;
   authoredRooms: Record<string, AuthoredRoom>;
+  mod?: ModSettings;
 }
 /** Disk input supports V1; create/open/save canonicalize to V2. */
 export type EditorProject = LegacyEditorProject | EditorProjectV2;
@@ -377,6 +380,8 @@ export interface AppApi {
   saveProject(project: EditorProject): Promise<ProjectSaveResult | null>;
   exportPatch(project: EditorProject): Promise<ExportResult | null>;
   exportNrm(project: EditorProject): Promise<ExportResult | null>;
+  workspaceStatus(project:EditorProject):Promise<{path:string;templateVersion:string}>;
+  importModFile(kind: "icon" | "additional" | "symbols" | "native-library"): Promise<ModAttachment | null>;
   configureToolchain(): Promise<ToolchainStatus | null>;
   getToolchainStatus(): Promise<ToolchainStatus>;
 }

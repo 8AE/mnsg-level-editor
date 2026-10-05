@@ -1,3 +1,5 @@
+import { defaultModSettings, validateModSettings } from "../shared/mod-settings";
+import { validateModAttachmentBytes } from "./export/mod-settings";
 import { randomUUID } from "node:crypto";
 import type { ActorOverride, EditorProjectV2, RomIdentity, RoomData, RoomOverride, Vec3 } from "../shared/types";
 import { nativePartitionCell } from "./rom/partition";
@@ -28,9 +30,9 @@ function vector(input: unknown, label: string,min=-32768,max=32767): Vec3 {
 }
 
 export function createProject(name: string, rom: RomIdentity): EditorProjectV2 {
-  const now = new Date().toISOString();
-  return { format: "mnsg-level-project", version: 2, id: randomUUID(), name: text(name, 120, "Project name"),
-    createdAt: now, updatedAt: now, rom: structuredClone(rom), roomOverrides: {}, authoredRooms: {} };
+  const now = new Date().toISOString(), id = randomUUID();
+  return { format: "mnsg-level-project", version: 2, id, name: text(name, 120, "Project name"),
+    createdAt: now, updatedAt: now, rom: structuredClone(rom), roomOverrides: {}, authoredRooms: {}, mod: defaultModSettings({id,name}) };
 }
 
 /** Validates sparse edits against current ROM records, with no project-controlled pointers. */
@@ -38,7 +40,7 @@ export function validateProject(input: unknown, rom: RomIdentity, loadRoom: (id:
   assertProjectBytes(input);
   const value = object(input, "Project");
   if (value.format !== "mnsg-level-project" || (value.version !== 1 && value.version !== 2)) throw new Error("Unsupported project format/version.");
-  keys(value, ["format", "version", "id", "name", "createdAt", "updatedAt", "rom", "roomOverrides", ...(value.version === 2 ? ["authoredRooms"] : [])], "Project");
+  keys(value, ["format", "version", "id", "name", "createdAt", "updatedAt", "rom", "roomOverrides", ...(value.version === 2 ? ["authoredRooms", "mod"] : [])], "Project");
   const projectRom = object(value.rom, "Project ROM");
   keys(projectRom, ["sha256", "normalizedSha256", "title", "gameCode", "region", "byteLength", "decompressed"], "Project ROM");
   if (projectRom.normalizedSha256 !== rom.normalizedSha256) throw new Error("Project requires a different ROM checksum.");
@@ -156,7 +158,8 @@ export function validateProject(input: unknown, rom: RomIdentity, loadRoom: (id:
   const authoredRooms = validateAuthoredRooms(value.version === 1 ? {} : value.authoredRooms, authoring, getTranslation);
   if (Object.keys(roomOverrides).length + Object.keys(authoredRooms).length > 800) throw new Error("Project contains too many combined room records.");
   for (const key of Object.keys(authoredRooms)) if (Object.hasOwn(roomOverrides, key)) throw new Error("A full authored room cannot also contain sparse overrides; convert the edits explicitly.");
-  const result: EditorProjectV2 = { format: "mnsg-level-project", version: 2, id, name, createdAt, updatedAt, rom: structuredClone(projectRom) as unknown as RomIdentity, roomOverrides, authoredRooms };
+  const mod = validateModSettings(value.mod, {id,name}); validateModAttachmentBytes(mod);
+  const result: EditorProjectV2 = { format: "mnsg-level-project", version: 2, id, name, createdAt, updatedAt, rom: structuredClone(projectRom) as unknown as RomIdentity, roomOverrides, authoredRooms, mod };
   assertProjectBytes(result);
   return result;
 }

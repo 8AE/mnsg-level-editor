@@ -80,9 +80,19 @@ import {
   transformMesh,
   type GeometrySelection,
 } from "../components/authoringState";
+import DockWorkspace, {
+  type DockWorkspaceHandle,
+} from "../components/DockWorkspace";
+import {
+  appendWorkspaceLog,
+  type WorkspaceLog,
+  type CameraSnapshot,
+} from "../components/workspaceModel";
+import { ModSettingsPanel } from "../components/ModSettingsPanel";
 import "./editor.scss";
+import "./mod-settings.scss";
 
-type Modal = "new" | "export" | "discard" | "room-new" | null;
+type Modal = "new" | "export" | "discard" | "room-new" | "settings" | null;
 const fingerprint = (project: EditorProject | null) =>
   project ? documentFingerprint(project) : "";
 const messageOf = (error: unknown) =>
@@ -104,10 +114,12 @@ function ModalShell({
   title,
   children,
   onClose,
+  wide = false,
 }: {
   title: string;
   children: React.ReactNode;
   onClose(): void;
+  wide?: boolean;
 }) {
   const dialog = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -119,7 +131,7 @@ function ModalShell({
       if (event.key === "Tab" && element) {
         const items = [
           ...element.querySelectorAll<HTMLElement>(
-            "button:not(:disabled),input:not(:disabled),[tabindex='0']",
+            "button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex='0']",
           ),
         ];
         const first = items[0],
@@ -141,16 +153,27 @@ function ModalShell({
     };
   }, [onClose]);
   return (
-    <div className="modal-backdrop">
+    <div className={`modal-backdrop${wide ? " modal-backdrop-wide" : ""}`}>
       <div
         ref={dialog}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
-        className="editor-modal"
+        className={`editor-modal${wide ? " editor-modal-wide" : ""}`}
       >
-        <Column background="surface" border radius="l" padding="32" gap="24">
-          <Row horizontal="between" vertical="center">
+        <Column
+          background="surface"
+          border
+          radius="l"
+          padding={wide ? "16" : "32"}
+          gap={wide ? "12" : "24"}
+          className={wide ? "editor-modal-wide-content" : undefined}
+        >
+          <Row
+            horizontal="between"
+            vertical="center"
+            className={wide ? "editor-modal-wide-heading" : undefined}
+          >
             <Text id="modal-title" variant="heading-strong-l">
               {title}
             </Text>
@@ -174,7 +197,12 @@ export default function EditorPage() {
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [booting, setBooting] = useState(true);
   const [busy, setBusy] = useState("");
-  const [error, setError] = useState("");
+  const [error, setErrorMessage] = useState("");
+  const [errorSource, setErrorSource] = useState("Editor");
+  const setError = useCallback((message: string, source = "Editor") => {
+    setErrorMessage(message);
+    setErrorSource(source);
+  }, []);
   const [notice, setNotice] = useState("");
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
   const [baseRoom, setBaseRoom] = useState<RoomData | ProjectRoomScene | null>(
@@ -236,7 +264,17 @@ export default function EditorPage() {
   const [newName, setNewName] = useState("Untitled project");
   const [exportKind, setExportKind] = useState<"patch" | "nrm">("patch");
   const [catalog, setCatalog] = useState<AuthoringCatalog | null>(null);
-  const [libraryOpen, setLibraryOpen] = useState(false);
+  const dock = useRef<DockWorkspaceHandle>(null);
+  const cameraSnapshot = useRef<CameraSnapshot | undefined>(undefined);
+  const [sceneHost, setSceneHost] = useState<{
+    window: Window;
+    visible: boolean;
+  } | null>(null);
+  const [popupWindows, setPopupWindows] = useState<Window[]>([]);
+  const [workspaceInteraction, setWorkspaceInteraction] = useState(false);
+  const [consoleLogs, setConsoleLogs] = useState<WorkspaceLog[]>([]);
+  const [consoleFilter, setConsoleFilter] = useState("all");
+  const [consoleSource, setConsoleSource] = useState("all");
   const [followCollision, setFollowCollision] = useState(true);
   const [geometrySelection, setGeometrySelection] =
     useState<GeometrySelection | null>(null);
@@ -288,7 +326,12 @@ export default function EditorPage() {
     try {
       await task();
     } catch (issue) {
-      setError(messageOf(issue));
+      setError(
+        messageOf(issue),
+        label === "Exporting changes" || label === "Checking bundled tools"
+          ? "Build"
+          : "Editor",
+      );
     } finally {
       busyLock.current = false;
       setBusy("");
@@ -802,11 +845,15 @@ export default function EditorPage() {
       else if (!event.repeat && event.key.toLowerCase() === "t")
         setOptions((value) => ({ ...value, translate: !value.translate }));
     };
-    window.addEventListener("keydown", keydown);
-    return () => window.removeEventListener("keydown", keydown);
+    const targets = [window, ...popupWindows];
+    targets.forEach((target) => target.addEventListener("keydown", keydown));
+    return () =>
+      targets.forEach((target) =>
+        target.removeEventListener("keydown", keydown),
+      );
     // Actions depend on the current project/history, so refresh their closures.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project, past, future, selected, modal]);
+  }, [project, past, future, selected, modal, popupWindows]);
   const selectRecord = (id: string | null) => {
     setGeometrySelection(null);
     setSelected(id);
@@ -961,6 +1008,33 @@ export default function EditorPage() {
     },
     [project],
   );
+  useEffect(() => {
+    const add = (
+      level: WorkspaceLog["level"],
+      source: string,
+      message: string,
+    ) =>
+      setConsoleLogs((logs) =>
+        appendWorkspaceLog(logs, { level, source, message, time: Date.now() }),
+      );
+    if (error) add("error", errorSource, error);
+    if (notice) add("info", "Project", notice);
+  }, [error, errorSource, notice]);
+  useEffect(() => {
+    roomWarnings.forEach((message) =>
+      setConsoleLogs((logs) =>
+        appendWorkspaceLog(logs, {
+          level: "warning",
+          source: `Room ${room?.id ?? ""}`,
+          message,
+          time: Date.now(),
+        }),
+      ),
+    );
+  }, [room?.id, JSON.stringify(roomWarnings)]);
+  useEffect(() => {
+    if (modal) window.focus();
+  }, [modal]);
   const closeModal = useCallback(() => setModal(null), []);
   const showSample = () => {
     setSample(true);
@@ -1005,6 +1079,16 @@ export default function EditorPage() {
           )}
         </Row>
         <Row gap="8" vertical="center">
+          <Button
+            size="s"
+            variant="tertiary"
+            aria-label="Project and build settings"
+            disabled={!project || sample || Boolean(busy)}
+            onClick={() => setModal("settings")}
+          >
+            <FiSettings />
+            Settings
+          </Button>
           <Button
             size="s"
             variant="tertiary"
@@ -1117,648 +1201,767 @@ export default function EditorPage() {
         </Row>
       ) : (
         <>
-          <Row className="workspace" fill>
-            <Column className="room-panel" borderRight>
-              <Row
-                className="panel-heading"
-                horizontal="between"
-                vertical="center"
-                padding="20"
-              >
-                <Row gap="8" vertical="center">
-                  <FiLayers />
-                  <Text variant="label-strong-s">ROOMS</Text>
-                </Row>
-                <span className="count-badge">{rooms.length}</span>
-              </Row>
-              <label className="search-box">
-                <FiSearch />
-                <input
-                  aria-label="Search rooms"
-                  placeholder="Search rooms…"
-                  value={roomSearch}
-                  onChange={(event) => setRoomSearch(event.target.value)}
-                />
-                <kbd>/</kbd>
-              </label>
-              {!sample && (
-                <Row paddingX="16" gap="4">
-                  <Button
-                    size="s"
-                    variant="secondary"
-                    disabled={!catalog || Boolean(busy)}
-                    data-testid="new-room-button"
-                    onClick={() => setModal("room-new")}
-                  >
-                    New room
-                  </Button>
-                  <Button
-                    size="s"
-                    variant="tertiary"
-                    disabled={!catalog || Boolean(busy)}
-                    onClick={() => setLibraryOpen((v) => !v)}
-                  >
-                    Library
-                  </Button>
-                </Row>
-              )}
-              <Row
-                className="list-caption"
-                paddingX="20"
-                paddingY="12"
-                horizontal="between"
-                textVariant="label-default-xs"
-                onBackground="neutral-weak"
-              >
-                <span>
-                  {sample ? "PROCEDURAL WORKSPACE" : "US ROM · ROOM DIRECTORY"}
-                </span>
-              </Row>
-              <Column
-                className="room-list"
-                overflowY="auto"
-                gap="4"
-                paddingX="8"
-              >
-                {visibleRooms.map((item) => (
-                  <Button
-                    variant="tertiary"
-                    size="s"
-                    horizontal="start"
-                    data-testid="room-button"
-                    data-room-id={item.id}
-                    className={`room-item ${room?.id === item.id ? "is-selected" : ""}`}
-                    key={item.id}
-                    onClick={() => !sample && void loadRoom(item.id)}
-                    disabled={Boolean(busy)}
-                    aria-current={room?.id === item.id ? "true" : undefined}
-                  >
-                    <span className="room-index">
-                      {item.id.toString(16).toUpperCase().padStart(3, "0")}
-                    </span>
-                    <span className="room-item-info">
-                      <span>{item.name}</span>
-                      <span>
-                        {item.actorCount} actors{" "}
-                        <span className="tiny-dot">·</span> {item.eventCount}{" "}
-                        events
-                      </span>
-                    </span>
-                    {(project?.roomOverrides[String(item.id)] ||
-                      (project?.version === 2 &&
-                        project.authoredRooms[item.id])) && (
-                      <span className="modified-dot" />
-                    )}
-                    {room?.id === item.id && <FiChevronRight />}
-                  </Button>
-                ))}
-                {!visibleRooms.length && (
-                  <Text
-                    padding="16"
-                    variant="body-default-s"
-                    onBackground="neutral-weak"
-                  >
-                    No matching rooms.
-                  </Text>
-                )}
-              </Column>
-              <Column className="rom-summary" gap="12" padding="20" borderTop>
-                <Row gap="8" vertical="center">
-                  <span className="connection-dot" />
-                  <Text variant="label-strong-xs">
-                    {sample ? "SAMPLE · NO GAME ASSETS" : "ROM CONNECTED"}
-                  </Text>
-                </Row>
-                <Text variant="body-default-xs" onBackground="neutral-weak">
-                  {sample
-                    ? "A procedural scene for trying the viewport. Import your ROM to begin a project."
-                    : `${status?.rom?.title ?? "Mystical Ninja Starring Goemon"} · US`}
-                </Text>
-                <Button
-                  size="s"
-                  variant="tertiary"
-                  fillWidth
-                  onClick={
-                    sample
-                      ? () => {
-                          setSample(false);
-                          setBaseRoom(null);
-                          setRooms([]);
-                        }
-                      : importRom
-                  }
-                >
-                  {sample ? "Return to ROM setup" : "Change source ROM"}
-                </Button>
-              </Column>
-            </Column>
-            {libraryOpen && catalog && window.mnsg && (
-              <AssetLibrary
-                catalog={catalog}
-                api={window.mnsg}
-                disabled={!authoredRoom || Boolean(busy) || Boolean(modal)}
-                onInsert={insertAsset}
-                onClose={() => setLibraryOpen(false)}
-              />
-            )}
-            <Column className="viewport-panel" flex={1}>
-              <Row
-                className="viewport-heading"
-                vertical="center"
-                horizontal="between"
-                paddingX="20"
-                borderBottom
-              >
-                <Row gap="12" vertical="center">
-                  <Text variant="body-strong-s">
-                    {room?.name ?? "Choose a room"}
-                  </Text>
-                  <span className="geometry-badge">{geometryLabel}</span>
-                </Row>
-                <Row gap="4">
-                  <Button
-                    size="s"
-                    variant="tertiary"
-                    aria-label="Undo"
-                    title="Undo · ⌘/Ctrl Z"
-                    disabled={!past.length || Boolean(busy)}
-                    onClick={undo}
-                  >
-                    <FiCornerUpLeft />
-                  </Button>
-                  <Button
-                    size="s"
-                    variant="tertiary"
-                    aria-label="Redo"
-                    title="Redo · ⌘/Ctrl Shift Z"
-                    disabled={!future.length || Boolean(busy)}
-                    onClick={redo}
-                  >
-                    <FiCornerUpRight />
-                  </Button>
-                </Row>
-              </Row>
-              <div className="viewport-stage">
-                {room && (
-                  <RoomViewport
-                    room={room}
-                    selected={selected}
-                    options={busy ? { ...options, translate: false } : options}
-                    frame={frame}
-                    onSelect={selectRecord}
-                    onMove={moveRecord}
-                    onCoverage={setRenderCoverage}
-                    onActorCoverage={setActorCoverage}
-                    mouseMode={mouseMode}
-                    navigationEnabled={!modal && !busy}
-                    geometrySelection={geometrySelection}
-                    onGeometrySelect={selectGeometry}
-                    onAssetDrop={authoredRoom ? insertAsset : undefined}
-                  />
-                )}
-                <div className="viewport-top-overlay">
-                  <Column gap="8">
-                    <span className="view-tag">
-                      PERSPECTIVE <span>Y UP</span>
-                    </span>
-                    <span className="camera-key-hint">
-                      Click viewport · hold <kbd>WASD</kbd> to move
-                    </span>
-                  </Column>
-                  <div className="view-tool-stack">
-                    <Button
-                      variant="tertiary"
-                      size="s"
-                      horizontal="start"
-                      aria-label="Frame all geometry"
-                      title="Frame all geometry"
-                      onClick={() => frameRoom(false)}
-                    >
-                      <FiMaximize />
-                    </Button>
-                    <Button
-                      variant="tertiary"
-                      size="s"
-                      horizontal="start"
-                      aria-label="Frame selected record"
-                      title="Frame selected · F"
-                      disabled={!selected}
-                      onClick={() => frameRoom(true)}
-                    >
-                      <span>F</span>
-                    </Button>
-                    <span className="stack-divider" />
-                    <Button
-                      variant="tertiary"
-                      size="s"
-                      horizontal="start"
-                      aria-label="Toggle translation gizmo"
-                      title="Translate · T"
-                      aria-pressed={options.translate}
-                      disabled={sample || Boolean(busy) || !selectedMovable}
-                      onClick={() =>
-                        setOptions((value) => ({
-                          ...value,
-                          translate: !value.translate,
-                        }))
-                      }
-                    >
-                      <FiMove />
-                    </Button>
-                  </div>
-                </div>
-                <div className="viewport-bottom-overlay">
-                  <span className="axis-key">
-                    <i>X</i>
-                    <i>Y</i>
-                    <i>Z</i>
-                  </span>
-                  <span className="orbit-help">
-                    Left-drag to {mouseMode === "pan" ? "pan" : "tilt"}{" "}
-                    <span>·</span> Right-drag to pan <span>·</span> Scroll to
-                    zoom
-                  </span>
-                </div>
-                {room && !room.meshes.length &&
-                  (actorCoverage.roomId !== room.id || actorCoverage.parts === 0) && (
-                  <div className="no-geometry">
-                    No verified room geometry. Actor previews remain available.
-                  </div>
-                )}
-                {!sample && room && (
-                  <div
-                    className="actor-preview-summary"
-                    data-testid="actor-preview-summary"
-                    role="status"
-                  >
-                    {actorRefreshing
-                      ? "Refreshing actor models · previous preview retained"
-                      : actorVisualError?.source.id === baseRoom?.id
-                        ? "Actor preview refresh failed · previous preview retained"
-                        : actorCoverage.roomId === room.id
-                          ? `${actorCoverage.supported} native models · ${actorCoverage.conditional} conditional · ${actorCoverage.partial} partial · ${actorCoverage.nonvisual} controllers · ${actorCoverage.unsupported - actorCoverage.partial} unavailable`
-                          : "Reading actor visuals"}
-                  </div>
-                )}
-                {busy && (
-                  <div className="viewport-loading" role="status">
-                    <Spinner size="s" />
-                    {busy}…
-                  </div>
-                )}
-              </div>
-              <Row
-                className="viewport-controls"
-                vertical="center"
-                horizontal="between"
-                paddingX="16"
-                borderTop
-              >
-                <Row gap="4">
-                  <Row gap="2" role="group" aria-label="Left mouse drag mode">
-                    {(["pan", "tilt"] as const).map((mode) => (
-                      <Button
-                        key={mode}
-                        data-testid={`camera-${mode}`}
-                        size="s"
-                        variant="tertiary"
-                        className={
-                          mouseMode === mode
-                            ? "view-toggle active"
-                            : "view-toggle"
-                        }
-                        aria-pressed={mouseMode === mode}
-                        title={`Left-drag to ${mode}`}
-                        onClick={() => setMouseMode(mode)}
-                      >
-                        {mode === "pan" ? "Pan" : "Tilt"}
-                      </Button>
-                    ))}
-                  </Row>
-                  {(
-                    [
-                      "geometry",
-                      "textures",
-                      "grid",
-                      "wireframe",
-                      "actors",
-                      "events",
-                      "axes",
-                    ] as const
-                  ).map((key) => (
-                    <Button
-                      variant="tertiary"
-                      size="s"
-                      horizontal="start"
-                      key={key}
-                      data-testid={
-                        key === "textures" || key === "geometry"
-                          ? `${key}-toggle`
-                          : undefined
-                      }
-                      title={
-                        key === "geometry"
-                          ? "Show or hide room surfaces to inspect actors in their initial pose"
-                          : undefined
-                      }
-                      disabled={
-                        key === "textures" &&
-                        !textureCoverage.textured &&
-                        !(
-                          actorCoverage.roomId === room?.id &&
-                          actorCoverage.texturedTriangles
-                        )
-                      }
-                      className={
-                        options[key] ? "view-toggle active" : "view-toggle"
-                      }
-                      aria-pressed={options[key]}
-                      onClick={() =>
-                        setOptions((value) => ({
-                          ...value,
-                          [key]: !value[key],
-                        }))
-                      }
-                    >
-                      {key === "grid" && <FiGrid />}
-                      {key.charAt(0).toUpperCase() + key.slice(1)}
-                    </Button>
-                  ))}
-                </Row>
-                <Text variant="label-default-xs" onBackground="neutral-weak">
-                  {room?.meshes
-                    .reduce((sum, mesh) => sum + mesh.indices.length / 3, 0)
-                    .toLocaleString()}{" "}
-                  triangles
-                </Text>
-              </Row>
-              <div className="viewport-note">
-                {sharedImpacts.length > 0
-                  ? `Shared geometry translation from room ${sharedImpacts.map((id) => `0x${id.toString(16).toUpperCase()}`).join(", ")} · actor placements unchanged`
-                  : sample
-                    ? "Procedural sample · no ROM data · read only"
-                    : options.textures && textureCoverage.textured
-                      ? `ROM textures · ${textureCoverage.textured.toLocaleString()}/${textureCoverage.total.toLocaleString()} triangles · lighting, filtering and fog approximate`
-                      : "Solid preview · native actor initial poses · game behavior is not simulated"}
-              </div>
-            </Column>
-            <Column className="detail-panel" borderLeft>
-              <Row
-                className="panel-heading"
-                padding="20"
-                vertical="center"
-                horizontal="between"
-              >
-                <Text variant="label-strong-s">OUTLINER</Text>
-                <FiBox />
-              </Row>
-              <div
-                className="outliner-tabs"
-                role="tablist"
-                aria-label="Room records"
-              >
-                {(["actors", "events", "geometry", "room"] as const).map(
-                  (kind) => (
-                    <Button
-                      variant="tertiary"
-                      size="s"
-                      horizontal="start"
-                      role="tab"
-                      id={`${kind}-tab`}
-                      data-testid={
-                        kind === "room" ? "room-geometry-tab" : undefined
-                      }
-                      aria-controls="records-panel"
-                      aria-selected={tab === kind}
-                      className={tab === kind ? "active" : ""}
-                      key={kind}
-                      onClick={() => {
-                        setTab(kind);
-                        if (kind === "room") setSelected(null);
-                      }}
-                    >
-                      {kind.charAt(0).toUpperCase() + kind.slice(1)}
-                      {(kind === "actors" || kind === "events") && (
-                        <span>{room?.[kind].length ?? 0}</span>
-                      )}
-                    </Button>
-                  ),
-                )}
-              </div>
-              {tab !== "room" && tab !== "geometry" && (
-                <>
-                  <label className="search-box compact">
+          <DockWorkspace
+            ref={dock}
+            blocked={Boolean(busy) || Boolean(modal)}
+            onWindowsChange={setPopupWindows}
+            onSceneHostChange={setSceneHost}
+            onInteraction={setWorkspaceInteraction}
+            panels={{
+              rooms: (
+                <Column className="room-panel" borderRight>
+                  <label className="search-box">
                     <FiSearch />
                     <input
-                      aria-label="Search records"
-                      placeholder={`Find ${tab}…`}
-                      value={recordSearch}
-                      onChange={(event) => setRecordSearch(event.target.value)}
+                      aria-label="Search rooms"
+                      placeholder="Search rooms…"
+                      value={roomSearch}
+                      onChange={(event) => setRoomSearch(event.target.value)}
                     />
+                    <kbd>/</kbd>
                   </label>
-                  <div
-                    className="record-list"
-                    data-testid="actor-list"
-                    id="records-panel"
-                    role="tabpanel"
-                    aria-labelledby={`${tab}-tab`}
+                  {!sample && (
+                    <Row paddingX="16" gap="4">
+                      <Button
+                        size="s"
+                        variant="secondary"
+                        disabled={!catalog || Boolean(busy)}
+                        data-testid="new-room-button"
+                        onClick={() => setModal("room-new")}
+                      >
+                        New room
+                      </Button>
+                      <Button
+                        size="s"
+                        variant="tertiary"
+                        disabled={!catalog || Boolean(busy)}
+                        onClick={() => dock.current?.showPanel("assets")}
+                      >
+                        Library
+                      </Button>
+                    </Row>
+                  )}
+                  <Row
+                    className="list-caption"
+                    paddingX="20"
+                    paddingY="12"
+                    horizontal="between"
+                    textVariant="label-default-xs"
+                    onBackground="neutral-weak"
                   >
-                    {visibleRecords.map((item) => (
+                    <span>
+                      {sample
+                        ? "PROCEDURAL WORKSPACE"
+                        : "US ROM · ROOM DIRECTORY"}
+                    </span>
+                  </Row>
+                  <Column
+                    className="room-list"
+                    overflowY="auto"
+                    gap="4"
+                    paddingX="8"
+                  >
+                    {visibleRooms.map((item) => (
                       <Button
                         variant="tertiary"
                         size="s"
                         horizontal="start"
+                        data-testid="room-button"
+                        data-room-id={item.id}
+                        className={`room-item ${room?.id === item.id ? "is-selected" : ""}`}
                         key={item.id}
-                        className={`record-item ${selected === item.id ? "is-selected" : ""}`}
-                        onClick={() => selectRecord(item.id)}
+                        onClick={() => !sample && void loadRoom(item.id)}
+                        disabled={Boolean(busy)}
+                        aria-current={room?.id === item.id ? "true" : undefined}
                       >
-                        <span className={`record-symbol ${tab}`}>
-                          {tab === "actors" ? <FiBox /> : "◇"}
+                        <span className="room-index">
+                          {item.id.toString(16).toUpperCase().padStart(3, "0")}
                         </span>
-                        <span>{item.name}</span>
-                        <code>{item.index.toString().padStart(2, "0")}</code>
-                        {(overrides?.actors[
-                          "actorRef" in item && item.actorRef
-                            ? item.actorRef
-                            : item.id
-                        ] ||
-                          overrides?.events[item.id]) && (
+                        <span className="room-item-info">
+                          <span>{item.name}</span>
+                          <span>
+                            {item.actorCount} actors{" "}
+                            <span className="tiny-dot">·</span>{" "}
+                            {item.eventCount} events
+                          </span>
+                        </span>
+                        {(project?.roomOverrides[String(item.id)] ||
+                          (project?.version === 2 &&
+                            project.authoredRooms[item.id])) && (
                           <span className="modified-dot" />
                         )}
+                        {room?.id === item.id && <FiChevronRight />}
                       </Button>
                     ))}
-                    {!visibleRecords.length && (
-                      <div className="empty-records">
-                        {recordSearch
-                          ? "No matching records."
-                          : `No ${tab} in this room.`}
-                      </div>
+                    {!visibleRooms.length && (
+                      <Text
+                        padding="16"
+                        variant="body-default-s"
+                        onBackground="neutral-weak"
+                      >
+                        No matching rooms.
+                      </Text>
                     )}
-                  </div>
-                </>
-              )}
-              {tab === "geometry" && (
-                <div
-                  className="record-list"
-                  data-testid="authored-geometry-list"
-                >
-                  {authoredRoom ? (
-                    authoredRoom.meshes.map((mesh, i) => (
+                  </Column>
+                  <Column
+                    className="rom-summary"
+                    gap="12"
+                    padding="20"
+                    borderTop
+                  >
+                    <Row gap="8" vertical="center">
+                      <span className="connection-dot" />
+                      <Text variant="label-strong-xs">
+                        {sample ? "SAMPLE · NO GAME ASSETS" : "ROM CONNECTED"}
+                      </Text>
+                    </Row>
+                    <Text variant="body-default-xs" onBackground="neutral-weak">
+                      {sample
+                        ? "A procedural scene for trying the viewport. Import your ROM to begin a project."
+                        : `${status?.rom?.title ?? "Mystical Ninja Starring Goemon"} · US`}
+                    </Text>
+                    <Button
+                      size="s"
+                      variant="tertiary"
+                      fillWidth
+                      onClick={
+                        sample
+                          ? () => {
+                              setSample(false);
+                              setBaseRoom(null);
+                              setRooms([]);
+                            }
+                          : importRom
+                      }
+                    >
+                      {sample ? "Return to ROM setup" : "Change source ROM"}
+                    </Button>
+                  </Column>
+                </Column>
+              ),
+              scene: (
+                <Column className="viewport-panel" flex={1}>
+                  <Row
+                    className="viewport-heading"
+                    vertical="center"
+                    horizontal="between"
+                    paddingX="20"
+                    borderBottom
+                  >
+                    <Row gap="12" vertical="center">
+                      <Text variant="body-strong-s">
+                        {room?.name ?? "Choose a room"}
+                      </Text>
+                      <span className="geometry-badge">{geometryLabel}</span>
+                    </Row>
+                    <Row gap="4">
                       <Button
                         size="s"
                         variant="tertiary"
-                        className={`record-item ${selected === mesh.id ? "is-selected" : ""}`}
-                        key={mesh.id}
-                        data-mesh-id={mesh.id}
-                        onClick={() =>
-                          selectGeometry({ meshId: mesh.id, mode: "mesh" })
-                        }
+                        aria-label="Undo"
+                        title="Undo · ⌘/Ctrl Z"
+                        disabled={!past.length || Boolean(busy)}
+                        onClick={undo}
                       >
-                        Mesh {i + 1} · {mesh.vertices.length} vertices
+                        <FiCornerUpLeft />
                       </Button>
-                    ))
-                  ) : (
-                    <Column padding="20" gap="12">
-                      <Text variant="body-default-s">
-                        Create an editable replacement to author this room's
-                        meshes and actors.
-                      </Text>
                       <Button
-                        disabled={sample || Boolean(busy) || !catalog}
-                        data-testid="make-editable-button"
-                        onClick={makeEditable}
+                        size="s"
+                        variant="tertiary"
+                        aria-label="Redo"
+                        title="Redo · ⌘/Ctrl Shift Z"
+                        disabled={!future.length || Boolean(busy)}
+                        onClick={redo}
                       >
-                        Make editable copy
+                        <FiCornerUpRight />
                       </Button>
-                    </Column>
-                  )}
-                </div>
-              )}
-              <Row
-                className="inspector-heading"
-                paddingX="20"
-                paddingY="12"
-                borderY
-                horizontal="between"
-              >
-                <Text variant="label-strong-xs">
-                  {tab === "room" ? "ROOM INSPECTOR" : "INSPECTOR"}
-                </Text>
-                <Text variant="label-default-xs" onBackground="neutral-weak">
-                  {authoredRoom
-                    ? "Authored data"
-                    : (tab === "room" ? Boolean(geometryTranslation) : modified)
-                      ? "Modified"
-                      : "Source values"}
-                </Text>
-              </Row>
-              <div className="inspector-scroll">
-                {authoredRoom &&
-                catalog &&
-                !(tab === "events" && selectedEvent) ? (
-                  <AuthoringInspector
-                    key={selected ?? `room:${authoredRoom.id}`}
-                    room={authoredRoom}
-                    initialization={baseRoom?.initialization}
-                    catalog={catalog}
-                    selected={selected}
-                    geometrySelection={geometrySelection}
-                    disabled={Boolean(busy) || Boolean(modal)}
-                    onChange={changeAuthoredRoom}
-                    onSelect={selectRecord}
-                    onGeometrySelect={selectGeometry}
-                    onFrame={() => frameRoom(Boolean(selected))}
-                    savedRoom={savedAuthored}
-                    onRevertSaved={() =>
-                      savedAuthored &&
-                      changeAuthoredRoom(structuredClone(savedAuthored))
-                    }
-                    onRestoreNative={restoreNative}
-                    followCollision={followCollision}
-                    onFollowCollision={setFollowCollision}
-                    visual={selectedVisual}
-                    visualsPending={actorRefreshing}
-                    externalEntranceIds={externalEntranceIds}
-                    nativeEntranceIds={nativeEntranceIds}
-                    referencedEntrances={inboundEntranceIds}
-                    destinationRooms={rooms}
-                    loadEntrances={loadEntrances}
-                  />
-                ) : (
-                  <>
-                    {tab !== "room" &&
-                    selectedActor &&
-                    selectedVisual?.parts.length &&
-                    !sample ? (
-                      <div className="inspector-notice actor-occlusion-note">
-                        An actor’s initial pose may be hidden behind room
-                        surfaces. Use Geometry below the viewport to inspect it.
-                      </div>
-                    ) : null}
-                    {tab === "room" && baseRoom ? (
-                      <div
-                        id="records-panel"
-                        role="tabpanel"
-                        aria-labelledby="room-tab"
-                      >
-                        <RoomInspector
-                          key={`room:${project?.id}:${baseRoom.id}`}
-                          room={baseRoom as RoomData}
-                          translation={
-                            geometryTranslation ?? { x: 0, y: 0, z: 0 }
-                          }
-                          modified={Boolean(geometryTranslation)}
-                          sample={sample}
-                          busy={Boolean(busy)}
-                          sharedImpacts={sharedImpacts}
-                          onChange={editGeometry}
-                          onReset={() => editGeometry(null)}
-                          onFrame={() => frameRoom(false)}
-                        />
-                      </div>
-                    ) : (
-                      <Inspector
-                        key={selected ?? "none"}
-                        actor={
-                          selectedActor as
-                            | import("../shared/types").ActorData
-                            | undefined
+                    </Row>
+                  </Row>
+                  <div className="viewport-stage">
+                    {room && (
+                      <RoomViewport
+                        room={room}
+                        cameraSnapshot={cameraSnapshot}
+                        hostWindow={sceneHost?.window ?? null}
+                        sceneVisible={sceneHost?.visible ?? false}
+                        selected={selected}
+                        options={
+                          busy ? { ...options, translate: false } : options
                         }
-                        event={selectedEvent}
-                        visual={selectedVisual}
-                        visualsPending={actorRefreshing}
-                        sample={sample}
-                        busy={Boolean(busy)}
-                        supportedActorIds={
-                          baseRoom?.actors.map((actor) => actor.actorId) ?? []
+                        frame={frame}
+                        onSelect={selectRecord}
+                        onMove={moveRecord}
+                        onCoverage={setRenderCoverage}
+                        onActorCoverage={setActorCoverage}
+                        mouseMode={mouseMode}
+                        navigationEnabled={
+                          !modal && !busy && !workspaceInteraction
                         }
-                        modified={modified}
-                        onActor={(value) =>
-                          selected && edit("actors", selected, value)
-                        }
-                        onEvent={(value) =>
-                          selected && edit("events", selected, value)
-                        }
-                        onReset={() =>
-                          selected &&
-                          edit(
-                            selectedActor ? "actors" : "events",
-                            selected,
-                            null,
-                          )
-                        }
-                        onFrame={() => frameRoom(true)}
-                        onInspectActor={(id) => {
-                          selectRecord(id);
-                          setTab("actors");
-                        }}
+                        geometrySelection={geometrySelection}
+                        onGeometrySelect={selectGeometry}
+                        onAssetDrop={authoredRoom ? insertAsset : undefined}
                       />
                     )}
-                  </>
-                )}
-              </div>
-            </Column>
-          </Row>
+                    <div className="viewport-top-overlay">
+                      <Column gap="8">
+                        <span className="view-tag">
+                          PERSPECTIVE <span>Y UP</span>
+                        </span>
+                        <span className="camera-key-hint">
+                          Click viewport · hold <kbd>WASD</kbd> to move
+                        </span>
+                      </Column>
+                      <div className="view-tool-stack">
+                        <Button
+                          variant="tertiary"
+                          size="s"
+                          horizontal="start"
+                          aria-label="Frame all geometry"
+                          title="Frame all geometry"
+                          onClick={() => frameRoom(false)}
+                        >
+                          <FiMaximize />
+                        </Button>
+                        <Button
+                          variant="tertiary"
+                          size="s"
+                          horizontal="start"
+                          aria-label="Frame selected record"
+                          title="Frame selected · F"
+                          disabled={!selected}
+                          onClick={() => frameRoom(true)}
+                        >
+                          <span>F</span>
+                        </Button>
+                        <span className="stack-divider" />
+                        <Button
+                          variant="tertiary"
+                          size="s"
+                          horizontal="start"
+                          aria-label="Toggle translation gizmo"
+                          title="Translate · T"
+                          aria-pressed={options.translate}
+                          disabled={sample || Boolean(busy) || !selectedMovable}
+                          onClick={() =>
+                            setOptions((value) => ({
+                              ...value,
+                              translate: !value.translate,
+                            }))
+                          }
+                        >
+                          <FiMove />
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="viewport-bottom-overlay">
+                      <span className="axis-key">
+                        <i>X</i>
+                        <i>Y</i>
+                        <i>Z</i>
+                      </span>
+                      <span className="orbit-help">
+                        Left-drag to {mouseMode === "pan" ? "pan" : "tilt"}{" "}
+                        <span>·</span> Right-drag to pan <span>·</span> Scroll
+                        to zoom
+                      </span>
+                    </div>
+                    {room &&
+                      !room.meshes.length &&
+                      (actorCoverage.roomId !== room.id ||
+                        actorCoverage.parts === 0) && (
+                        <div className="no-geometry">
+                          No verified room geometry. Actor previews remain
+                          available.
+                        </div>
+                      )}
+                    {!sample && room && (
+                      <div
+                        className="actor-preview-summary"
+                        data-testid="actor-preview-summary"
+                        role="status"
+                      >
+                        {actorRefreshing
+                          ? "Refreshing actor models · previous preview retained"
+                          : actorVisualError?.source.id === baseRoom?.id
+                            ? "Actor preview refresh failed · previous preview retained"
+                            : actorCoverage.roomId === room.id
+                              ? `${actorCoverage.supported} native models · ${actorCoverage.conditional} conditional · ${actorCoverage.partial} partial · ${actorCoverage.nonvisual} controllers · ${actorCoverage.unsupported - actorCoverage.partial} unavailable`
+                              : "Reading actor visuals"}
+                      </div>
+                    )}
+                    {busy && (
+                      <div className="viewport-loading" role="status">
+                        <Spinner size="s" />
+                        {busy}…
+                      </div>
+                    )}
+                  </div>
+                  <Row
+                    className="viewport-controls"
+                    vertical="center"
+                    horizontal="between"
+                    paddingX="16"
+                    borderTop
+                  >
+                    <Row gap="4">
+                      <Row
+                        gap="2"
+                        role="group"
+                        aria-label="Left mouse drag mode"
+                      >
+                        {(["pan", "tilt"] as const).map((mode) => (
+                          <Button
+                            key={mode}
+                            data-testid={`camera-${mode}`}
+                            size="s"
+                            variant="tertiary"
+                            className={
+                              mouseMode === mode
+                                ? "view-toggle active"
+                                : "view-toggle"
+                            }
+                            aria-pressed={mouseMode === mode}
+                            title={`Left-drag to ${mode}`}
+                            onClick={() => setMouseMode(mode)}
+                          >
+                            {mode === "pan" ? "Pan" : "Tilt"}
+                          </Button>
+                        ))}
+                      </Row>
+                      {(
+                        [
+                          "geometry",
+                          "textures",
+                          "grid",
+                          "wireframe",
+                          "actors",
+                          "events",
+                          "axes",
+                        ] as const
+                      ).map((key) => (
+                        <Button
+                          variant="tertiary"
+                          size="s"
+                          horizontal="start"
+                          key={key}
+                          data-testid={
+                            key === "textures" || key === "geometry"
+                              ? `${key}-toggle`
+                              : undefined
+                          }
+                          title={
+                            key === "geometry"
+                              ? "Show or hide room surfaces to inspect actors in their initial pose"
+                              : undefined
+                          }
+                          disabled={
+                            key === "textures" &&
+                            !textureCoverage.textured &&
+                            !(
+                              actorCoverage.roomId === room?.id &&
+                              actorCoverage.texturedTriangles
+                            )
+                          }
+                          className={
+                            options[key] ? "view-toggle active" : "view-toggle"
+                          }
+                          aria-pressed={options[key]}
+                          onClick={() =>
+                            setOptions((value) => ({
+                              ...value,
+                              [key]: !value[key],
+                            }))
+                          }
+                        >
+                          {key === "grid" && <FiGrid />}
+                          {key.charAt(0).toUpperCase() + key.slice(1)}
+                        </Button>
+                      ))}
+                    </Row>
+                    <Text
+                      variant="label-default-xs"
+                      onBackground="neutral-weak"
+                    >
+                      {room?.meshes
+                        .reduce((sum, mesh) => sum + mesh.indices.length / 3, 0)
+                        .toLocaleString()}{" "}
+                      triangles
+                    </Text>
+                  </Row>
+                  <div className="viewport-note">
+                    {sharedImpacts.length > 0
+                      ? `Shared geometry translation from room ${sharedImpacts.map((id) => `0x${id.toString(16).toUpperCase()}`).join(", ")} · actor placements unchanged`
+                      : sample
+                        ? "Procedural sample · no ROM data · read only"
+                        : options.textures && textureCoverage.textured
+                          ? `ROM textures · ${textureCoverage.textured.toLocaleString()}/${textureCoverage.total.toLocaleString()} triangles · lighting, filtering and fog approximate`
+                          : "Solid preview · native actor initial poses · game behavior is not simulated"}
+                  </div>
+                </Column>
+              ),
+              hierarchy: (
+                <Column className="hierarchy-content">
+                  <div
+                    className="outliner-tabs"
+                    role="tablist"
+                    aria-label="Room records"
+                  >
+                    {(["actors", "events", "geometry", "room"] as const).map(
+                      (kind) => (
+                        <Button
+                          variant="tertiary"
+                          size="s"
+                          horizontal="start"
+                          role="tab"
+                          id={`${kind}-tab`}
+                          data-testid={
+                            kind === "room" ? "room-geometry-tab" : undefined
+                          }
+                          aria-controls="records-panel"
+                          aria-selected={tab === kind}
+                          className={tab === kind ? "active" : ""}
+                          key={kind}
+                          onClick={() => {
+                            setTab(kind);
+                            if (kind === "room") setSelected(null);
+                          }}
+                        >
+                          {kind.charAt(0).toUpperCase() + kind.slice(1)}
+                          {(kind === "actors" || kind === "events") && (
+                            <span>{room?.[kind].length ?? 0}</span>
+                          )}
+                        </Button>
+                      ),
+                    )}
+                  </div>
+                  {tab !== "room" && tab !== "geometry" && (
+                    <>
+                      <label className="search-box compact">
+                        <FiSearch />
+                        <input
+                          aria-label="Search records"
+                          placeholder={`Find ${tab}…`}
+                          value={recordSearch}
+                          onChange={(event) =>
+                            setRecordSearch(event.target.value)
+                          }
+                        />
+                      </label>
+                      <div
+                        className="record-list"
+                        data-testid="actor-list"
+                        id="records-panel"
+                        role="tabpanel"
+                        aria-labelledby={`${tab}-tab`}
+                      >
+                        {visibleRecords.map((item) => (
+                          <Button
+                            variant="tertiary"
+                            size="s"
+                            horizontal="start"
+                            key={item.id}
+                            className={`record-item ${selected === item.id ? "is-selected" : ""}`}
+                            onClick={() => selectRecord(item.id)}
+                          >
+                            <span className={`record-symbol ${tab}`}>
+                              {tab === "actors" ? <FiBox /> : "◇"}
+                            </span>
+                            <span>{item.name}</span>
+                            <code>
+                              {item.index.toString().padStart(2, "0")}
+                            </code>
+                            {(overrides?.actors[
+                              "actorRef" in item && item.actorRef
+                                ? item.actorRef
+                                : item.id
+                            ] ||
+                              overrides?.events[item.id]) && (
+                              <span className="modified-dot" />
+                            )}
+                          </Button>
+                        ))}
+                        {!visibleRecords.length && (
+                          <div className="empty-records">
+                            {recordSearch
+                              ? "No matching records."
+                              : `No ${tab} in this room.`}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                  {tab === "geometry" && (
+                    <div
+                      className="record-list"
+                      data-testid="authored-geometry-list"
+                    >
+                      {authoredRoom ? (
+                        authoredRoom.meshes.map((mesh, i) => (
+                          <Button
+                            size="s"
+                            variant="tertiary"
+                            className={`record-item ${selected === mesh.id ? "is-selected" : ""}`}
+                            key={mesh.id}
+                            data-mesh-id={mesh.id}
+                            onClick={() =>
+                              selectGeometry({ meshId: mesh.id, mode: "mesh" })
+                            }
+                          >
+                            Mesh {i + 1} · {mesh.vertices.length} vertices
+                          </Button>
+                        ))
+                      ) : (
+                        <Column padding="20" gap="12">
+                          <Text variant="body-default-s">
+                            Create an editable replacement to author this room's
+                            meshes and actors.
+                          </Text>
+                          <Button
+                            disabled={sample || Boolean(busy) || !catalog}
+                            data-testid="make-editable-button"
+                            onClick={makeEditable}
+                          >
+                            Make editable copy
+                          </Button>
+                        </Column>
+                      )}
+                    </div>
+                  )}
+                </Column>
+              ),
+              inspector: (
+                <Column className="inspector-panel-content">
+                  {" "}
+                  <Row
+                    className="inspector-heading"
+                    paddingX="20"
+                    paddingY="12"
+                    borderY
+                    horizontal="between"
+                  >
+                    <Text
+                      variant="label-default-xs"
+                      onBackground="neutral-weak"
+                    >
+                      {authoredRoom
+                        ? "Authored data"
+                        : (
+                              tab === "room"
+                                ? Boolean(geometryTranslation)
+                                : modified
+                            )
+                          ? "Modified"
+                          : "Source values"}
+                    </Text>
+                  </Row>
+                  <div className="inspector-scroll">
+                    {authoredRoom &&
+                    catalog &&
+                    !(tab === "events" && selectedEvent) ? (
+                      <AuthoringInspector
+                        key={selected ?? `room:${authoredRoom.id}`}
+                        room={authoredRoom}
+                        initialization={baseRoom?.initialization}
+                        catalog={catalog}
+                        selected={selected}
+                        geometrySelection={geometrySelection}
+                        disabled={Boolean(busy) || Boolean(modal)}
+                        onChange={changeAuthoredRoom}
+                        onSelect={selectRecord}
+                        onGeometrySelect={selectGeometry}
+                        onFrame={() => frameRoom(Boolean(selected))}
+                        savedRoom={savedAuthored}
+                        onRevertSaved={() =>
+                          savedAuthored &&
+                          changeAuthoredRoom(structuredClone(savedAuthored))
+                        }
+                        onRestoreNative={restoreNative}
+                        followCollision={followCollision}
+                        onFollowCollision={setFollowCollision}
+                        visual={selectedVisual}
+                        visualsPending={actorRefreshing}
+                        externalEntranceIds={externalEntranceIds}
+                        nativeEntranceIds={nativeEntranceIds}
+                        referencedEntrances={inboundEntranceIds}
+                        destinationRooms={rooms}
+                        loadEntrances={loadEntrances}
+                      />
+                    ) : (
+                      <>
+                        {tab !== "room" &&
+                        selectedActor &&
+                        selectedVisual?.parts.length &&
+                        !sample ? (
+                          <div className="inspector-notice actor-occlusion-note">
+                            An actor’s initial pose may be hidden behind room
+                            surfaces. Use Geometry below the viewport to inspect
+                            it.
+                          </div>
+                        ) : null}
+                        {tab === "room" && baseRoom ? (
+                          <div
+                            id="records-panel"
+                            role="tabpanel"
+                            aria-labelledby="room-tab"
+                          >
+                            <RoomInspector
+                              key={`room:${project?.id}:${baseRoom.id}`}
+                              room={baseRoom as RoomData}
+                              translation={
+                                geometryTranslation ?? { x: 0, y: 0, z: 0 }
+                              }
+                              modified={Boolean(geometryTranslation)}
+                              sample={sample}
+                              busy={Boolean(busy) || Boolean(modal)}
+                              sharedImpacts={sharedImpacts}
+                              onChange={editGeometry}
+                              onReset={() => editGeometry(null)}
+                              onFrame={() => frameRoom(false)}
+                            />
+                          </div>
+                        ) : (
+                          <Inspector
+                            key={selected ?? "none"}
+                            actor={
+                              selectedActor as
+                                | import("../shared/types").ActorData
+                                | undefined
+                            }
+                            event={selectedEvent}
+                            visual={selectedVisual}
+                            visualsPending={actorRefreshing}
+                            sample={sample}
+                            busy={Boolean(busy) || Boolean(modal)}
+                            supportedActorIds={
+                              baseRoom?.actors.map((actor) => actor.actorId) ??
+                              []
+                            }
+                            modified={modified}
+                            onActor={(value) =>
+                              selected && edit("actors", selected, value)
+                            }
+                            onEvent={(value) =>
+                              selected && edit("events", selected, value)
+                            }
+                            onReset={() =>
+                              selected &&
+                              edit(
+                                selectedActor ? "actors" : "events",
+                                selected,
+                                null,
+                              )
+                            }
+                            onFrame={() => frameRoom(true)}
+                            onInspectActor={(id) => {
+                              selectRecord(id);
+                              setTab("actors");
+                            }}
+                          />
+                        )}
+                      </>
+                    )}
+                  </div>
+                </Column>
+              ),
+              assets:
+                catalog && window.mnsg ? (
+                  <AssetLibrary
+                    catalog={catalog}
+                    api={window.mnsg}
+                    disabled={!authoredRoom || Boolean(busy) || Boolean(modal)}
+                    onInsert={insertAsset}
+                    onClose={() => dock.current?.closePanel("assets")}
+                  />
+                ) : (
+                  <Text padding="16" onBackground="neutral-weak">
+                    Import your US ROM to browse native assets.
+                  </Text>
+                ),
+              console: (
+                <Column className="workspace-console" fill>
+                  <Row gap="8" padding="8">
+                    <label>
+                      Severity{" "}
+                      <select
+                        aria-label="Console severity"
+                        value={consoleFilter}
+                        onChange={(event) =>
+                          setConsoleFilter(event.target.value)
+                        }
+                      >
+                        <option value="all">All</option>
+                        <option value="error">Errors</option>
+                        <option value="warning">Warnings</option>
+                        <option value="info">Information</option>
+                      </select>
+                    </label>
+                    <label>
+                      Source{" "}
+                      <select
+                        aria-label="Console source"
+                        value={consoleSource}
+                        onChange={(event) =>
+                          setConsoleSource(event.target.value)
+                        }
+                      >
+                        <option value="all">All sources</option>
+                        {[
+                          ...new Set(consoleLogs.map((entry) => entry.source)),
+                        ].map((source) => (
+                          <option key={source} value={source}>
+                            {source}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <Button
+                      variant="tertiary"
+                      size="s"
+                      onClick={() => setConsoleLogs([])}
+                    >
+                      Clear console
+                    </Button>
+                  </Row>
+                  <div
+                    className="console-records"
+                    role="log"
+                    aria-label="Editor console"
+                  >
+                    {consoleLogs
+                      .filter(
+                        (entry) =>
+                          (consoleFilter === "all" ||
+                            entry.level === consoleFilter) &&
+                          (consoleSource === "all" ||
+                            entry.source === consoleSource),
+                      )
+                      .map((entry) => (
+                        <div
+                          key={entry.id}
+                          className={`console-entry console-${entry.level}`}
+                        >
+                          <time>
+                            {new Date(entry.time).toLocaleTimeString()}
+                          </time>
+                          <strong>{entry.level}</strong>
+                          <span>{entry.source}</span>
+                          <p>{entry.message}</p>
+                        </div>
+                      ))}
+                    {!consoleLogs.length && (
+                      <Text
+                        padding="16"
+                        variant="body-default-s"
+                        onBackground="neutral-weak"
+                      >
+                        No editor messages in this session.
+                      </Text>
+                    )}
+                  </div>
+                </Column>
+              ),
+            }}
+          />
           {error && (
             <div className="error-banner workspace-banner" role="alert">
               <span>{error}</span>
@@ -1814,6 +2017,23 @@ export default function EditorPage() {
             </Row>
           </Row>
         </>
+      )}
+      {modal === "settings" && project && (
+        <ModalShell
+          title="Project and build settings"
+          onClose={closeModal}
+          wide
+        >
+          <ModSettingsPanel
+            project={project}
+            busy={Boolean(busy)}
+            onClose={closeModal}
+            onApply={(mod) => {
+              transact({ ...canonicalProject(project), mod });
+              setModal(null);
+            }}
+          />
+        </ModalShell>
       )}
       {modal === "room-new" && (
         <ModalShell title="New room" onClose={closeModal}>
@@ -1948,7 +2168,7 @@ export default function EditorPage() {
                   <small>
                     {kind === "patch"
                       ? "Add generated sources to your own mod project."
-                      : "Build a .nrm file with the configured mod toolchain."}
+                      : "Build a .nrm file with the bundled offline tools."}
                   </small>
                 </span>
                 {exportKind === kind && <FiCheck />}
@@ -1959,8 +2179,8 @@ export default function EditorPage() {
             <Column gap="12">
               <div className="inline-notice">
                 {status?.toolchain.ready
-                  ? `Toolchain ready${status.toolchain.label ? ` · ${status.toolchain.label}` : ""}`
-                  : "A compatible Recomp mod toolchain is required to build an .nrm file."}
+                  ? `Bundled offline tools ready${status.toolchain.label ? ` · ${status.toolchain.label}` : ""}`
+                  : "The bundled tools are unavailable for this platform. Recheck them to see the missing components."}
                 {status?.toolchain.missing.length ? (
                   <p>Missing: {status.toolchain.missing.join(", ")}</p>
                 ) : null}
@@ -1969,7 +2189,7 @@ export default function EditorPage() {
                 variant="secondary"
                 size="s"
                 onClick={() =>
-                  void run("Configuring toolchain", async () => {
+                  void run("Checking bundled tools", async () => {
                     const toolchain = await api().configureToolchain();
                     if (toolchain)
                       setStatus((value) =>
@@ -1979,7 +2199,7 @@ export default function EditorPage() {
                 }
               >
                 <FiSettings />
-                Configure toolchain
+                Recheck bundled tools
               </Button>
             </Column>
           )}
@@ -1995,6 +2215,43 @@ export default function EditorPage() {
                   ? api().exportPatch(project)
                   : api().exportNrm(project));
                 if (result) {
+                  const buildEntries: Array<{
+                    level: WorkspaceLog["level"];
+                    message: string;
+                  }> = [
+                    ...result.warnings.map((message) => ({
+                      level: "warning" as const,
+                      message,
+                    })),
+                    ...(result.outputPaths ?? result.fileNames).map(
+                      (message) => ({
+                        level: "info" as const,
+                        message: `Output: ${message}`,
+                      }),
+                    ),
+                    ...(result.buildLog
+                      ? [
+                          {
+                            level: "info" as const,
+                            message:
+                              result.buildLog.length > 32768
+                                ? `[Earlier build output omitted]\n${result.buildLog.slice(-32768)}`
+                                : result.buildLog,
+                          },
+                        ]
+                      : []),
+                  ];
+                  setConsoleLogs((logs) =>
+                    buildEntries.reduce(
+                      (current, entry) =>
+                        appendWorkspaceLog(current, {
+                          ...entry,
+                          source: "Build",
+                          time: Date.now(),
+                        }),
+                      logs,
+                    ),
+                  );
                   setModal(null);
                   setNotice(
                     `Exported ${result.fileNames.join(", ")}${result.warnings.length ? ` · ${result.warnings.join("; ")}` : ""}`,

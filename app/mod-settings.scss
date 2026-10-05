@@ -1,0 +1,41 @@
+.mod-settings-panel { width: 100%; max-width: 100%; min-width: 0; min-height: 0; max-height: calc(100dvh - 112px); flex: 1 1 auto; box-sizing: border-box; overflow: hidden; display: flex; flex-direction: column; color: var(--neutral-on-background-strong); font-size: 13px; }
+.mod-settings-panel header, .mod-settings-panel footer { display: flex; gap: 16px; justify-content: space-between; align-items: center; padding: 16px; flex-wrap: wrap; flex-shrink: 0; min-width: 0; }
+.mod-settings-panel header > div { min-width: 0; }
+.mod-settings-panel footer > span { flex: 1 1 160px; }
+.mod-settings-panel h2 { margin: 0 0 6px; font-size: 20px; }
+.mod-settings-panel h3 { margin: 20px 0 12px; font-size: 15px; }
+.mod-settings-panel p { line-height: 1.5; }
+.mod-settings-panel header p { margin: 0; opacity: .7; }
+.mod-settings-panel nav { display: flex; gap: 4px; padding: 0 16px 12px; flex-wrap: wrap; border-bottom: 1px solid var(--neutral-border-medium); flex-shrink: 0; }
+.mod-settings-panel nav button { padding: 8px 12px; background: transparent; color: inherit; border: 1px solid var(--neutral-border-medium); border-radius: 6px; cursor: pointer; }
+.mod-settings-panel nav button[aria-pressed=true] { background: var(--brand-alpha-weak); border-color: var(--brand-border-strong); }
+.mod-settings-content { flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; padding: 16px; min-height: 0; min-width: 0; }
+.mod-field { display: flex; flex-direction: column; gap: 6px; margin: 0 0 14px; min-width: 0; }
+.mod-field input, .mod-field textarea { width: 100%; box-sizing: border-box; background: var(--neutral-background-medium); color: inherit; border: 1px solid var(--neutral-border-medium); border-radius: 6px; padding: 8px; font: inherit; }
+.mod-field textarea { resize: vertical; min-height: 70px; }
+.mod-field small, .mod-hint { font-size: 12px; opacity: .7; }
+.mod-field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
+.mod-check { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.mod-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.mod-settings-panel fieldset { border: 1px solid var(--neutral-border-medium); border-radius: 8px; margin: 0 0 16px; padding: 14px; min-width: 0; }
+.mod-settings-panel legend { padding: 0 6px; max-width: 100%; overflow-wrap: anywhere; }
+.mod-settings-panel p, .mod-field small { overflow-wrap: anywhere; }
+.mod-icon { width: 80px; height: 80px; object-fit: contain; border: 1px solid var(--neutral-border-medium); border-radius: 6px; }
+.mod-error { margin: 0 0 16px; overflow-wrap: anywhere; color: var(--danger-on-background-strong); }
+@media(max-width: 640px) { .mod-field-grid { grid-template-columns: 1fr; } }
+.mod-field input[aria-invalid=true], .mod-field textarea[aria-invalid=true] { border: 2px solid var(--danger-on-background-strong); }
+.mod-field-error { color: var(--danger-on-background-strong); font-size: 13px; line-height: 1.5; opacity: 1; }
+.mod-error { border: 1px solid var(--danger-border-strong); border-radius: 6px; padding: 10px; line-height: 1.5; }
+.mod-error-link { display: block; background: transparent; border: 0; color: inherit; font: inherit; text-decoration: underline; padding: 6px 0 0; cursor: pointer; }
+.mod-settings-panel :focus-visible { outline: 2px solid var(--brand-on-background-strong); outline-offset: 3px; }
+.mod-settings-panel .mod-field small, .mod-settings-panel .mod-hint { opacity: 1; color: var(--neutral-on-background-medium); }
+.mod-settings-panel header p { opacity: 1; color: var(--neutral-on-background-medium); }
+
+@media(max-height: 600px) {
+  .mod-settings-panel header, .mod-settings-panel footer { padding: 8px; gap: 8px; }
+  .mod-settings-panel header p { display: none; }
+  .mod-settings-panel h2 { font-size: 16px; margin: 0; }
+  .mod-settings-panel nav { padding: 0 8px 8px; }
+  .mod-settings-panel nav button { padding: 6px 8px; }
+  .mod-settings-content { padding: 8px; }
+}

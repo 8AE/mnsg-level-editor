@@ -1,3 +1,4 @@
+import { defaultModSettings } from "../shared/mod-settings";
 import type {
   ActorPrototype,
   AuthoredMesh,
@@ -18,8 +19,8 @@ import {
 export const newId = (prefix: string) => `${prefix}:${crypto.randomUUID()}`;
 export function canonicalProject(project: EditorProject): EditorProjectV2 {
   return project.version === 2
-    ? project
-    : { ...project, version: 2, authoredRooms: {} };
+    ? project.mod ? project : { ...project, mod: defaultModSettings(project) }
+    : { ...project, version: 2, authoredRooms: {}, mod: defaultModSettings(project) };
 }
 export function updateAuthoredRoom(
   project: EditorProject,

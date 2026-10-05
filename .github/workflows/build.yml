@@ -4,28 +4,54 @@ on:
   push:
     branches: [main]
   pull_request:
+permissions:
+  contents: read
 jobs:
+  managed-tools:
+    uses: ./.github/workflows/managed-tools.yml
   package:
+    needs: managed-tools
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
+          - os: macos-15
             target: mac
+            platform: darwin
             arch: arm64
-          - os: macos-latest
+            bundle: 'release/mac-arm64/MNSG Level Editor.app/Contents/Resources/managed-tools'
+            app: 'release/mac-arm64/MNSG Level Editor.app/Contents/MacOS/MNSG Level Editor'
+            executableSuffix: ''
+          - os: macos-15-intel
             target: mac
+            platform: darwin
             arch: x64
-          - os: windows-latest
+            bundle: 'release/mac/MNSG Level Editor.app/Contents/Resources/managed-tools'
+            app: 'release/mac/MNSG Level Editor.app/Contents/MacOS/MNSG Level Editor'
+            executableSuffix: ''
+          - os: windows-2022
             target: win
+            platform: win32
             arch: x64
+            bundle: 'release/win-unpacked/resources/managed-tools'
+            app: 'release/win-unpacked/MNSG Level Editor.exe'
+            executableSuffix: '.exe'
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: managed-tools-${{ matrix.platform }}-${{ matrix.arch }}
+          path: .managed-artifact
+      - name: Stage target tools with executable permissions
+        run: tar -xzf .managed-artifact/managed-tools-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz -C resources
+      - name: Verify staged native tools offline
+        run: node scripts/smoke-managed-tools.mjs
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
@@ -33,7 +59,24 @@ jobs:
       - run: npx electron-builder --${{ matrix.target }} --${{ matrix.arch }} --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-      - uses: actions/upload-artifact@v4
+      - name: Verify tools from the actual packaged application
+        run: node scripts/smoke-managed-tools.mjs "--bundle=${{ matrix.bundle }}"
+      - name: Verify application signing and resource seal
+        if: runner.os == 'macOS'
+        run: codesign --verify --deep --strict --verbose=2 "${{ matrix.bundle }}/../../.."
+      - name: Verify actual packaged first boot with no ROM or host toolchain
+        run: node scripts/smoke-package.mjs
+        env:
+          MNSG_TEST_APP: ${{ github.workspace }}/${{ matrix.app }}
+          MNSG_TEST_CACHE_DIR: ${{ runner.temp }}/mnsg-ci-no-rom-cache-${{ github.run_id }}
+      - name: Compile all mod settings using exclusively the packaged tools
+        run: node --import tsx --test tests/export-mod-settings.test.ts
+        env:
+          MNSG_EXPORT_TEST_TEMPLATE: ${{ github.workspace }}/${{ matrix.bundle }}
+          MNSG_EXPORT_TEST_CLANG: ${{ github.workspace }}/${{ matrix.bundle }}/bin/clang${{ matrix.executableSuffix }}
+          MNSG_EXPORT_TEST_LINKER: ${{ github.workspace }}/${{ matrix.bundle }}/bin/ld.lld${{ matrix.executableSuffix }}
+          MNSG_EXPORT_TEST_MOD_TOOL: ${{ github.workspace }}/${{ matrix.bundle }}/bin/RecompModTool${{ matrix.executableSuffix }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: desktop-${{ matrix.target }}-${{ matrix.arch }}
           path: |
