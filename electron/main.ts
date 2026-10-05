@@ -325,3 +325,13 @@ app.whenReady().then(async () => {
   app.on("activate", () => { if (!window) createWindow(); });
 }).catch((error: unknown) => { console.error(error); app.quit(); });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
+// Window close handlers enqueue their last geometry after before-quit. Wait at
+// will-quit, once those handlers have run, so an installed app cannot exit while
+// its atomic preference writes are still pending.
+let boundsFlushedForQuit = false;
+app.on("will-quit", event => {
+  if (boundsFlushedForQuit) return;
+  event.preventDefault();
+  boundsFlushedForQuit = true;
+  void boundsWrites.finally(() => app.quit());
+});
