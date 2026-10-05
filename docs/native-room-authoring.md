@@ -72,7 +72,7 @@ arrays in File11 are rooted here:
 | --- | --- | --- |
 | `0x5C57EC` | `D_802098DC` | Six pointers to 20-byte primary graphics records. |
 | `0x5C5804` | `D_802098F4` | Six pointers to 8-byte secondary model/material records. |
-| `0x5C581C` | `D_8020990C` | Six pointers to four-`s16` room resource records. |
+| `0x5C581C` | `D_8020990C` | Six pointers to four-`u16` room resource records. |
 | `0x5C5834` | `D_80209924` | Six pointers to collision-plane pointer arrays. |
 | `0x5C584C` | `D_8020993C` | Six pointers to collision-tree pointer arrays. |
 | `0x5C587C` | `D_8020996C` | Six pointers to `u16` scrolling-background selectors. |
@@ -86,19 +86,23 @@ synchronous loading. Resource readiness and allocation failure must retain
 their native meaning.
 
 Room actor metadata is 28 bytes: resident roster pointer +0, names +4, normal
-roster +8, partition pointer +0xC, partition configuration +0x10, `s16` source
-wave ID +0x14, reserved halfword +0x16, and load callback +0x18. Fresh
+roster +8, partition pointer +0xC, partition configuration +0x10, `u16` source
+file ID +0x14 (native D848 reads LHU), reserved `u16` +0x16 (zero in all 374 canonical
+records), and resource-loading callback +0x18. Fresh
 `func_8020D6BC_5C8B8C(void)` stores the callback at `system+0x3B03C` and invokes
 it as **`void(void)`**. It does not pass the room ID or metadata pointer.
 The call is unconditional: a null callback is unsafe. A room without extra
 dependencies still needs a valid no-op callback.
-`D670` returns one only when that pointer differs from the previous pointer
-at `system+0x3B03C`. Transition setup calls `D6BC` only for that difference
+`D670` reads the current room as `u16` at `system+0x3ADF2`, indexes the 800-slot
+metadata table directly, and returns the literal value zero or one according to whether
+its +0x18 callback differs from `system+0x3B03C`. Stage/group/local fields do not select
+this callback. Native D670 guards neither the index nor the metadata pointer. Transition
+setup calls `D6BC` only for that difference
 or a nonzero `system+0xCF88D`. One shared generated callback for every room
 therefore needs explicit dependency-state handling; it does not automatically
 run again when a room ID changes.
 
-Cold setup `func_801F728C_5B319C(task)` runs room resources, the actor load
+Cold setup `func_801F728C_5B319C(task)` runs room resources, the room resource-load
 callback, optional background scheduling, collision binding, then renderer,
 player, and actor-manager scheduling. Transition setup
 `func_801F7F78_5B3E88(void)` checks/reloads actor resources, schedules the
@@ -1426,9 +1430,109 @@ truncated input remains unsupported. No native game or generated NRM was execute
 these static contracts.
 
 
-The fresh 0.2.3 census records the two conditional loaders and three nonvisual metadata
+The historical 0.2.3 census records the two conditional loaders and three nonvisual metadata
 controllers as the only five status changes. Library results now total 361 IDs: 74 supported,
 172 conditional, 14 nonvisual and 101 unresolved. The [actor coverage table](
 native-actors.md#version-023-coverage) records the canonical and triangle totals. The census
 confirmed unchanged ROM bytes and native room coverage; it does not certify live scheduling or
 later resource closure.
+
+
+## Room resource callbacks and actor events
+
+The canonical table `D_80231300_5EC7D0` contains 800 pointers over `0xC80` bytes.
+Among the editor's 383 decoded room records, 374 have distinct 28-byte File12 metadata
+records, callback pointers and dependency-list pointers. Each callback is a finite 36-byte
+wrapper that passes its own literal list to `func_80013AC4_146C4`; the loader reads `u16` IDs
+with LHU until zero and requests them through `80013B14` in order. The 374 lists have 335
+distinct contents and 2–31 nonzero IDs each. Equal contents do not imply equal callback
+identity. The wrapper and dispatcher ignore the loader's return value.
+
+File12 `func_8020D6BC_5C8B8C(void)` selects the current `u16` room directly, stores the
+record's +0x18 callback at `system+0x3B03C`, then calls it as `void(void)` at `8020D70C`.
+It guards neither the 800-slot index nor the metadata/callback pointers. Null metadata or
+a null callback is unsafe. Companion `func_8020D670_5C8B40` only compares that callback
+with the previous pointer and returns zero or one. With native system base `8008CCC0`, the
+current room is `D_800C7AB2`, and the previous callback word is `800C7CFC`.
+
+Cold File11 setup reaches D6BC at `801F736C`, after the group/index resource load and before
+collision binding and actor-manager scheduling. Transition setup reaches it at `801F7FD0`
+after trimming to `system+0x3B020`, when `system+0xCF88D` is nonzero or D670 reports a change.
+Sharing one generated callback among authored rooms therefore needs explicit resource-state
+handling; a changed room ID alone does not force that shared callback to run.
+
+House room 465's resource callback is `8021102C / 5CC4FC`; its list starts at
+`8022E8B8 / 5E9D88`. The exact ordered IDs are:
+
+```text
+96,100,1137,401,338,643,364,644,35,448,405,32,407,345,43,515,54,27,61
+```
+
+Its separate cold File11 geometry/group list is `127,240,241,253`. These lists describe
+different setup stages. They do not establish current live registry occupancy, allocation
+success, future actor/script closure or hot-transition parity.
+
+The nine decoded special records 540–548 have null File12 metadata. Rooms 540–543 alias
+File11 geometry IDs 90–93; rooms 544–548 alias geometry IDs 128–132. Main Impact preparation
+`80006140_6D40` also uses destinations beginning at 540. Geometry aliasing supplies no
+ordinary-world resource callback and establishes no absence of special-scene events.
+Special-mode overlay/event setup requires separate evidence.
+
+This metadata schema contains no additional event-script field. Native actor manager
+`8020D848` selects constructors from the global actor dispatch table and stages resident,
+normal and proximity sources. Those actor callbacks, flags, contact conditions, dialogue and
+future children supply separate gameplay behavior. The editor's actor-backed Events view
+remains a partial spatial catalog.
+
+The read-only initialization inspector exposes the metadata slot, record, opaque File12
+callback, ordered list, source file and stage/group/index provenance without executing code
+or creating a synthetic event marker. An authored room must identify its native donor
+separately: new room 620 with donor 465 inherits donor evidence, not a vanilla callback for
+slot 620. Read the [room-initialization guide](room-initialization.md) for the implemented read-only UI
+scope and these limits.
+
+The bounded census checks the supported normalized ROM hash, File11/File12 and file-table
+extents, 800 pointer slots, 28-byte records, exact wrapper instructions, signed ADDIU list
+address formation, list termination and valid source IDs. Metadata spans
+`8022EA18..80231300`, callbacks `8020DE40..802112D8`, and lists `8022C240..8022EA18`.
+The independent census covered all 383 decoded records and 374 wrappers with unchanged ROM
+bytes. No native callback or generated mod ran; dynamic events and live resource liveness
+remain unverified.
+
+
+## Editor 0.2.4 initialization and controller scope
+
+The editor exposes the finite native room resource inventory through a collapsible
+**Room initialization** section in the Room tab and the room-level authored inspector.
+Nested **Native sources** show guarded addresses, extents and hashes. The section executes no
+callback, adds no synthetic event marker and exposes no editable executable pointer.
+An authored room retains its active ID while the inspector labels the native template donor.
+The displayed original callback/list describes native provenance; export derives its effective
+resource plan from the authored roster and geometry. This inventory does not complete Events
+or special-scene event schemas.
+
+Four additional exact empty bodies classify as nonvisual: dynamic File24 actors 0x079 at
+`080005D0 / 6ACB20` and 0x07C at `0800018C / 6AC6DC`, and fixed File12 actors 0x07A at
+`80214F2C / 5D03FC` and 0x07B at `80214FB0 / 5D0480`. Each 12-byte body stores argument homes
+and returns. All raw results retain `completed=false`, zero instructions and no model/work.
+Only dynamic 0x079/0x07C add the separate static File24 `verified-controller-closure` contract
+for authored export. Fixed File12's native stages 0–3/11 availability supplies no dynamic
+File12 dependency or new foreign-stage admission.
+
+File29 actor 0x357 at `0800A924 / 6BDBC4` is a finite Tsurami camera/light/scene controller
+without an intrinsic world mesh. Its typed allocations and live player, progression, audio
+and UI effects remain unexecuted; no constructor resource closure follows. The guards cover
+its finite body, typed allocator/copy/destructor helpers, camera template, native allocation,
+empty parts tables and canonical ROM identity. Neighboring controllers retain separate rules.
+
+The fresh 0.2.4 metadata census changes exactly 0x079/0x07A/0x07B/0x07C/0x357 to nonvisual,
+with unchanged ROM bytes and mesh/triangle totals. See [current actor coverage](
+native-actors.md#version-024-metadata-controllers) for the library/canonical distinction.
+No native state-machine, game or generated NRM ran to establish these static classifications.
+
+
+Four actual Electron cases verified the read-only initialization view for native, special-alias,
+clone and replacement contexts without project-history changes or page/console/process errors.
+The installed ARM64 app also passed isolated native-room rendering and input checks. Read the
+[validation record](../README.md#package-and-validation-status) for exact revision scopes.
+Those editor checks do not execute the resource callback in the game or validate live events.

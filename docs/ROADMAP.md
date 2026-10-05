@@ -1,6 +1,6 @@
 # Development roadmap
 
-Version 0.2.3 supports version 2 room authoring: blank rooms, native
+Version 0.2.4 supports version 2 room authoring: blank rooms, native
 clones and editable replacements; mesh, vertex and face editing; native asset
 placement; collision generation; entrances, custom doors and sky selection.
 Export produces C/H source or an optional `.nrm` through the local toolchain.
@@ -10,13 +10,13 @@ its supported bounds and remaining work.
 ## Preview coverage
 
 The supported US ROM contains 383 decoded room records, including 378 with
-visual geometry. The 0.2.3 actor census distinguishes library seed previews from
+visual geometry. The 0.2.4 actor census distinguishes library seed previews from
 canonical native placements:
 
 | Census | Candidate IDs | Supported | Conditional | Nonvisual | Unresolved |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Library seeds | 361 | 74 | 172 | 14 | 101 |
-| IDs with canonical placements | 255 | 54 | 154 | 14 | 33 |
+| Library seeds | 361 | 74 | 172 | 19 | 96 |
+| IDs with canonical placements | 255 | 54 | 154 | 15 | 32 |
 
 The library's unresolved group includes seven partial previews. These counts
 cover bounded initialization and initial model declarations. Library scene
@@ -31,17 +31,27 @@ stop after the first child initializer and retain incomplete CPU results.
 Read [actor evidence](native-actors.md) and [texture limits](native-textures.md)
 for the distinctions.
 
-Version 0.2.3 adds immediate 0x24C/0x35C child previews under exact donor and zero-definition
+Version 0.2.3 introduced immediate 0x24C/0x35C child previews under exact donor and zero-definition
 checks. Both remain conditional and incomplete for CPU/export purposes. Metadata-only
 0x23B/0x35E/0x1BF classifications execute no native instructions; only 0x23B adds a static File43
-controller resource contract. These five IDs account for the census changes. Coverage remains
-incomplete; later live behavior and foreign-room export closure require separate evidence.
+controller resource contract.
+
+Version 0.2.4 classifies five more IDs as nonvisual: empty constructors 0x079/0x07A/0x07B/0x07C
+and scene controller 0x357. All retain incomplete raw CPU results and execute no instructions.
+Only dynamic 0x079/0x07C gain a static File24 export resource contract. Fixed File12 readiness
+and later Tsurami scene effects remain separate requirements. Mesh and triangle totals stay
+unchanged. Actor coverage, later live behavior and foreign-room export closure remain incomplete.
+
+The read-only [Room initialization](room-initialization.md) section covers the finite setup
+schema for 374 world metadata callbacks and nine special geometry aliases. It distinguishes
+native/template provenance from an authored export resource plan. Actor-linked Events and
+future scenario behavior need their own evidence.
 
 ## Development phases
 
 | Phase | Current capability | Work remaining |
 | --- | --- | --- |
-| 1: Read and display | US-ROM import, byte-order normalization and decompression; textured rooms and bounded native actor parts/initial poses; actor-linked event inspection; native asset libraries and thumbnails; picking, framing, Pan/Tilt and focused WASD; conditional TEXGEN, first timed-child previews and donor-scoped 0x24C/0x35C children | Wider verified actor/helper/material coverage; later animation and spawning; native lighting, fog and filtering parity; special scenes and broader collision inspection |
+| 1: Read and display | US-ROM import, byte-order normalization and decompression; textured rooms and bounded native actor parts/initial poses; actor-linked event inspection and read-only room initialization; native asset libraries and thumbnails; picking, framing, Pan/Tilt and focused WASD; conditional TEXGEN, first timed-child previews and donor-scoped 0x24C/0x35C children | Wider verified actor/helper/material coverage; later animation and spawning; native lighting, fog and filtering parity; special scenes and broader collision inspection |
 | 2: Author | Version 2 blank rooms, clones and editable replacements; independent authored geometry; mesh TRS, vertex XYZ/UV/RGBA, face topology and gizmos; actor insertion/deletion and loading policy; named entrances, editable custom-door volumes/destinations and sky inheritance/None/native assets; collision generation and linked updates; undo/redo and saved/native recovery | Direct native BSP editing and richer collision visualization; native event/script editing; migration of sparse actors across original proximity cells; broader scene support |
 | 3: C/H export | Sparse actor/translation patches and authored room payloads; owned geometry, copied or generated native collision, rebuilt authored proximity grids, metadata/admission, entrances, doors and sky; constructor-resource checks, guarded controller contracts and dependency/preimage safeguards | User gameplay validation of entry, physics, camera, progression, teardown and revisit; more verified actor/resource contexts; compatibility with mods that change native roots or allocations; arbitrary scripts |
 | 4: Prebuilt `.nrm` and desktop release | Optional local LLVM/LLD/RecompModTool pipeline using an initialized template; macOS ARM64 ad hoc signed package and installed-app checks | Toolchain distribution or guided installation; Intel macOS and Windows native runtime checks; Developer ID/notarization and Windows signing; user gameplay regression coverage |
@@ -113,24 +123,20 @@ identity and sparse edits. Continue testing malformed input, bounded native
 fields, shared sources, graph references and saved-state recovery. Projects
 must not supply native pointers, executable paths or toolchain arguments.
 
-The 0.2.3 source checks passed fresh typecheck, production build and an actual-ROM/toolchain
-suite with 250 tests: 247 passed, none failed and three optional GPU checks skipped. The census
-confirmed unchanged ROM bytes. Separate texture/actor and thumbnail-framing runs passed 16
-and 19 checks, including GPU rendering. Four actual Electron checks covered the native loader
-placements and their real library cards, with exact texture-toggle restoration and unchanged
-ROM/profile data. macOS ARM64 packaging and strict signatures passed. The installed binary
-passed isolated-package checks for 383 cached rooms, four native textured rooms, model/selector
-refresh and focused WASD, preserving ROM/cache data. A normal installed cached-ROM launch
-restored 383 rooms and House room 465's eight actors, textures and Pan/Tilt controls, with
-unchanged ROM/profile hashes.
+The 0.2.4 source checks passed fresh nonincremental typecheck, production build and the
+actual-ROM/toolchain suite: 286 tests, 283 passed, none failed and three optional GPU checks
+skipped. Four Electron initialization cases passed without errors or project-history changes.
+The installed macOS ARM64 package passed signature and isolated cached-profile checks for 383
+rooms, four native textured rooms, body/selector refresh, geometry visibility and focused WASD.
+Texture toggles restored exact pixels; normal ROM/profile/cache hashes stayed unchanged.
+A normal installed launch also restored 383 rooms and House 465's native initialization order,
+actors, textures and Pan/Tilt controls.
 
-The prior 0.2.2 release checks cover source tests, GPU presentation, 14 Electron
-C/H authoring milestones, separate native compile/link/NRM fixtures, a packaged
-macOS ARM64 app and normal installed cached-ROM launch. Consult the
-[validation record](../README.md#package-and-validation-status) for exact scopes
-and counts, and the [desktop workflow](https://github.com/8AE/mnsg-level-editor/actions/workflows/build.yml)
-for each revision's platform builds. Packaging for another OS does not establish
-native editor behavior there.
+Earlier GPU/thumbnail and full authoring smokes remain historical evidence. Consult the
+[validation record](../README.md#package-and-validation-status) for the scope and counts, and the
+[desktop workflow](https://github.com/8AE/mnsg-level-editor/actions/workflows/build.yml) for each
+revision's platform builds. Intel macOS and Windows native runtime checks remain open;
+packaging or CI alone does not establish editor behavior there.
 
 Static analysis, editor previews and successful native builds do not establish
 Goemon64Recomp gameplay. Hand generated mods to the user with their paths,

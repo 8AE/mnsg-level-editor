@@ -404,7 +404,8 @@ native-textures.md#loader-child-materials) for the checkpoint and appearance lim
 
 ### Version 0.2.3 coverage
 
-The fresh census reports 361 library IDs: 74 supported, 172 conditional, 14 nonvisual and 101
+The historical 0.2.3 census reports 361 library IDs: 74 supported, 172 conditional, 14 nonvisual
+and 101
 unresolved, including seven partial previews. Its 500 parts contain 26,439 triangles: 23,050
 textured and 3,389 untextured. For 255 IDs with canonical placements, it reports 54 supported,
 154 conditional, 14 nonvisual and 33 unresolved, with 454 parts and 24,116 triangles: 21,275
@@ -420,3 +421,41 @@ Four actual Electron/GPU checks covered both scoped native placements and their 
 cards. They confirmed 0x24C's 170 triangles with 137 textured and 0x35C's two textured triangles,
 restored exact pixels after texture toggles, and preserved ROM/profile data with no page,
 console or child-process errors. The raw completion and later-gameplay boundaries above remain.
+
+
+## Version 0.2.4 metadata controllers
+
+The new classifications report nonvisual markers for four complete 12-byte empty constructors
+and one camera/light/scene controller. They run no native instructions or callbacks: each raw
+result retains `completed=false` and `instructionCount=0`, with no model or synthetic work.
+
+| Actor | Verified entry | Export resource contract |
+| --- | --- | --- |
+| `0x079` | Dynamic File24 `080005D0 / 6ACB20` | Static `verified-controller-closure` for File24 |
+| `0x07C` | Dynamic File24 `0800018C / 6AC6DC` | Static `verified-controller-closure` for File24 |
+| `0x07A` | Fixed File12 `80214F2C / 5D03FC` | Metadata only; no new export admission |
+| `0x07B` | Fixed File12 `80214FB0 / 5D0480` | Metadata only; no new export admission |
+| `0x357` | File29 `0800A924 / 6BDBC4` | Metadata only; no constructor resource closure |
+
+The four empty bodies save incoming arguments to stack home slots and return. Dynamic
+0x079/0x07C require File24, including its verified 16-byte zero-filled allocation tail; the
+separate static contract supports authored export without asserting CPU completion. Fixed
+0x07A/0x07B require upper File12 readiness in native stages 0–3 or 11. Do not load fixed File12
+through the dynamic registry or infer foreign-stage admission from their empty bodies.
+
+Tsurami's 0x357 state machine owns no intrinsic world mesh. Its typed camera/light allocations
+and effects on the live player, progression, audio and dialogue/UI remain native behavior.
+The classifier neither executes that state machine nor closes its future resource paths.
+Neighboring IDs 0x358/0x35D retain their own unresolved status and receive no inherited rule.
+
+The 0.2.4 census reports 361 library IDs: 74 supported, 172 conditional, 19 nonvisual and 96
+unresolved, including seven partial previews. Its 500 parts and 26,439 triangles remain
+unchanged: 23,050 textured and 3,389 untextured. For 255 canonical IDs, the results are 54
+supported, 154 conditional, 15 nonvisual and 32 unresolved, with 454 parts and 24,116 triangles:
+21,275 textured and 2,841 untextured. Exactly these five IDs changed status; no new mesh or
+actor-name change contributed to the census. The 106 additional numeric IDs remain unannotated.
+
+Read the [room-initialization guide](room-initialization.md) for the separate finite resource
+callback inventory and the [validation record](../README.md#package-and-validation-status) for
+revision-specific source, editor and package checks. Raw completion, export closure and later
+live gameplay remain separate evidence boundaries.
