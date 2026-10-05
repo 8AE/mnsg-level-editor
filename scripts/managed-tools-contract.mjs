@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readdir, readFile, lstat } from 'node:fs/promises';
 import path from 'node:path';
 
-export const bundleId = 'llvm21-1-8-recompffb39cd-1';
+export const bundleId = 'llvm21-1-8-recompffb39cd-2';
 export const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 export function safeRelativePath(value) {
   return typeof value === 'string' && value.length > 0 && value.length < 240

@@ -84,6 +84,32 @@ if (!options['stage-only']) {
 // --stage-only is for already completed builds from these same pinned sources.
 // It still checks source identity, pinned support and every packaged dependency.
 if (execFileSync('git', ['rev-parse', 'HEAD'], { cwd: recompSource, encoding: 'utf8' }).trim() !== recompCommit) throw new Error('Staged source revision mismatch');
+for (const [submodule, commit] of Object.entries(submodules)) {
+  if (execFileSync('git', ['rev-parse', 'HEAD'], { cwd: path.join(recompSource, submodule), encoding: 'utf8' }).trim() !== commit) throw new Error(`Staged dependency pin mismatch: ${submodule}`);
+}
+execFileSync('git', ['apply', '--reverse', '--check', patch], { cwd: recompSource, stdio: 'pipe' });
+const readCache = async (directory) => Object.fromEntries((await readFile(path.join(directory, 'CMakeCache.txt'), 'utf8'))
+  .split(/\r?\n/).filter((line) => /^[A-Za-z0-9_]+:[^=]+=/.test(line)).map((line) => {
+    const match = line.match(/^([A-Za-z0-9_]+):[^=]+=(.*)$/);
+    return [match[1], match[2]];
+  }));
+const llvmCache = await readCache(llvmBuild), recompCache = await readCache(recompBuild);
+const requireCache = (cache, key, expected) => {
+  if (cache[key] !== expected) throw new Error(`Build cache ${key} must be ${expected}, found ${cache[key]}`);
+};
+for (const cache of [llvmCache, recompCache]) {
+  requireCache(cache, 'CMAKE_BUILD_TYPE', 'MinSizeRel');
+  requireCache(cache, 'BUILD_SHARED_LIBS', 'OFF');
+  if (process.platform === 'darwin') requireCache(cache, 'CMAKE_OSX_DEPLOYMENT_TARGET', '14.0');
+  else requireCache(cache, 'CMAKE_MSVC_RUNTIME_LIBRARY', 'MultiThreaded');
+}
+requireCache(llvmCache, 'LLVM_TARGETS_TO_BUILD', 'Mips');
+for (const key of ['LLVM_BUILD_LLVM_DYLIB', 'LLVM_LINK_LLVM_DYLIB', 'CLANG_LINK_CLANG_DYLIB',
+  'CLANG_ENABLE_STATIC_ANALYZER', 'CLANG_ENABLE_ARCMT', 'LLVM_ENABLE_ZLIB', 'LLVM_ENABLE_ZSTD',
+  'LLVM_ENABLE_LIBXML2', 'LLVM_ENABLE_LIBEDIT']) requireCache(llvmCache, key, 'OFF');
+if (process.platform === 'win32') requireCache(llvmCache, 'LLVM_USE_CRT_MINSIZEREL', 'MT');
+if (path.resolve(llvmCache.CMAKE_HOME_DIRECTORY || '') !== path.join(llvmSource, 'llvm')
+  || path.resolve(recompCache.CMAKE_HOME_DIRECTORY || '') !== recompSource) throw new Error('Build cache source root mismatch');
 const suffix = process.platform === 'win32' ? '.exe' : '';
 await mkdir(path.join(destination, 'bin'), { recursive: true });
 await cp(template, destination, { recursive: true });
@@ -131,7 +157,12 @@ await writeFile(path.join(destination, 'build-provenance.json'), JSON.stringify(
   llvm: { version: '21.1.8', sourceArchive: llvmArchiveName, sha256: llvmArchiveHash },
   recomp: { repository: 'https://github.com/N64Recomp/N64Recomp', commit: recompCommit, submodules,
     patches: [{ path: 'recomp-powershell-paths.patch', sha256: sha256(await readFile(patch)) }] },
-  template: supportProvenance, build: { type: 'MinSizeRel', targetBackend: 'Mips', staticLlvm: true, macOSMinimum: '14.0', windowsCrt: 'MT' },
+  template: supportProvenance, build: { type: llvmCache.CMAKE_BUILD_TYPE, targetBackend: llvmCache.LLVM_TARGETS_TO_BUILD,
+    staticLlvm: llvmCache.LLVM_LINK_LLVM_DYLIB === 'OFF', staticAnalyzer: false, arcMigration: false,
+    macOSMinimum: process.platform === 'darwin' ? llvmCache.CMAKE_OSX_DEPLOYMENT_TARGET : null,
+    windowsCrt: process.platform === 'win32' ? llvmCache.LLVM_USE_CRT_MINSIZEREL : null,
+    llvmCacheSha256: sha256(await readFile(path.join(llvmBuild, 'CMakeCache.txt'))),
+    recompCacheSha256: sha256(await readFile(path.join(recompBuild, 'CMakeCache.txt'))) },
 }, null, 2) + '\n');
 await cp(patch, path.join(destination, 'recomp-powershell-paths.patch'));
 const files = [];

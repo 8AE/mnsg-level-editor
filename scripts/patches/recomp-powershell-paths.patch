@@ -1,6 +1,15 @@
 diff --git a/RecompModTool/main.cpp b/RecompModTool/main.cpp
 --- a/RecompModTool/main.cpp
 +++ b/RecompModTool/main.cpp
+@@ -554,7 +554,7 @@ void write_manifest(const std::filesystem::path& path, const ModManifest& manifest)
+         output_data.emplace("custom_gamemode", manifest.custom_gamemode);
+     }
+ 
+-    toml::json_formatter formatter{output_data, toml::format_flags::indentation | toml::format_flags::indentation};
++    toml::json_formatter formatter{output_data, toml::format_flags::indentation | toml::format_flags::allow_unicode_strings};
+     std::ofstream output_file(path);
+ 
+     output_file << formatter << std::endl;
 @@ -1013,11 +1013,21 @@ bool create_mod_zip(const std::filesystem::path& output_dir, const ModConfig& config
  #ifdef _WIN32
      std::filesystem::path temp_zip_path = output_path;
@@ -15,7 +24,8 @@ diff --git a/RecompModTool/main.cpp b/RecompModTool/main.cpp
 +        }
 +        return escaped;
 +    };
-     std::string command_string = fmt::format("powershell -command Compress-Archive -Force -CompressionLevel Optimal -DestinationPath '{}' -Path '{}','{}','{}'",
+-    std::string command_string = fmt::format("powershell -command Compress-Archive -Force -CompressionLevel Optimal -DestinationPath '{}' -Path '{}','{}','{}'",
++    std::string command_string = fmt::format("powershell -NoLogo -NoProfile -NonInteractive -command Compress-Archive -Force -CompressionLevel Optimal -DestinationPath '{}' -Path '{}','{}','{}'",
 -        temp_zip_path.string(), (output_dir / symbol_filename).string(), (output_dir / binary_filename).string(), (output_dir / manifest_filename).string());
 +        powershell_literal(temp_zip_path.string()), powershell_literal((output_dir / symbol_filename).string()), powershell_literal((output_dir / binary_filename).string()), powershell_literal((output_dir / manifest_filename).string()));
  

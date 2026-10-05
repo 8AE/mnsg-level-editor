@@ -50,7 +50,9 @@ try {
   await cp(path.join(bundle, manifest.support.data), path.join(work, 'Goemon64RecompSyms/mnsg.us.datasyms.toml'));
   await writeFile(path.join(work, 'probe.c'), '#include "modding.h"\nextern void func_800353F8_35FF8(void);\nstatic volatile unsigned int counter;\nRECOMP_HOOK("func_8000D3B8_DFB8") void managed_probe(void) { counter++; func_800353F8_35FF8(); }\n');
   await writeFile(path.join(work, 'mod.ld'), 'RAMBASE = 0x81000000;\nMEMORY { extram(ARWX) : ORIGIN = RAMBASE, LENGTH = 64M }\nSECTIONS { /DISCARD/ : { *(.got) *(.MIPS.abiflags) *(.reginfo) *(.pdr) *(.comment) } }\n');
-  await writeFile(path.join(work, 'mod.toml'), '[manifest]\nid="mnsg_managed_tools_probe"\nversion="1.0.0"\ndisplay_name="Managed tools probe"\ndescription="Offline build compatibility probe"\nshort_description="Offline probe"\nauthors=["MNSG Level Editor"]\ngame_id="mnsg"\nminimum_recomp_version="0.1.0"\ndependencies=[]\nnative_libraries=[]\n[inputs]\nelf_path="build/mod.elf"\nmod_filename="mnsg_managed_tools_probe"\nfunc_reference_syms_file="Goemon64RecompSyms/mnsg.us.syms.toml"\ndata_reference_syms_files=["Goemon64RecompSyms/mnsg.us.datasyms.toml"]\nadditional_files=[]\n');
+  const unicodeValue = '🥷 日本語\n"quoted"\t\u0001';
+  const author = 'MNSG 🥷 Level Editor';
+  await writeFile(path.join(work, 'mod.toml'), `[manifest]\nid="mnsg_managed_tools_probe"\nversion="1.0.0"\ndisplay_name="Managed 🥷 tools probe"\ndescription=${JSON.stringify(unicodeValue)}\nshort_description="Offline probe"\nauthors=[${JSON.stringify(author)}]\ngame_id="mnsg"\nminimum_recomp_version="0.1.0"\ndependencies=[]\nnative_libraries=[]\nconfig_options=[{id="text",name="Unicode 🥷",type="String",default=${JSON.stringify(unicodeValue)}},{id="number",name="Large number",type="Number",min=0.0,max=1e21,step=1.0,default=1e20}]\n[inputs]\nelf_path="build/mod.elf"\nmod_filename="mnsg_managed_tools_probe"\nfunc_reference_syms_file="Goemon64RecompSyms/mnsg.us.syms.toml"\ndata_reference_syms_files=["Goemon64RecompSyms/mnsg.us.datasyms.toml"]\nadditional_files=[]\n`);
   const clang = path.join(bundle, manifest.tools.clang);
   const targets = run(clang, ['--no-default-config', '--print-targets']);
   if (!/\bmips\b/i.test(targets)) throw new Error('Bundled compiler has no MIPS backend');
@@ -64,7 +66,10 @@ try {
   for (const required of ['mod.json', 'mod_binary.bin', 'mod_syms.bin']) if (!entries.get(required)?.length) throw new Error(`NRM missing ${required}`);
   const output = JSON.parse(entries.get('mod.json').toString('utf8'));
   if (output.id !== 'mnsg_managed_tools_probe' || output.game_id !== 'mnsg') throw new Error('NRM manifest identity mismatch');
-  console.log(JSON.stringify({ bundle: manifest.bundleId, platform: process.platform, arch: process.arch, mips: true, nativeHook: true, nativeReference: true, isolatedSystemPath: true, nonAsciiAndApostrophePath: true, archiveEntries: [...entries.keys()], bytes: archive.length }));
+  if (output.description !== unicodeValue || output.authors[0] !== author
+    || output.config_schema?.options?.[0]?.default !== unicodeValue
+    || output.config_schema?.options?.[1]?.default !== 1e20) throw new Error('NRM JSON Unicode/control/numeric round trip failed');
+  console.log(JSON.stringify({ bundle: manifest.bundleId, platform: process.platform, arch: process.arch, mips: true, nativeHook: true, nativeReference: true, isolatedSystemPath: true, nonAsciiAndApostrophePath: true, unicodeJsonAndNumericConfig: true, archiveEntries: [...entries.keys()], bytes: archive.length }));
 } finally {
   await rm(temporary, { recursive: true, force: true });
 }
