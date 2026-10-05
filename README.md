@@ -59,7 +59,8 @@ Hold **Cmd** on macOS or **Ctrl** on Windows while clicking to add or remove act
 meshes, faces or vertices. This works in the viewport and Hierarchy, including mixed selections.
 Choose face or vertex mode before selecting geometry elements. Press **T** and drag the shared
 move gizmo, or enter X/Y/Z offsets in the group Inspector. Shared vertices move once, and one
-Undo restores the entire move. Plain clicking selects one item; plain clicking empty space
+Undo restores the entire move. Moving the group keeps its selection and outlines, including
+short gizmo drags, so you can move it again immediately. Plain clicking selects one item; plain clicking empty space
 clears the selection. Read-only items must be deselected or made editable before a group move.
 
 Change the source ROM under **Settings → Source ROM**. Read the local checks and release gates below.

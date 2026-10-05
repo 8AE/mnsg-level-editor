@@ -1037,10 +1037,17 @@ export default function RoomViewport({
     }
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
-    let down = { x: 0, y: 0 };
+    let down = { x: 0, y: 0, transform: false };
     const pointerDown = (event: PointerEvent) => {
       renderer.domElement.focus({ preventScroll: true });
-      down = { x: event.clientX, y: event.clientY };
+      // TransformControls starts the drag before this listener, then clears its
+      // dragging/axis flags before our pointerup listener. Keep gesture ownership
+      // until release so even a tiny move cannot become a selection click.
+      down = {
+        x: event.clientX,
+        y: event.clientY,
+        transform: moving || transform.dragging,
+      };
     };
     const contextMenu = (event: MouseEvent) => {
       if (!navigationAllowed.current) return;
@@ -1131,6 +1138,7 @@ export default function RoomViewport({
     renderer.domElement.addEventListener("contextmenu", contextMenu);
     const pointerUp = (event: PointerEvent) => {
       if (
+        down.transform ||
         moving ||
         transform.dragging ||
         transform.axis ||

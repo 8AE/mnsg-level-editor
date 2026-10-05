@@ -133,6 +133,7 @@ try {
       n,
     );
   const apply = async (x, y, z) => {
+    const before = await selected(main);
     for (const [axis, value] of [
       ["X", x],
       ["Y", y],
@@ -143,6 +144,11 @@ try {
         .fill(String(value));
     await button(main, "Apply selection offset").click();
     await idle();
+    assert.deepEqual(
+      await selected(main),
+      before,
+      "Inspector moves retain the entire selection",
+    );
   };
   const equalPosition = (next, original, delta) =>
     assert.deepEqual(next, {
@@ -152,8 +158,14 @@ try {
     });
   let historyScope = main;
   const undo = async () => {
+    const before = await selected(historyScope);
     await button(historyScope, "Undo").click();
     await idle();
+    assert.deepEqual(
+      await selected(historyScope),
+      before,
+      "Undo retains selected items that still exist",
+    );
   };
   // Native placements retain their original admission/partition restrictions.
   const native = await main.evaluate(async () => window.mnsg.loadRoom(465));
@@ -490,6 +502,81 @@ try {
   await undo();
   await savedFixture();
   await count(child, 2);
+  const retainedFaces = await selected(child);
+  // Sub-four-pixel gestures used to fall through as fresh selection clicks after
+  // TransformControls cleared dragging/axis. Move twice without selecting again.
+  let totalSmallDelta = { x: 0, y: 0, z: 0 };
+  for (const pixels of [2, 2, 0]) {
+    const small = await grabAxis();
+    await child.mouse.down();
+    await child.waitForFunction(
+      () =>
+        document.querySelector('[data-testid="viewport-canvas"]').dataset
+          .transformDragging === "true",
+    );
+    if (pixels)
+      await child.mouse.move(small.p.x + pixels, small.p.y, { steps: 2 });
+    const end = (
+      await child
+        .getByTestId("viewport-canvas")
+        .getAttribute("data-transform-preview-position")
+    )
+      .split(",")
+      .map(Number);
+    const offset = {
+      x: Math.round(end[0] - small.origin[0]),
+      y: Math.round(end[1] - small.origin[1]),
+      z: Math.round(end[2] - small.origin[2]),
+    };
+    if (pixels)
+      assert(
+        offset.x !== 0,
+        "Small gizmo movement must change native positions",
+      );
+    else assert.deepEqual(offset, { x: 0, y: 0, z: 0 });
+    await child.mouse.up();
+    await idle();
+    assert.deepEqual(
+      await selected(child),
+      retainedFaces,
+      "Gizmo release must retain both selected faces",
+    );
+    assert.equal(
+      Number(
+        await child
+          .getByTestId("viewport-canvas")
+          .getAttribute("data-selection-outline-count"),
+      ),
+      2,
+    );
+    assert.equal(
+      await child
+        .getByTestId("viewport-canvas")
+        .getAttribute("data-transform-object-id"),
+      "@selection",
+    );
+    totalSmallDelta = {
+      x: totalSmallDelta.x + offset.x,
+      y: totalSmallDelta.y + offset.y,
+      z: totalSmallDelta.z + offset.z,
+    };
+    moved = await savedFixture();
+    for (let i = 0; i < 4; i++)
+      equalPosition(
+        moved.authoredRooms[465].meshes[0].vertices[i].position,
+        baseline.authoredRooms[465].meshes[0].vertices[i].position,
+        totalSmallDelta,
+      );
+  }
+  await undo();
+  await undo();
+  assert.deepEqual(
+    (await savedFixture()).authoredRooms,
+    baseline.authoredRooms,
+  );
+  await record(
+    "repeated tiny gizmo moves and a no-motion release retain the exact group, outlines and shared tool without reselecting",
+  );
   // Moving focus off the real canvas cancels every selected preview.
   await child.getByTestId("viewport-navigation-canvas").focus();
   const canceled = await grabAxis();

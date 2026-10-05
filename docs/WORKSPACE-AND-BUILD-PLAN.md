@@ -331,3 +331,15 @@ saved Oedo Town project with 42 meshes and 31 actors. Native modifier activation
 outlined meshes and the group move tool displayed their shared pivot; no positions were edited.
 Project data and the original ROM-cache hash remained intact. The prior app and project copies
 were retained locally. The release follow-up changes only documentation and the GUI test harness.
+
+## 0.3.3 keep selections after edits
+
+A short gizmo gesture could commit its move and then run the viewport selection handler on
+the same pointer release: Three.js cleared its dragging/axis flags before that handler ran.
+The viewport now remembers whether the pointer-down began a transform, so its release cannot
+replace or clear the selection. This also retains single-object selections and canceled or
+zero-motion gizmo gestures. Inspector offsets already retain the selection.
+
+The native multi-selection regression explicitly compares selection membership after every
+Inspector move and Undo, then repeats two sub-four-pixel gizmo moves and a no-motion release
+without reselecting. It checks both outlines, the shared move tool and saved native positions.
