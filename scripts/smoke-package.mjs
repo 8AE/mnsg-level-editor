@@ -1,7 +1,7 @@
 import { _electron as electron } from "playwright";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, mkdtemp, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { appendFile, copyFile, mkdir, mkdtemp, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { checkTexturedRooms } from "./smoke-textures.mjs";
@@ -113,7 +113,13 @@ async function checkProceduralWorkspace(app, page, artifacts, observe) {
   await nativeMain.evaluate(window => window.setSize(1440, 900));
   evidence.nativeWindowSize = await nativeMain.evaluate(window => window.getSize());
   await button(page, "Open procedural sample").click();
-  await page.getByTestId("viewport-navigation-canvas").waitFor();
+  const canvas = page.getByTestId("viewport-navigation-canvas"), unavailable = page.getByText(/^3D rendering could not start\./);
+  await canvas.or(unavailable).first().waitFor();
+  evidence.webgl = await canvas.count() ? "available" : "unavailable: native Intel CI guest; diagnostic checked";
+  if (!await canvas.count()) {
+    assert.equal(process.env.MNSG_TEST_ALLOW_NO_WEBGL, "1", "WebGL must initialize unless the explicit no-GPU CI scope is selected");
+    assert(await unavailable.isVisible(), "Missing WebGL must leave its actionable diagnostic visible");
+  }
   await page.getByTestId("workspace-panel-rooms").getByTestId("room-button").waitFor();
   await cleanSample();
   for (const [id, label] of [["left", "Rooms width"], ["right", "Hierarchy and Inspector width"]]) {
@@ -193,6 +199,7 @@ try {
   });
   page = await app.firstWindow();
   const runtime = await app.evaluate(({ app }) => ({ name: app.getName(), userData: app.getPath("userData") }));
+  runtime.graphicsMode = "default";
   assert.equal(await realpath(runtime.userData), await realpath(userData), "Packaged tests must never use the existing application data directory");
   observe(page);
   await page.waitForFunction(() => Boolean(window.mnsg));
@@ -309,9 +316,12 @@ try {
   await writeFile(path.join(artifacts, "packaged-checks.json"), JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report, null, 2));
 } catch (error) {
-  const failure = { status: "failed", binary, artifacts, message: error.stack, errors, dialogs };
+  const failure = { status: "failed", binary, artifacts, message: error.stack, errors, dialogs, body: page && !page.isClosed() ? await page.locator("body").innerText().catch(() => "unavailable") : "closed" };
   if (page && !page.isClosed()) await page.screenshot({ path: path.join(artifacts, "packaged-failure.png"), fullPage: true }).catch(screenshotError => { failure.screenshotError = screenshotError.message; });
   await writeFile(path.join(artifacts, "packaged-failure.json"), JSON.stringify(failure, null, 2));
   console.error(`Packaged smoke failed; evidence: ${artifacts}`);
   throw error;
-} finally { if (!appClosed) await app.close(); }
+} finally {
+  if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, `directory=${artifacts}\n`);
+  if (!appClosed) await app.close();
+}

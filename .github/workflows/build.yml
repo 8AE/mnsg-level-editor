@@ -69,10 +69,22 @@ jobs:
         if: runner.os == 'Windows'
         run: node scripts/install-windows-smoke.mjs
       - name: Verify actual packaged first boot with no ROM or host toolchain
+        id: firstboot
+        timeout-minutes: 5
         run: node scripts/smoke-package.mjs
         env:
           MNSG_TEST_APP: ${{ steps.installed.outputs.executable || format('{0}/{1}', github.workspace, matrix.app) }}
           MNSG_TEST_CACHE_DIR: ${{ runner.temp }}/mnsg-ci-no-rom-cache-${{ github.run_id }}
+          MNSG_TEST_ALLOW_NO_WEBGL: ${{ matrix.platform == 'darwin' && matrix.arch == 'x64' && '1' || '0' }}
+      - name: Retain no-ROM first-boot evidence
+        if: always() && steps.firstboot.outputs.directory != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: firstboot-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            ${{ steps.firstboot.outputs.directory }}/packaged*.json
+            ${{ steps.firstboot.outputs.directory }}/packaged*.png
+          if-no-files-found: error
       - name: Compile all mod settings using exclusively the packaged tools
         run: node --import tsx --test tests/export-mod-settings.test.ts
         env:
@@ -82,9 +94,11 @@ jobs:
           MNSG_EXPORT_TEST_MOD_TOOL: ${{ steps.installed.outputs.bundle || format('{0}/{1}', github.workspace, matrix.bundle) }}/bin/RecompModTool${{ matrix.executableSuffix }}
       - name: Verify process restart and compact native-window recovery
         id: recovery
+        timeout-minutes: 5
         run: npm run test:workspace:recovery
         env:
           MNSG_TEST_APP: ${{ steps.installed.outputs.executable || format('{0}/{1}', github.workspace, matrix.app) }}
+          MNSG_TEST_ALLOW_NO_WEBGL: ${{ matrix.platform == 'darwin' && matrix.arch == 'x64' && '1' || '0' }}
       - name: Retain no-ROM native recovery evidence
         if: always() && steps.recovery.outputs.directory != ''
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -94,7 +108,13 @@ jobs:
             ${{ steps.recovery.outputs.directory }}/recovery-checks.json
             ${{ steps.recovery.outputs.directory }}/recovered-workspace.png
             ${{ steps.recovery.outputs.directory }}/failure.png
-            release/windows-install-check.json
+          if-no-files-found: error
+      - name: Retain Windows installer evidence
+        if: always() && steps.installed.outputs.executable != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-install-check
+          path: release/windows-install-check.json
           if-no-files-found: error
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

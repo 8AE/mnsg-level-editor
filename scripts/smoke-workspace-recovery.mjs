@@ -19,6 +19,7 @@ const env = { ...process.env, PATH: "" };
 delete env.ELECTRON_RUN_AS_NODE;
 delete env.MNSG_DEV_URL;
 const report = { status: "running", artifacts, executable: process.env.MNSG_TEST_APP ?? "source", checks: [], errors: [] };
+report.graphicsMode = "default";
 const record = async (name, evidence = {}) => {
   report.checks.push({ name, ...evidence });
   await writeFile(path.join(artifacts, "recovery-checks.json"), JSON.stringify(report, null, 2));
@@ -27,6 +28,24 @@ const record = async (name, evidence = {}) => {
 const button = (scope, name) => scope.getByRole("button", { name, exact: true });
 const key = "mnsg.workspace.layout.v1";
 let app, main;
+async function quitWithinDeadline() {
+  let timer;
+  try { await Promise.race([app.close(), new Promise((_, reject) => { timer = setTimeout(() => reject(Error("Application quit exceeded 30 seconds")), 30000); })]); }
+  finally { clearTimeout(timer); }
+}
+async function closeThroughMainWindow() {
+  if (!app) return;
+  if (main?.isClosed()) { await quitWithinDeadline(); return; }
+  const closed = main.waitForEvent("close", { timeout: 30000 });
+  const exited = process.platform === "darwin" ? null : app.waitForEvent("close", { timeout: 30000 });
+  const native = await app.browserWindow(main);
+  // Exercise the same native close path as the packaged first-boot check.
+  // A timer lets the debugger evaluation return before its window is destroyed.
+  await native.evaluate(window => { setTimeout(() => window.close(), 0); });
+  await closed;
+  if (exited) await exited;
+  else await quitWithinDeadline();
+}
 async function launch() {
   app = await electron.launch({
     ...(process.env.MNSG_TEST_APP ? { executablePath: process.env.MNSG_TEST_APP, args: [`--user-data-dir=${profile}`] } : { args: [wrapper] }),
@@ -40,7 +59,13 @@ async function launch() {
   assert.equal(await app.evaluate(({ app }) => app.getPath("userData")), profile);
   assert.equal((await main.evaluate(() => window.mnsg.getStatus())).rom, null);
   await button(main, "Open procedural sample").click();
-  await main.getByTestId("viewport-navigation-canvas").waitFor();
+  const canvas = main.getByTestId("viewport-navigation-canvas"), unavailable = main.getByText(/^3D rendering could not start\./);
+  await canvas.or(unavailable).first().waitFor();
+  report.webgl = await canvas.count() ? "available" : "unavailable: native Intel CI guest; diagnostic checked";
+  if (!await canvas.count()) {
+    assert.equal(process.env.MNSG_TEST_ALLOW_NO_WEBGL, "1", "WebGL must initialize unless the explicit no-GPU CI scope is selected");
+    assert(await unavailable.isVisible());
+  }
 }
 async function withinDisplay(page) {
   const native = await app.browserWindow(page);
@@ -77,7 +102,8 @@ try {
   const nativeScene = await app.browserWindow(scene);
   await nativeScene.evaluate(window => window.setSize(700, 500));
   const expectedScene = await withinDisplay(scene);
-  await app.close();
+  console.log("Closing the native main window before the restart check.");
+  await closeThroughMainWindow();
   app = null;
   const savedBounds = JSON.parse(await readFile(path.join(profile, "window-bounds.json"), "utf8"));
   assert.deepEqual(savedBounds.scene, expectedScene);
@@ -129,7 +155,10 @@ try {
   await writeFile(path.join(artifacts, "recovery-checks.json"), JSON.stringify(report, null, 2));
   throw error;
 } finally {
-  if (app) await app.close();
   if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, `directory=${artifacts}\n`);
+  if (app) await closeThroughMainWindow().catch(error => {
+    app.process().kill();
+    throw error;
+  });
   console.log(`Artifacts: ${artifacts}`);
 }
