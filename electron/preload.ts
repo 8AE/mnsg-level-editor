@@ -8,6 +8,7 @@ const api: AppApi = Object.freeze({
   loadActorVisuals: (id: number, actorOverrides: Record<string, ActorOverride>) => ipcRenderer.invoke("mnsg:load-actor-visuals", id, actorOverrides),
   getAuthoringCatalog: () => ipcRenderer.invoke("mnsg:get-authoring-catalog"),
   loadGeometryAsset: (id: string) => ipcRenderer.invoke("mnsg:load-geometry-asset", id),
+  loadMaterialPreview: (id: string) => ipcRenderer.invoke("mnsg:load-material-preview", id),
   loadActorPrototype: (id: string, edits?: ActorPrototypeEdits) => ipcRenderer.invoke("mnsg:load-actor-prototype", id, edits),
   loadSkyboxAsset: (id: string) => ipcRenderer.invoke("mnsg:load-skybox-asset", id),
   listProjectRooms: (project: EditorProject) => ipcRenderer.invoke("mnsg:list-project-rooms", project),

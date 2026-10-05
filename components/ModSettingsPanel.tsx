@@ -5,8 +5,8 @@ import {Button} from "@once-ui-system/core";
 import type {EditorProject,ModSettings,ModAttachment,ModConfigOption} from "../shared/types";
 import {defaultModSettings,validateModSettings,portableModPath,MOD_LIMITS} from "../shared/mod-settings";
 
-export interface ModSettingsPanelProps {project:EditorProject;busy:boolean;onApply:(mod:ModSettings)=>void;onClose:()=>void}
-type Tab='Identity'|'Options'|'Files'|'Build inputs';
+export interface ModSettingsPanelProps {project:EditorProject;busy:boolean;onApply:(mod:ModSettings)=>void;onClose:()=>void;sourceRom?:string;onChangeSource?:()=>void}
+type Tab='Identity'|'Options'|'Files'|'Build inputs'|'Source ROM';
 const MAX_NATIVE_LIBRARIES=64;
 const lines=(s:string)=>s.split(/\r?\n/);
 const clean=(arr:string[])=>arr.map(v=>v.trim()).filter(Boolean);
@@ -50,7 +50,7 @@ function issueFor(candidate:ModSettings,fullMessage:string):FieldIssue {
   if(/Workspace paths/.test(fullMessage))return issue('Build inputs','ELF output path',fullMessage);
   return {id:'mod-options-group',tab:'Options',label:'Config options',message:fullMessage};
 }
-export function ModSettingsPanel({project,busy,onApply,onClose}:ModSettingsPanelProps){
+export function ModSettingsPanel({project,busy,onApply,onClose,sourceRom,onChangeSource}:ModSettingsPanelProps){
   const [draft,setDraft]=useState<ModSettings>(()=>structuredClone(project.version===2&&project.mod?project.mod:defaultModSettings(project)));
   const [tab,setTab]=useState<Tab>('Identity'),[issue,setIssue]=useState<FieldIssue|null>(null),[importing,setImporting]=useState(false),[numbers,setNumbers]=useState<Record<string,string>>({});
   const locked=busy||importing;
@@ -82,9 +82,10 @@ export function ModSettingsPanel({project,busy,onApply,onClose}:ModSettingsPanel
   function removeAttachment(a:ModAttachment,index:number){update(m=>{m.attachments.splice(index,1);m.inputs.additional_files=m.inputs.additional_files.filter(n=>n!==a.name);});}
   return <section className="mod-settings-panel" aria-label="Project mod settings">
     <header><div><h2>Project mod settings</h2><p>Saved with this project. Apply changes to include them in project undo and redo.</p></div><Button variant="tertiary" size="s" onClick={onClose} disabled={locked}>Cancel</Button></header>
-    <nav aria-label="Mod settings sections">{(['Identity','Options','Files','Build inputs'] as Tab[]).map(name=><button key={name} type="button" aria-pressed={tab===name} onClick={()=>setTab(name)}>{name}</button>)}</nav>
+    <nav aria-label="Mod settings sections">{(['Identity','Options','Files','Build inputs',...(onChangeSource?['Source ROM']:[])] as Tab[]).map(name=><button key={name} type="button" aria-pressed={tab===name} onClick={()=>setTab(name)}>{name}</button>)}</nav>
     <div className="mod-settings-content">
       {issue&&<div id="mod-validation-summary" ref={summaryRef} role="alert" tabIndex={-1} className="mod-error"><strong>{issue.label}: </strong>{issue.message}<button type="button" className="mod-error-link" onClick={()=>focusIssue(issue)}>Go to {issue.label} · {issue.tab}</button></div>}
+      {tab==='Source ROM'&&<><h3>Source ROM</h3><p>{sourceRom??'No ROM imported'}</p><p>Import another supported US ROM as the source for this workspace. Unsaved project changes are checked before switching.</p><Button variant="secondary" size="s" disabled={locked} onClick={onChangeSource}>Change source ROM</Button></>}
       {tab==='Identity'&&<>
         <div className="mod-field-grid">
           {field('Mod ID',draft.manifest.id,s=>manifest('id',s),'Letters, digits and underscores. Independent from the NRM filename.')}

@@ -59,6 +59,14 @@ import {
   withGeometryOverride,
 } from "../components/editorModel";
 import AuthoringInspector from "../components/AuthoringInspector";
+import EditorContextMenu, {
+  type ContextMenuLocation,
+} from "../components/EditorContextMenu";
+import {
+  copyGeometry,
+  pasteEntity,
+  type EditorClipboard,
+} from "../components/editorClipboard";
 import AssetLibrary, { type LibraryDrop } from "../components/AssetLibrary";
 import {
   addActor,
@@ -265,12 +273,21 @@ export default function EditorPage() {
   const [exportKind, setExportKind] = useState<"patch" | "nrm">("patch");
   const [catalog, setCatalog] = useState<AuthoringCatalog | null>(null);
   const dock = useRef<DockWorkspaceHandle>(null);
+  const [clipboard, setClipboard] = useState<EditorClipboard | null>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenuLocation | null>(
+    null,
+  );
+  const closeContextMenu = useCallback(() => setContextMenu(null), []);
   const cameraSnapshot = useRef<CameraSnapshot | undefined>(undefined);
   const [sceneHost, setSceneHost] = useState<{
     window: Window;
     visible: boolean;
   } | null>(null);
   const [popupWindows, setPopupWindows] = useState<Window[]>([]);
+  useEffect(() => {
+    setContextMenu(null);
+  }, [project?.id, baseRoom?.id, modal, popupWindows]);
+
   const [workspaceInteraction, setWorkspaceInteraction] = useState(false);
   const [consoleLogs, setConsoleLogs] = useState<WorkspaceLog[]>([]);
   const [consoleFilter, setConsoleFilter] = useState("all");
@@ -814,6 +831,323 @@ export default function EditorPage() {
       version: value.version + 1,
       selected: selectedOnly,
     }));
+  const copySelection = (id: string | null = selected, kind?: "room") => {
+    if (!catalog || !room || sample || busyLock.current) return;
+    if (kind === "room" || (!id && tab === "room")) {
+      if (!project) return;
+      const roomId = id?.startsWith("room:") ? Number(id.slice(5)) : room.id;
+      void run("Copying room", async () => {
+        const authored =
+          project.version === 2 ? project.authoredRooms[roomId] : undefined;
+        const scene = authored
+          ? null
+          : await api().loadProjectRoom(project, roomId);
+        const entry =
+          scene &&
+          catalog.geometry.find(
+            (a) => a.roomIds.includes(scene.id) && a.id.startsWith("geometry:"),
+          );
+        const asset = entry
+          ? await api().loadGeometryAsset(entry.id)
+          : undefined;
+        const source =
+          authored ??
+          cloneScene(
+            scene!,
+            catalog,
+            roomId,
+            scene!.name,
+            "replacement",
+            asset,
+          );
+        setClipboard({
+          kind: "room",
+          room: structuredClone(source),
+          romHash: catalog.romHash,
+        });
+        setNotice("Copied room.");
+      });
+      return;
+    }
+    if (
+      !authoredRoom &&
+      project &&
+      room.meshes.some(
+        (mesh) => mesh.id === id && mesh.source === "display-list",
+      )
+    ) {
+      void run("Copying mesh", async () => {
+        const scene = await api().loadProjectRoom(project, room.id);
+        const sources = scene.meshes.filter(
+          (mesh) => mesh.source === "display-list",
+        );
+        const index = sources.findIndex((mesh) => mesh.id === id);
+        const entry = catalog.geometry.find(
+          (a) => a.roomIds.includes(scene.id) && a.id.startsWith("geometry:"),
+        );
+        const asset = entry
+          ? await api().loadGeometryAsset(entry.id)
+          : undefined;
+        const source = cloneScene(
+          scene,
+          catalog,
+          scene.id,
+          scene.name,
+          "replacement",
+          asset,
+        );
+        const mesh = source.meshes[index];
+        if (!mesh)
+          throw new Error("Select an existing native draw surface to copy.");
+        setClipboard(
+          copyGeometry(
+            source,
+            { meshId: mesh.id, mode: "mesh" },
+            catalog.romHash,
+          ),
+        );
+        setNotice("Copied mesh.");
+      });
+      return;
+    }
+    try {
+      let copied: EditorClipboard;
+      if (authoredRoom?.meshes.some((m) => m.id === id)) {
+        copied = copyGeometry(
+          authoredRoom,
+          geometrySelection?.meshId === id
+            ? geometrySelection
+            : { meshId: id!, mode: "mesh" },
+          catalog.romHash,
+        );
+      } else {
+        const actor = authoredRoom?.actors.find((a) => a.id === id);
+        const door = authoredRoom?.doors.find((d) => `door:${d.id}` === id);
+        const entrance = authoredRoom?.entrances.find(
+          (e) => `entrance:${e.id}` === id,
+        );
+        const native = room.actors.find(
+          (a) =>
+            a.id === (room.events.find((e) => e.id === id)?.actorRef ?? id),
+        );
+        const event = room.events.find(
+          (e) => e.id === id && !e.actorRef && e.editable,
+        );
+        const halfword =
+          native?.definitionSource?.expectedHex &&
+          native.definitionSource.expectedHex.length >= 8
+            ? parseInt(native.definitionSource.expectedHex.slice(4, 8), 16)
+            : undefined;
+        const prototype =
+          native &&
+          (catalog.actorPrototypes.find(
+            (p) => p.sourceActorRef === native.id && p.sourceRoomId === room.id,
+          ) ??
+            catalog.actorPrototypes.find(
+              (p) =>
+                p.actorId === native.actorId &&
+                (halfword === undefined || p.unknownHalfword === halfword),
+            ));
+        if (actor)
+          copied = {
+            kind: "actor",
+            actor: structuredClone(actor),
+            romHash: catalog.romHash,
+          };
+        else if (door)
+          copied = {
+            kind: "door",
+            door: structuredClone(door),
+            romHash: catalog.romHash,
+          };
+        else if (entrance)
+          copied = {
+            kind: "entrance",
+            entrance: structuredClone(entrance),
+            romHash: catalog.romHash,
+          };
+        else if (event)
+          copied = {
+            kind: "event",
+            eventKind: event.kind,
+            position: event.position ? { ...event.position } : undefined,
+            values: [...event.values],
+            romHash: catalog.romHash,
+          };
+        else if (native && prototype)
+          copied = {
+            kind: "actor",
+            actor: {
+              id: newId("actor"),
+              prototypeId: prototype.id,
+              position: { ...native.position },
+              rotation: { ...native.rotation },
+              parameters: [...native.parameters] as [number, number, number],
+              spawnPolicy:
+                native.sourceKind === "partition" ? "proximity" : "resident",
+            },
+            romHash: catalog.romHash,
+          };
+        else
+          throw new Error(
+            "Select an actor, mesh, face, vertex, door, entrance or editable room to copy.",
+          );
+      }
+      setClipboard(copied);
+      setNotice(`Copied ${copied.kind}.`);
+    } catch (issue) {
+      setError(messageOf(issue));
+    }
+  };
+  const copyAsset = (asset: LibraryDrop) => {
+    if (!catalog) return;
+    setClipboard({
+      kind: "asset",
+      asset: { ...asset },
+      romHash: catalog.romHash,
+    });
+    setNotice("Copied library asset.");
+  };
+  const pasteSelection = () => {
+    if (
+      !project ||
+      !baseRoom ||
+      !catalog ||
+      !clipboard ||
+      sample ||
+      busyLock.current
+    )
+      return;
+    if (clipboard.romHash !== catalog.romHash) {
+      setError(
+        "Copied objects belong to another source ROM. Copy an object from this ROM first.",
+      );
+      return;
+    }
+    if (clipboard.kind === "event") {
+      const event = room?.events.find(
+        (e) => e.id === selected && !e.actorRef && e.editable,
+      );
+      if (
+        !event ||
+        event.kind !== clipboard.eventKind ||
+        event.values.length !== clipboard.values.length ||
+        Boolean(event.position) !== Boolean(clipboard.position)
+      ) {
+        setError(
+          "Select an editable event of the same kind to paste its properties.",
+        );
+        return;
+      }
+      edit("events", event.id, {
+        position: clipboard.position,
+        values: [...clipboard.values],
+      });
+      setNotice("Pasted event properties.");
+      return;
+    }
+    void run("Pasting selection", async () => {
+      let target = authoredRoom;
+      if (!target) {
+        const scene = await api().loadProjectRoom(project, baseRoom.id);
+        const entry = catalog.geometry.find(
+          (a) => a.roomIds.includes(scene.id) && a.id.startsWith("geometry:"),
+        );
+        const asset = entry
+          ? await api().loadGeometryAsset(entry.id)
+          : undefined;
+        target = cloneScene(
+          scene,
+          catalog,
+          scene.id,
+          scene.name,
+          "replacement",
+          asset,
+        );
+      }
+      let nextRoom: AuthoredRoom,
+        nextSelected: string | null = null,
+        nextGeometry: GeometrySelection | null = null;
+      if (clipboard.kind === "asset") {
+        if (clipboard.asset.kind === "actor") {
+          const prototype = catalog.actorPrototypes.find(
+            (a) => a.id === clipboard.asset.id,
+          );
+          if (!prototype)
+            throw new Error("Actor is absent from the imported ROM catalog.");
+          nextRoom = addActor(target, prototype, { x: 0, y: 0, z: 0 });
+          nextSelected = nextRoom.actors.at(-1)!.id;
+        } else if (clipboard.asset.kind === "geometry") {
+          nextRoom = insertGeometry(
+            target,
+            await api().loadGeometryAsset(clipboard.asset.id),
+            { x: 0, y: 0, z: 0 },
+          );
+          const mesh = nextRoom.meshes[target.meshes.length];
+          if (mesh) {
+            nextSelected = mesh.id;
+            nextGeometry = { meshId: mesh.id, mode: "mesh" };
+          }
+        } else {
+          if (!catalog.skyboxes.some((s) => s.id === clipboard.asset.id))
+            throw new Error("Skybox is absent from the imported ROM catalog.");
+          nextRoom = { ...target, skyboxId: clipboard.asset.id };
+        }
+      } else if (clipboard.kind === "room") {
+        nextRoom = cloneAuthoredRoom(
+          clipboard.room,
+          availableRoomId(project, catalog),
+          `${clipboard.room.name} copy`,
+        );
+      } else {
+        const pasted = pasteEntity(
+          target,
+          clipboard,
+          geometrySelection,
+          followCollision,
+        );
+        nextRoom = pasted.room;
+        nextSelected = pasted.selected;
+        nextGeometry = pasted.geometry;
+      }
+      const next = updateAuthoredRoom(
+        project,
+        nextRoom,
+        baseRoom.geometryEdit?.affectedRoomIds ?? [],
+      );
+      const preview = await api().loadProjectRoom(next, nextRoom.id);
+      sceneReady.current = `${next.id}/${nextRoom.id}/${JSON.stringify(nextRoom)}`;
+      setPast((history) => [...history.slice(-99), project]);
+      setFuture([]);
+      setProject(next);
+      setBaseRoom(preview);
+      setSelected(nextSelected);
+      setGeometrySelection(nextGeometry);
+      setTab(
+        nextGeometry
+          ? "geometry"
+          : clipboard.kind === "room"
+            ? "room"
+            : "actors",
+      );
+      setNotice(`Pasted ${clipboard.kind}.`);
+    });
+  };
+  const openContextMenu = (
+    event: React.MouseEvent<HTMLElement>,
+    id: string | null,
+    kind?: "room",
+  ) => {
+    if (modal || busyLock.current || sample) return;
+    event.preventDefault();
+    setContextMenu({
+      document: event.currentTarget.ownerDocument,
+      x: event.clientX,
+      y: event.clientY,
+      id,
+      kind,
+    });
+  };
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement;
@@ -821,14 +1155,57 @@ export default function EditorPage() {
         event.defaultPrevented ||
         event.altKey ||
         event.isComposing ||
+        event.keyCode === 229 ||
+        ((event.metaKey || event.ctrlKey) &&
+          event.key.toLowerCase() === "c" &&
+          target.ownerDocument?.defaultView?.getSelection()?.isCollapsed ===
+            false) ||
         target.closest?.(
           "input,textarea,select,[contenteditable]:not([contenteditable='false']),[role='textbox']",
         ) ||
         modal ||
+        target.ownerDocument?.querySelector("dialog[open]") ||
         busyLock.current
       )
         return;
       if (event.metaKey || event.ctrlKey) {
+        if (!event.repeat && event.key.toLowerCase() === "b") {
+          event.preventDefault();
+          dock.current?.toggleRegion(event.shiftKey ? "right" : "left");
+        }
+        if (!event.repeat && event.key.toLowerCase() === "j") {
+          event.preventDefault();
+          dock.current?.toggleRegion("bottom");
+        }
+        if (
+          !event.shiftKey &&
+          !event.repeat &&
+          event.key.toLowerCase() === "c"
+        ) {
+          event.preventDefault();
+          const card = target.closest<HTMLElement>(
+            "[data-asset-id][data-asset-kind]",
+          );
+          if (card)
+            copyAsset({
+              id: card.dataset.assetId!,
+              kind: card.dataset.assetKind as LibraryDrop["kind"],
+            });
+          else if (contextMenu) {
+            if (contextMenu.asset) copyAsset(contextMenu.asset);
+            else copySelection(contextMenu.id, contextMenu.kind);
+          } else copySelection();
+          setContextMenu(null);
+        }
+        if (
+          !event.shiftKey &&
+          !event.repeat &&
+          event.key.toLowerCase() === "v"
+        ) {
+          event.preventDefault();
+          pasteSelection();
+          setContextMenu(null);
+        }
         if (event.key.toLowerCase() === "s") {
           event.preventDefault();
           void saveProject();
@@ -853,7 +1230,21 @@ export default function EditorPage() {
       );
     // Actions depend on the current project/history, so refresh their closures.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project, past, future, selected, modal, popupWindows]);
+  }, [
+    project,
+    past,
+    future,
+    selected,
+    modal,
+    popupWindows,
+    clipboard,
+    geometrySelection,
+    catalog,
+    baseRoom,
+    tab,
+    followCollision,
+    contextMenu,
+  ]);
   const selectRecord = (id: string | null) => {
     setGeometrySelection(null);
     setSelected(id);
@@ -1083,7 +1474,7 @@ export default function EditorPage() {
             size="s"
             variant="tertiary"
             aria-label="Project and build settings"
-            disabled={!project || sample || Boolean(busy)}
+            disabled={Boolean(busy)}
             onClick={() => setModal("settings")}
           >
             <FiSettings />
@@ -1231,14 +1622,6 @@ export default function EditorPage() {
                       >
                         New room
                       </Button>
-                      <Button
-                        size="s"
-                        variant="tertiary"
-                        disabled={!catalog || Boolean(busy)}
-                        onClick={() => dock.current?.showPanel("assets")}
-                      >
-                        Library
-                      </Button>
                     </Row>
                   )}
                   <Row
@@ -1250,9 +1633,7 @@ export default function EditorPage() {
                     onBackground="neutral-weak"
                   >
                     <span>
-                      {sample
-                        ? "PROCEDURAL WORKSPACE"
-                        : "US ROM · ROOM DIRECTORY"}
+                      {sample ? "PROCEDURAL WORKSPACE" : "ROOM DIRECTORY"}
                     </span>
                   </Row>
                   <Column
@@ -1268,6 +1649,9 @@ export default function EditorPage() {
                         horizontal="start"
                         data-testid="room-button"
                         data-room-id={item.id}
+                        onContextMenu={(event: React.MouseEvent<HTMLElement>) =>
+                          openContextMenu(event, `room:${item.id}`, "room")
+                        }
                         className={`room-item ${room?.id === item.id ? "is-selected" : ""}`}
                         key={item.id}
                         onClick={() => !sample && void loadRoom(item.id)}
@@ -1302,40 +1686,6 @@ export default function EditorPage() {
                         No matching rooms.
                       </Text>
                     )}
-                  </Column>
-                  <Column
-                    className="rom-summary"
-                    gap="12"
-                    padding="20"
-                    borderTop
-                  >
-                    <Row gap="8" vertical="center">
-                      <span className="connection-dot" />
-                      <Text variant="label-strong-xs">
-                        {sample ? "SAMPLE · NO GAME ASSETS" : "ROM CONNECTED"}
-                      </Text>
-                    </Row>
-                    <Text variant="body-default-xs" onBackground="neutral-weak">
-                      {sample
-                        ? "A procedural scene for trying the viewport. Import your ROM to begin a project."
-                        : `${status?.rom?.title ?? "Mystical Ninja Starring Goemon"} · US`}
-                    </Text>
-                    <Button
-                      size="s"
-                      variant="tertiary"
-                      fillWidth
-                      onClick={
-                        sample
-                          ? () => {
-                              setSample(false);
-                              setBaseRoom(null);
-                              setRooms([]);
-                            }
-                          : importRom
-                      }
-                    >
-                      {sample ? "Return to ROM setup" : "Change source ROM"}
-                    </Button>
                   </Column>
                 </Column>
               ),
@@ -1400,6 +1750,10 @@ export default function EditorPage() {
                         geometrySelection={geometrySelection}
                         onGeometrySelect={selectGeometry}
                         onAssetDrop={authoredRoom ? insertAsset : undefined}
+                        onEditMenu={(location) => {
+                          if (!modal && !busyLock.current && !sample)
+                            setContextMenu(location);
+                        }}
                       />
                     )}
                     <div className="viewport-top-overlay">
@@ -1623,7 +1977,10 @@ export default function EditorPage() {
                           key={kind}
                           onClick={() => {
                             setTab(kind);
-                            if (kind === "room") setSelected(null);
+                            if (kind === "room") {
+                              setSelected(null);
+                              setGeometrySelection(null);
+                            }
                           }}
                         >
                           {kind.charAt(0).toUpperCase() + kind.slice(1)}
@@ -1662,6 +2019,12 @@ export default function EditorPage() {
                             key={item.id}
                             className={`record-item ${selected === item.id ? "is-selected" : ""}`}
                             onClick={() => selectRecord(item.id)}
+                            onContextMenu={(
+                              event: React.MouseEvent<HTMLElement>,
+                            ) => {
+                              selectRecord(item.id);
+                              openContextMenu(event, item.id);
+                            }}
                           >
                             <span className={`record-symbol ${tab}`}>
                               {tab === "actors" ? <FiBox /> : "◇"}
@@ -1703,6 +2066,12 @@ export default function EditorPage() {
                             className={`record-item ${selected === mesh.id ? "is-selected" : ""}`}
                             key={mesh.id}
                             data-mesh-id={mesh.id}
+                            onContextMenu={(
+                              event: React.MouseEvent<HTMLElement>,
+                            ) => {
+                              selectGeometry({ meshId: mesh.id, mode: "mesh" });
+                              openContextMenu(event, mesh.id);
+                            }}
                             onClick={() =>
                               selectGeometry({ meshId: mesh.id, mode: "mesh" })
                             }
@@ -1754,11 +2123,26 @@ export default function EditorPage() {
                           : "Source values"}
                     </Text>
                   </Row>
-                  <div className="inspector-scroll">
+                  <div
+                    className="inspector-scroll"
+                    onContextMenu={(event) => {
+                      if (
+                        !(event.target as HTMLElement).closest(
+                          "input,textarea,select",
+                        )
+                      )
+                        openContextMenu(
+                          event,
+                          selected,
+                          tab === "room" ? "room" : undefined,
+                        );
+                    }}
+                  >
                     {authoredRoom &&
                     catalog &&
                     !(tab === "events" && selectedEvent) ? (
                       <AuthoringInspector
+                        loadMaterialPreview={api().loadMaterialPreview}
                         key={selected ?? `room:${authoredRoom.id}`}
                         room={authoredRoom}
                         initialization={baseRoom?.initialization}
@@ -1870,7 +2254,16 @@ export default function EditorPage() {
                     api={window.mnsg}
                     disabled={!authoredRoom || Boolean(busy) || Boolean(modal)}
                     onInsert={insertAsset}
-                    onClose={() => dock.current?.closePanel("assets")}
+                    onContextMenu={(event, asset) => {
+                      event.preventDefault();
+                      setContextMenu({
+                        document: event.currentTarget.ownerDocument,
+                        x: event.clientX,
+                        y: event.clientY,
+                        id: null,
+                        asset,
+                      });
+                    }}
                   />
                 ) : (
                   <Text padding="16" onBackground="neutral-weak">
@@ -2018,21 +2411,61 @@ export default function EditorPage() {
           </Row>
         </>
       )}
-      {modal === "settings" && project && (
+      {contextMenu && (
+        <EditorContextMenu
+          location={contextMenu}
+          canCopy={Boolean(
+            contextMenu.id || contextMenu.kind === "room" || contextMenu.asset,
+          )}
+          canPaste={Boolean(clipboard) && !busy}
+          onCopy={() =>
+            contextMenu.asset
+              ? copyAsset(contextMenu.asset)
+              : copySelection(contextMenu.id, contextMenu.kind)
+          }
+          onPaste={pasteSelection}
+          onClose={closeContextMenu}
+        />
+      )}
+      {modal === "settings" && (
         <ModalShell
           title="Project and build settings"
           onClose={closeModal}
           wide
         >
-          <ModSettingsPanel
-            project={project}
-            busy={Boolean(busy)}
-            onClose={closeModal}
-            onApply={(mod) => {
-              transact({ ...canonicalProject(project), mod });
-              setModal(null);
-            }}
-          />
+          {project && !sample ? (
+            <ModSettingsPanel
+              project={project}
+              busy={Boolean(busy)}
+              sourceRom={status?.rom?.title}
+              onChangeSource={() => {
+                setModal(null);
+                importRom();
+              }}
+              onClose={closeModal}
+              onApply={(mod) => {
+                transact({ ...canonicalProject(project), mod });
+                setModal(null);
+              }}
+            />
+          ) : (
+            <Column gap="16">
+              <Text variant="body-default-s">
+                Import your source ROM to begin editing.
+              </Text>
+              <Button
+                onClick={() => {
+                  setModal(null);
+                  setSample(false);
+                  setBaseRoom(null);
+                  setRooms([]);
+                  importRom();
+                }}
+              >
+                Choose US ROM
+              </Button>
+            </Column>
+          )}
         </ModalShell>
       )}
       {modal === "room-new" && (

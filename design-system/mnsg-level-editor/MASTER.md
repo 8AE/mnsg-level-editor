@@ -27,7 +27,7 @@ for tab/window/menu behavior, adapted to this editor's six panes.
 ## Workspace composition
 
 ```text
-Application toolbar: project/file/build actions | Window | Layout
+Application toolbar: project/file/build actions | panel toggles | Layout
 +-------------+-------------------------------+------------------+
 | Rooms       | Scene                         | Hierarchy        |
 |             | Native GPU viewport           +------------------+
@@ -42,7 +42,7 @@ resize controls and scroll regions on the right. Assets and Console use bottom-c
 Keep the project title, dirty state and New/Open/Save/Export reachable when panes close or float.
 Do not merge Hierarchy and Inspector back into a single fixed-height records pane.
 
-Window exposes reopen, pop out, redock, maximize and close. Layout exposes Default, Wide,
+Headers expose pop out, redock, maximize and close. Bottom tabs expose pop out/maximize and remain available; whole-region toggles hide the docked tools. Layout recovers hidden panels. Layout exposes Default, Wide,
 Focus, Save and Reset. Closing a pane does not close the project. Reset must recover hidden
 panes and saved bounds from an absent monitor. The complete interaction and acceptance
 contract lives in the [workspace/build plan](../../docs/WORKSPACE-AND-BUILD-PLAN.md).
@@ -93,13 +93,13 @@ the Scene camera or committing an edit. Add explicit size/collapse controls as a
 to dragging. Keep focused controls visible inside the correct pane's scroll region.
 
 Use independently scrolling panes at compact widths. Preserve reachability through tabs,
-Window actions and presets when simultaneous panes no longer fit. Test native minimum size,
+Layout recovery actions and presets when simultaneous panes no longer fit. Test native minimum size,
 small popouts, wide displays and 125%/200% zoom. Do not disable zoom or squeeze controls below
 their readable size. Desktop controls need adequate pointer targets; touch adaptation requires
 its own larger-target assessment rather than copying a mobile landing-page layout.
 
 Keep selection and keyboard traversal stable through tab changes, maximization and redocking.
-Closing a panel restores focus to its opener or Window control. Separate tab labels from panel
+Closing a panel restores focus to its opener or region control. Separate tab labels from panel
 actions and expose selected/expanded/pressed state. Inline form errors remain with their fields;
 multiple-error submission focuses a linked summary. Console notices should not steal focus.
 
@@ -166,3 +166,13 @@ Intel's virtual guest checked the unavailable-WebGL diagnostic and native panes.
 interaction, physical Intel viewport rendering and Intel/Windows own-ROM editing remain separate.
 Use the [acceptance matrix](../../docs/WORKSPACE-AND-BUILD-PLAN.md#acceptance-matrix) for tested scopes.
 The skill search and source checks do not establish those remaining observations.
+
+## 0.3.1 follow-up
+
+User feedback overrides the earlier Window menu: use direct panel/tab actions. Keep the material
+preview visible in the Inspector and offer search in a thumbnail grid with native modal focus.
+Selection outlines follow actual mesh/face topology; vertices use a screen-sized outlined marker.
+Copy/Paste uses immutable snapshots and shared project history across native windows. Preserve
+text-field clipboard behavior. ROM source controls belong in Settings, and Assets has no close
+or duplicate Library button. Local source, nine own-ROM UI checks and native recovery passed;
+platform/gameplay limits above remain separate.

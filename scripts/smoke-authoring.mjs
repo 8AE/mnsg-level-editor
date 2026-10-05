@@ -325,7 +325,7 @@ try {
   // Real browser drag starts on the production native thumbnail card. It must
   // run the card MIME handler and the viewport hit-plane placement handler.
   await room(blankId);
-  await button("Library").click();
+  await page.getByRole("tab", {name:"Assets",exact:true}).click();
   const library = page.getByTestId("authoring-library");
   const component = catalog.geometry.find(asset => asset.id.startsWith("component:") && asset.roomIds.includes(cloneDonorId) && asset.vertexCount >= 3 && asset.vertexCount < 256);
   assert(component, "A bounded native component fixture must exist");

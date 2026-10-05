@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type RefObject } from "react";
 import * as THREE from "three";
+import { SelectionOutline } from "./selectionOutline";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 import type { RoomData, ProjectRoomScene, Vec3 } from "../shared/types";
@@ -56,6 +57,9 @@ interface Props {
   mouseMode?: CameraMouseMode;
   geometrySelection?: GeometrySelection | null;
   onGeometrySelect?(selection: GeometrySelection | null): void;
+  onEditMenu?(
+    location: import("./EditorContextMenu").ContextMenuLocation,
+  ): void;
   onAssetDrop?(asset: LibraryDrop, position: Vec3): void;
 }
 
@@ -75,6 +79,7 @@ export default function RoomViewport({
   geometrySelection,
   onGeometrySelect,
   onAssetDrop,
+  onEditMenu,
   mouseMode = "tilt",
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
@@ -85,6 +90,7 @@ export default function RoomViewport({
     onActorCoverage,
     onGeometrySelect,
     onAssetDrop,
+    onEditMenu,
   });
   callbacks.current = {
     onSelect,
@@ -93,6 +99,7 @@ export default function RoomViewport({
     onActorCoverage,
     onGeometrySelect,
     onAssetDrop,
+    onEditMenu,
   };
   const geometryChoice = useRef(geometrySelection);
   geometryChoice.current = geometrySelection;
@@ -399,18 +406,11 @@ export default function RoomViewport({
       for (const entry of room.entrances)
         addMarker(`entrance:${entry.id}`, entry.position, true, true);
     }
-    const selectionBounds = new THREE.Box3();
-    const geometryOutline = new THREE.Box3Helper(selectionBounds, 0x87f2d4);
-    geometryOutline.visible = false;
-    scene.add(geometryOutline);
-    const selectedPoint = new THREE.Mesh(
-      new THREE.SphereGeometry(markerSize * 0.35, 12, 8),
-      new THREE.MeshBasicMaterial({ color: 0xf9c778, depthTest: false }),
-    );
-    selectedPoint.visible = false;
-    selectedPoint.renderOrder = 30000;
-    scene.add(selectedPoint);
-    materials.push(selectedPoint.material);
+    const surfaceFor = (id: string) =>
+      authoredGeometry.get(id)?.surface ??
+      surfaces.find((s) => s.mesh.userData.meshId === id)?.mesh;
+    const selectionOutline = new SelectionOutline();
+    scene.add(selectionOutline.group);
     const actorModels = new ActorModelLayer(scene, markers, directions);
     const bounds = geometryBounds.clone();
     if (bounds.isEmpty())
@@ -498,7 +498,7 @@ export default function RoomViewport({
       }
       return meshCenter(mesh);
     };
-    const restoreGeometry = () =>
+    const restoreGeometry = () => {
       authoredGeometry.forEach(({ surface, original }) => {
         const attr = surface.geometry.getAttribute(
           "position",
@@ -507,6 +507,14 @@ export default function RoomViewport({
         attr.needsUpdate = true;
         surface.geometry.computeBoundingSphere();
       });
+      const choice = geometryChoice.current;
+      const surface = choice ? surfaceFor(choice.meshId) : undefined;
+      selectionOutline.update(
+        surface,
+        choice,
+        surface?.parent?.visible !== false,
+      );
+    };
     const previewGeometry = () => {
       const object = transform.object;
       if (!object?.userData.geometry) return;
@@ -544,6 +552,11 @@ export default function RoomViewport({
       }
       attr.needsUpdate = true;
       entry.surface.geometry.computeBoundingSphere();
+      selectionOutline.update(
+        entry.surface,
+        choice,
+        entry.surface.parent?.visible !== false,
+      );
     };
     transform.addEventListener("objectChange", previewGeometry);
     const cancelTransform = () => {
@@ -740,18 +753,17 @@ export default function RoomViewport({
       },
       frame(selectedOnly) {
         const object = selectedId ? markers.get(selectedId) : undefined;
-        if (selectedOnly && object) {
-          const modelBounds = object.userData.geometry
-            ? new THREE.Box3().setFromObject(
-                authoredGeometry.get(selectedId!)!.surface,
-              )
+        const surface = selectedId ? surfaceFor(selectedId) : undefined;
+        if (selectedOnly && (object || surface)) {
+          const modelBounds = surface
+            ? new THREE.Box3().setFromObject(surface)
             : selectedId
               ? actorModels.bounds(selectedId)
               : null;
           const center =
             modelBounds && !modelBounds.isEmpty()
               ? modelBounds.getCenter(new THREE.Vector3())
-              : object.position.clone();
+              : (object?.position.clone() ?? new THREE.Vector3());
           const distance =
             modelBounds && !modelBounds.isEmpty()
               ? Math.max(
@@ -768,17 +780,15 @@ export default function RoomViewport({
       },
       update(id, view) {
         selectedId = id;
-        const choice = geometryChoice.current,
-          entry = choice ? authoredGeometry.get(choice.meshId) : undefined;
-        geometryOutline.visible = Boolean(entry && view.geometry);
-        selectedPoint.visible = Boolean(
-          entry && view.geometry && choice?.mode === "vertex",
-        );
-        if (entry) {
-          selectionBounds.setFromObject(entry.surface);
-          const origin = geometryOrigin(latestRoom.current, choice!.meshId);
-          if (origin) selectedPoint.position.set(origin.x, origin.y, origin.z);
-        }
+        const choice = geometryChoice.current;
+        const surface = choice ? surfaceFor(choice.meshId) : undefined;
+        scene.updateMatrixWorld(true);
+        selectionOutline.update(surface, choice, view.geometry);
+        container.dataset.selectionOutline =
+          surface && view.geometry ? (choice?.mode ?? "") : "";
+        container.dataset.selectionOutlineMesh = surface
+          ? (choice?.meshId ?? "")
+          : "";
 
         geometryGroup.visible = view.geometry;
         container.dataset.geometryVisible = String(view.geometry);
@@ -833,6 +843,79 @@ export default function RoomViewport({
       renderer.domElement.focus({ preventScroll: true });
       down = { x: event.clientX, y: event.clientY };
     };
+    const contextMenu = (event: MouseEvent) => {
+      if (!navigationAllowed.current) return;
+      event.preventDefault();
+      cancelTransform();
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointer.set(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        -((event.clientY - rect.top) / rect.height) * 2 + 1,
+      );
+      raycaster.setFromCamera(pointer, camera);
+      const hit = raycaster.intersectObjects(
+        [
+          ...actorModels.pickObjects(),
+          ...[...markers.values()].filter(
+            (m) => m.visible && !m.userData.geometry && m.userData.event,
+          ),
+          ...(geometryGroup.visible ? surfaces.map((s) => s.mesh) : []),
+        ],
+        true,
+      )[0];
+      let id: string | null = null;
+      if (
+        hit?.object.userData.meshId &&
+        (authoredGeometry.has(hit.object.userData.meshId) ||
+          room.meshes.some(
+            (m) =>
+              m.id === hit.object.userData.meshId &&
+              m.source === "display-list",
+          ))
+      ) {
+        id = hit.object.userData.meshId;
+        const mode = authoredGeometry.has(id!)
+          ? (geometryChoice.current?.mode ?? "mesh")
+          : "mesh";
+        if (mode === "vertex" && hit.face) {
+          const attr = (hit.object as THREE.Mesh).geometry.getAttribute(
+            "position",
+          );
+          const vertexIndex = [hit.face.a, hit.face.b, hit.face.c].sort(
+            (a, b) =>
+              new THREE.Vector3()
+                .fromBufferAttribute(attr, a)
+                .distanceToSquared(hit.point) -
+              new THREE.Vector3()
+                .fromBufferAttribute(attr, b)
+                .distanceToSquared(hit.point),
+          )[0];
+          callbacks.current.onGeometrySelect?.({
+            meshId: id!,
+            mode,
+            vertexIndex,
+          });
+        } else
+          callbacks.current.onGeometrySelect?.(
+            mode === "face"
+              ? { meshId: id!, mode, faceIndex: hit.faceIndex ?? 0 }
+              : { meshId: id!, mode: "mesh" },
+          );
+      } else {
+        let object: THREE.Object3D | null = hit?.object ?? null;
+        while (object && !object.userData.actorRef && !object.userData.id)
+          object = object.parent;
+        id = object?.userData.actorRef ?? object?.userData.id ?? null;
+        if (id) callbacks.current.onSelect(id);
+      }
+      callbacks.current.onEditMenu?.({
+        document,
+        x: event.clientX,
+        y: event.clientY,
+        id,
+      });
+    };
+    renderer.domElement.addEventListener("contextmenu", contextMenu);
     const pointerUp = (event: PointerEvent) => {
       if (
         moving ||
@@ -853,7 +936,7 @@ export default function RoomViewport({
           marker.userData.event && !marker.userData.geometry && marker.visible,
       );
       const geometryMode = geometryChoice.current;
-      if (geometryMode) {
+      if (geometryMode && authoredGeometry.size) {
         const hit = raycaster.intersectObjects(
           surfaces
             .map((s) => s.mesh)
@@ -911,7 +994,13 @@ export default function RoomViewport({
         });
         return;
       }
-      if (hit?.object.userData.meshId) return;
+      if (hit?.object.userData.meshId) {
+        callbacks.current.onGeometrySelect?.({
+          meshId: hit.object.userData.meshId,
+          mode: "mesh",
+        });
+        return;
+      }
       let hitObject: THREE.Object3D | null = hit?.object ?? null;
       while (
         hitObject &&
@@ -1050,6 +1139,7 @@ export default function RoomViewport({
       viewWindow.removeEventListener("blur", clearMovement);
       document.removeEventListener("visibilitychange", visibilityChanged);
       resize.disconnect();
+      renderer.domElement.removeEventListener("contextmenu", contextMenu);
       renderer.domElement.removeEventListener("pointerdown", pointerDown);
       renderer.domElement.removeEventListener("pointerup", pointerUp);
       orbit.removeEventListener("change", publishCamera);
@@ -1060,9 +1150,7 @@ export default function RoomViewport({
       transform.dispose();
       orbit.dispose();
       actorModels.dispose();
-      geometryOutline.geometry.dispose();
-      (geometryOutline.material as THREE.Material).dispose();
-      geometryOutline.removeFromParent();
+      selectionOutline.dispose();
       scene.traverse((object) => {
         if (
           object instanceof THREE.Mesh ||

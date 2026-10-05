@@ -136,13 +136,14 @@ try {
     await item.locator("summary").click();
   }
   async function show(id) {
-    const item = await menu("Window");
-    await button(item, id).click();
+    const item = await menu("Layout");
+    await button(item, `Show ${id}`).click();
     await item.locator("summary").click();
   }
   async function pop(id) {
     const waiting = app.waitForEvent("window");
-    await button(main, `Pop out ${id}`).click();
+    if (id === "Assets" || id === "Console") await main.getByRole("tab", {name:id,exact:true}).click();
+    await button(main, `Pop out ${id}`).filter({visible:true}).click();
     const page = await waiting;
     observe(page);
     await page.getByTestId(`workspace-panel-${id.toLowerCase()}`).waitFor();
@@ -532,10 +533,9 @@ try {
           element.dataset.workspaceObserverProbe = "mounted-before-popout";
         });
       }
-      const windowMenu = await menu("Window");
+      if (id === "Console") await main.getByRole("tab", {name:"Console",exact:true}).click();
       const waiting = app.waitForEvent("window");
-      await button(windowMenu, `Pop out ${id} from menu`).click();
-      await windowMenu.locator("summary").click();
+      await button(main, `Pop out ${id}`).filter({visible:true}).click();
       const page = await waiting;
       observe(page);
       await page.getByTestId(`workspace-panel-${id.toLowerCase()}`).waitFor();

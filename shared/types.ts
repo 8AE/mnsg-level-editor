@@ -370,6 +370,7 @@ export interface AppApi {
   loadActorVisuals(roomId:number,actorOverrides:Record<string,ActorOverride>):Promise<ActorVisualPayload>;
   getAuthoringCatalog(): Promise<AuthoringCatalog>;
   loadGeometryAsset(assetId: string): Promise<GeometryAssetPayload>;
+  loadMaterialPreview(materialId: string): Promise<{ material: MaterialAssetEntry["material"]; textures: GeometryTexture[] }>;
   loadActorPrototype(prototypeId: string, edits?: ActorPrototypeEdits): Promise<ActorVisualPayload>;
   loadSkyboxAsset(assetId: string): Promise<SkyboxAssetPayload>;
   listProjectRooms(project: EditorProject): Promise<RoomSummary[]>;

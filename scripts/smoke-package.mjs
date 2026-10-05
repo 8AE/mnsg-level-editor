@@ -48,19 +48,14 @@ async function checkProceduralWorkspace(app, page, artifacts, observe) {
   const evidence = { panels: [], resizes: [], search: [], project: "No ROM or project; editing/history stay disabled." };
   const panelIds = ["rooms", "scene", "hierarchy", "inspector", "assets", "console"];
   const button = (scope, name) => scope.getByRole("button", { name, exact: true });
-  const windowMenu = () => page.locator(".workspace-menu-popup").filter({
-    has: page.locator("summary").filter({ hasText: /^Window$/ }),
-  });
   async function pop(id) {
     const label = id[0].toUpperCase() + id.slice(1);
-    const menu = windowMenu();
-    await menu.locator("summary").click();
+    if (["assets","console"].includes(id)) await page.getByRole("tab", {name:label,exact:true}).click();
     const waiting = app.waitForEvent("window", { timeout: 30_000 });
-    await button(menu, `Pop out ${label} from menu`).click();
+    await button(page, `Pop out ${label}`).filter({visible:true}).click();
     const child = await waiting;
     observe(child);
     await child.getByTestId(`workspace-panel-${id}`).waitFor();
-    await menu.locator("summary").click();
     assert.equal(await child.evaluate(() => window.name), `mnsg-panel-${id}`);
     assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length), 2, "A popout creates exactly one native child");
     assert.equal(await child.locator(".app-toolbar").count(), 0, "A panel portal must not bootstrap a second editor");

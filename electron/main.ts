@@ -118,6 +118,10 @@ function registerOperations() {
     const asset = requireDatabase().loadGeometryAsset(resourceId(id, "Geometry asset ID"));
     assertDecodedBudget(asset.meshes, asset.textures); return asset;
   });
+  handle("load-material-preview", id => {
+    const payload = requireDatabase().resolveAuthoringMaterial(resourceId(id, "Material ID"));
+    assertDecodedBudget([], payload.textures); return payload;
+  });
   handle("load-skybox-asset", id => {
     const asset = requireDatabase().loadSkyboxAsset(resourceId(id, "Skybox asset ID"));
     assertDecodedBudget([], [asset.texture]); return asset;

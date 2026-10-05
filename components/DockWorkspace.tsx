@@ -13,7 +13,15 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { Button, Column, Row, Text } from "@once-ui-system/core";
-import { FiArrowUpRight, FiMaximize, FiMinimize, FiX } from "react-icons/fi";
+import {
+  FiArrowUpRight,
+  FiMaximize,
+  FiMinimize,
+  FiX,
+  FiSidebar,
+  FiLayout,
+  FiColumns,
+} from "react-icons/fi";
 import { openPanelHost, type PopupHost } from "./popupHost";
 import {
   fitWorkspace,
@@ -34,6 +42,7 @@ export const WorkspacePanelWindowContext = createContext<Window | null>(null);
 export interface DockWorkspaceHandle {
   showPanel(id: PanelId): void;
   closePanel(id: PanelId): void;
+  toggleRegion(region: "left" | "right" | "bottom"): void;
 }
 interface Props {
   panels: Record<PanelId, ReactNode>;
@@ -340,7 +349,30 @@ export default forwardRef<DockWorkspaceHandle, Props>(function DockWorkspace(
       },
     }));
   };
-  useImperativeHandle(ref, () => ({ showPanel: show, closePanel: close }));
+  const toggleRegion = (region: "left" | "right" | "bottom") => {
+    const ids: PanelId[] =
+      region === "left"
+        ? ["rooms"]
+        : region === "right"
+          ? ["hierarchy", "inspector"]
+          : ["assets", "console"];
+    setPreferences((previous) => {
+      const visible = { ...previous.current.visible };
+      const next = !ids.some((id) => visible[id] && !hostRefs.current[id]);
+      ids.forEach((id) => {
+        if (!hostRefs.current[id]) visible[id] = next;
+      });
+      return {
+        ...previous,
+        current: { ...previous.current, visible, maximized: null },
+      };
+    });
+  };
+  useImperativeHandle(ref, () => ({
+    showPanel: show,
+    closePanel: close,
+    toggleRegion,
+  }));
   const popup = (id: PanelId) => {
     if (hosts[id]) {
       hosts[id]!.window.focus();
@@ -363,7 +395,7 @@ export default forwardRef<DockWorkspaceHandle, Props>(function DockWorkspace(
       );
       if (!host) {
         setMessage(
-          "The panel window could not open. Use Window to reopen the docked panel.",
+          "The panel window could not open. The docked panel is still available.",
         );
         return;
       }
@@ -386,6 +418,11 @@ export default forwardRef<DockWorkspaceHandle, Props>(function DockWorkspace(
     ]),
   ) as Record<PanelId, boolean>;
   const fit = fitWorkspace(current, size.width, size.height, dockVisible);
+  const activeBottom = dockVisible[current.activeBottom]
+    ? current.activeBottom
+    : dockVisible.assets
+      ? "assets"
+      : "console";
   const compactActive =
     current.visible[current.compactPanel] && !hosts[current.compactPanel]
       ? current.compactPanel
@@ -445,14 +482,16 @@ export default forwardRef<DockWorkspaceHandle, Props>(function DockWorkspace(
                 {current.maximized === id ? <FiMinimize /> : <FiMaximize />}
               </Button>
             )}
-            <Button
-              size="s"
-              variant="tertiary"
-              aria-label={`Close ${PANEL_LABELS[id]}`}
-              onClick={() => close(id)}
-            >
-              <FiX />
-            </Button>
+            {id !== "assets" && id !== "console" && (
+              <Button
+                size="s"
+                variant="tertiary"
+                aria-label={`Close ${PANEL_LABELS[id]}`}
+                onClick={() => close(id)}
+              >
+                <FiX />
+              </Button>
+            )}
           </Row>
         </Row>
         <div className="dock-panel-content" inert={blocked}>
@@ -499,33 +538,39 @@ export default forwardRef<DockWorkspaceHandle, Props>(function DockWorkspace(
   return (
     <Column className="dock-workspace" fill>
       <Row className="workspace-menu" gap="8" vertical="center" paddingX="8">
-        <details className="workspace-menu-popup">
-          <summary>Window</summary>
-          <Column className="workspace-menu-list" gap="4" padding="8">
-            {PANEL_IDS.map((id) => (
-              <Row key={id} gap="4" vertical="center">
-                <Button variant="tertiary" size="s" onClick={() => show(id)}>
-                  {PANEL_LABELS[id]}
-                </Button>
-                <Button
-                  variant="tertiary"
-                  size="s"
-                  aria-label={
-                    hosts[id]
-                      ? `Redock ${PANEL_LABELS[id]} from menu`
-                      : `Pop out ${PANEL_LABELS[id]} from menu`
-                  }
-                  onClick={() => (hosts[id] ? redock(id) : popup(id))}
-                >
-                  {hosts[id] ? "Redock" : "Pop out"}
-                </Button>
-              </Row>
-            ))}
-          </Column>
-        </details>
+        <Row gap="2" className="panel-region-controls">
+          {(["left", "right", "bottom"] as const).map((region, index) => (
+            <Button
+              key={region}
+              size="s"
+              variant="tertiary"
+              aria-label={`Toggle ${region} panel`}
+              title={`Toggle ${region} panel · ${index === 0 ? "⌘/Ctrl+B" : index === 1 ? "⌘/Ctrl+Shift+B" : "⌘/Ctrl+J"}`}
+              onClick={() => toggleRegion(region)}
+            >
+              {region === "left" ? (
+                <FiSidebar />
+              ) : region === "right" ? (
+                <FiColumns />
+              ) : (
+                <FiLayout />
+              )}
+            </Button>
+          ))}
+        </Row>
         <details className="workspace-menu-popup">
           <summary>Layout</summary>
           <Column className="workspace-menu-list" gap="4" padding="8">
+            {PANEL_IDS.filter((id) => !current.visible[id]).map((id) => (
+              <Button
+                key={id}
+                variant="tertiary"
+                size="s"
+                onClick={() => show(id)}
+              >
+                Show {PANEL_LABELS[id]}
+              </Button>
+            ))}
             {(["Default", "Wide", "Focus"] as WorkspacePreset[]).map((name) => (
               <Button
                 key={name}
@@ -685,7 +730,7 @@ export default forwardRef<DockWorkspaceHandle, Props>(function DockWorkspace(
               />
             )}
           <div
-            className="dock-bottom"
+            className={`dock-bottom ${!fit.compact && !current.maximized ? "is-tabbed" : ""}`}
             style={{
               display: fit.compact
                 ? undefined
@@ -701,20 +746,45 @@ export default forwardRef<DockWorkspaceHandle, Props>(function DockWorkspace(
                 aria-label="Assets and Console"
                 gap="4"
               >
-                {(["assets", "console"] as const)
-                  .filter((id) => dockVisible[id])
-                  .map((id) => (
-                    <Button
-                      key={id}
-                      size="s"
-                      variant="tertiary"
-                      role="tab"
-                      aria-selected={current.activeBottom === id}
-                      onClick={() => update({ activeBottom: id })}
-                    >
-                      {PANEL_LABELS[id]}
-                    </Button>
-                  ))}
+                <Row gap="4">
+                  {(["assets", "console"] as const)
+                    .filter((id) => dockVisible[id])
+                    .map((id) => (
+                      <Button
+                        key={id}
+                        size="s"
+                        variant="tertiary"
+                        role="tab"
+                        aria-selected={activeBottom === id}
+                        onClick={() => update({ activeBottom: id })}
+                        onDoubleClick={() => popup(id)}
+                      >
+                        {PANEL_LABELS[id]}
+                      </Button>
+                    ))}
+                </Row>
+                <Row gap="2" className="bottom-panel-actions">
+                  <Button
+                    size="s"
+                    variant="tertiary"
+                    aria-label={`Pop out ${PANEL_LABELS[activeBottom]}`}
+                    onClick={() => popup(activeBottom)}
+                  >
+                    <FiArrowUpRight />
+                  </Button>
+                  <Button
+                    size="s"
+                    variant="tertiary"
+                    aria-label={`Maximize ${PANEL_LABELS[activeBottom]}`}
+                    onClick={() =>
+                      update({
+                        maximized: activeBottom,
+                      })
+                    }
+                  >
+                    <FiMaximize />
+                  </Button>
+                </Row>
               </Row>
             )}
             {(["assets", "console"] as const).map((id) => (
@@ -725,12 +795,7 @@ export default forwardRef<DockWorkspaceHandle, Props>(function DockWorkspace(
                   display:
                     (fit.compact
                       ? isHidden(id)
-                      : !dockVisible[id] ||
-                        (dockVisible[current.activeBottom]
-                          ? current.activeBottom
-                          : dockVisible.assets
-                            ? "assets"
-                            : "console") !== id) && !hosts[id]
+                      : !dockVisible[id] || activeBottom !== id) && !hosts[id]
                       ? "none"
                       : undefined,
                 }}

@@ -47,6 +47,7 @@ export class NativeAuthoringCatalog {
   private catalog?:AuthoringCatalog;
   private readonly geometryRooms=new Map<string,{roomId:number;meshIndex?:number;parentId?:string}>();
   private readonly materials=new Map<string,MaterialLocation>();
+  private readonly materialPreviewRooms=new Map<number,ReturnType<typeof renderRoom>>();
   private readonly prototypes=new Map<string,ActorPrototype>();
   private readonly codeContextErrors=new Map<number,string>();
   private readonly assets=new Map<string,GeometryAssetPayload>();
@@ -222,8 +223,10 @@ export class NativeAuthoringCatalog {
     while(this.assets.size>=2)this.assets.delete(this.assets.keys().next().value!);this.assets.set(id,payload);return structuredClone(payload);
   }
   resolveMaterial(id:string):{material:NonNullable<GeometryMesh["material"]>;textures:GeometryTexture[]} {
-    if(!this.catalog)this.getCatalog();const location=this.materials.get(id);if(!location)throw new Error("Unknown ROM material ID.");const rendered=renderRoom(this.reader,location.roomId,this.files,this.segment,this.waves),mesh=rendered.meshes[location.index];if(!mesh?.material)throw new Error("Native material batch changed.");
-    return {material:structuredClone(mesh.material),textures:structuredClone(rendered.textures.filter(t=>t.id===mesh.material!.textureId))};
+    if(!this.catalog)this.getCatalog();const location=this.materials.get(id);if(!location)throw new Error("Unknown ROM material ID.");let rendered=this.materialPreviewRooms.get(location.roomId);
+    if(!rendered){rendered=renderRoom(this.reader,location.roomId,this.files,this.segment,this.waves);while(this.materialPreviewRooms.size>=2)this.materialPreviewRooms.delete(this.materialPreviewRooms.keys().next().value!);this.materialPreviewRooms.set(location.roomId,rendered);}
+    const mesh=rendered.meshes[location.index];if(!mesh?.material)throw new Error("Native material batch changed.");
+    return {material:structuredClone(mesh.material),textures:structuredClone(rendered.textures.filter(t=>t.id===mesh.material!.textureId||t.id===mesh.material!.dualTexture?.textureId))};
   }
   loadSkyboxAsset(id:string):SkyboxAssetPayload {
     if(!this.catalog)this.getCatalog();const sky=this.catalog!.skyboxes.find(s=>s.id===id);if(!sky||sky.nativeIndex<1||sky.nativeIndex>4)throw new Error("Unknown native scrolling background ID.");

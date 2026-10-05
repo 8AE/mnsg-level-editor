@@ -9,6 +9,7 @@ import type {
   RoomSummary,
   Vec3,
 } from "../shared/types";
+import MaterialPicker from "./MaterialPicker";
 import { ValueField } from "./Inspector";
 import RoomInitializationDetails from "./RoomInitializationDetails";
 import type { RoomInitialization } from "../shared/room-initialization";
@@ -93,6 +94,7 @@ const numberList = (
 };
 interface Props {
   room: AuthoredRoom;
+  loadMaterialPreview: NonNullable<Window["mnsg"]>["loadMaterialPreview"];
   initialization?: RoomInitialization;
   catalog: AuthoringCatalog;
   selected: string | null;
@@ -117,6 +119,7 @@ interface Props {
 }
 export default function AuthoringInspector({
   room,
+  loadMaterialPreview,
   initialization,
   catalog,
   selected,
@@ -260,43 +263,36 @@ export default function AuthoringInspector({
             {mesh.vertices.length} vertices · {mesh.indices.length / 3}{" "}
             triangles
           </Text>
-          <label className="value-field">
-            <span>Material</span>
-            <select
-              aria-label="Material"
-              disabled={disabled}
-              value={
-                room.materials.find((m) => m.id === mesh.materialId)
-                  ?.sourceMaterialId ?? ""
+          <MaterialPicker
+            catalog={catalog}
+            load={loadMaterialPreview}
+            disabled={disabled}
+            value={
+              room.materials.find((m) => m.id === mesh.materialId)
+                ?.sourceMaterialId ?? ""
+            }
+            onChange={(materialId) => {
+              let material = room.materials.find(
+                (m) => m.sourceMaterialId === materialId,
+              );
+              const materials = [...room.materials];
+              if (!material) {
+                material = {
+                  id: newId("material"),
+                  sourceMaterialId: materialId,
+                };
+                materials.push(material);
               }
-              onChange={(e) => {
-                let material = room.materials.find(
-                  (m) => m.sourceMaterialId === e.target.value,
-                );
-                const materials = [...room.materials];
-                if (!material) {
-                  material = {
-                    id: newId("material"),
-                    sourceMaterialId: e.target.value,
-                  };
-                  materials.push(material);
-                }
-                onChange(
-                  replaceMesh(
-                    { ...room, materials },
-                    { ...mesh, materialId: material.id },
-                    followCollision && room.collisionMode === "authored",
-                  ),
-                );
-              }}
-            >
-              {catalog.materials.map((m) => (
-                <option value={m.id} key={m.id}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
-          </label>
+              onChange(
+                replaceMesh(
+                  { ...room, materials },
+                  { ...mesh, materialId: material.id },
+                  followCollision && room.collisionMode === "authored",
+                ),
+              );
+            }}
+          />
+
           <label className="check-field">
             <input
               type="checkbox"

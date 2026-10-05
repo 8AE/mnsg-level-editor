@@ -24,14 +24,37 @@ without selecting the ROM again.
 
 ## Workspace
 
-The 0.3.0 workspace has six panels: Rooms on the left, Scene in the center, separate Hierarchy
+The workspace has six panels: Rooms on the left, Scene in the center, separate Hierarchy
 and Inspector panels on the right, and Assets/Console tabs below Scene. Drag a separator,
 focus it and use the keyboard, or use its size buttons. Each panel has its own scroll area.
 
-Use **Window** to reopen, pop out, redock, maximize or close a panel. Popouts are native desktop
-windows sharing one project and Undo/Redo history. **Layout** offers Default, Wide and Focus,
-saved layouts and Reset. Layout changes, camera movement and panel visibility leave project
-history and dirty state unchanged. Read the local checks and remaining release gates below.
+Use each panel's header to pop out, redock, maximize or close it. Assets and Console stay
+available as bottom tabs, with popout/maximize actions beside the active tab; double-click a
+bottom tab to pop it out. Close its native window to redock it. **Layout** offers Default, Wide,
+Focus, saved layouts, Reset and recovery of hidden panels. The three icons beside Layout toggle
+the docked regions. Popouts share one project and Undo/Redo history; layout changes remain view state.
+
+| Shortcut | Action |
+| --- | --- |
+| Cmd/Ctrl+B | Hide/show the left panel |
+| Cmd/Ctrl+Shift+B | Hide/show the right panels |
+| Cmd/Ctrl+J | Hide/show the bottom panel |
+| Cmd/Ctrl+C / V | Copy/paste the selected editor object |
+
+Keyboard shortcuts leave text editing and IME composition alone. Right-click actors, geometry,
+rooms or library assets for Copy/Paste. Mesh copies keep UV/RGBA, material and linked collision;
+face copies append private triangle vertices when the target material matches, otherwise they
+create a separate mesh. Vertex copies require a selected destination mesh. Pasting a native
+actor first creates an editable room replacement through the normal admission checks. Copies
+stay in memory for this editor session and may be pasted between rooms/projects using the same
+ROM. Event copying applies properties to an editable event of the same kind; native event
+creation remains outside the supported authoring schema. Every successful paste participates
+in Undo/Redo. Clipboard objects retain their copied values after the originals change.
+
+The geometry Inspector shows the current material preview. **Choose material** opens a searchable
+grid of lazy ROM texture/color thumbnails, including in a native Inspector window. Mesh and face
+selections outline the actual edges; vertex selections have a contrasting screen-sized marker.
+Change the source ROM under **Settings → Source ROM**. Read the local checks and release gates below.
 
 ## Editing scope
 

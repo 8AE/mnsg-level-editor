@@ -25,14 +25,14 @@ its own content; the application toolbar stays visible.
 | Assets | ROM actor/geometry/sky cards, real thumbnails, diagnostic status, drag placement and Place at origin |
 | Console | Bounded entries from actual operations, build output and diagnostics; source/severity filtering and Clear |
 
-Resize with a pointer, keyboard separators or explicit controls. Provide Window actions to
-reopen, pop out, redock, maximize and close a pane. Layout offers Default, Wide and Focus
+Resize with a pointer, keyboard separators or explicit controls. Provide panel-header actions to
+pop out, redock, maximize and close a pane, and Layout actions to recover hidden panes. Layout offers Default, Wide and Focus
 presets, saved preferences and Reset. Keep layout, pane visibility, window bounds and camera
 preferences outside project fingerprints and undo history. Closing a pane leaves the document
 open; the main window retains the dirty-project close guard.
 
 Default keeps the full editing arrangement. Wide gives Scene more horizontal space. Focus
-prioritizes Scene while Window keeps hidden tools reachable. Reset must recover a usable
+prioritizes Scene while Layout keeps hidden tools reachable. Reset must recover a usable
 workspace from hidden panes, invalid saved sizes or a removed monitor. Preserve selection,
 asset browsing and accepted previews through these operations.
 
@@ -255,3 +255,25 @@ implementation needs fresh review; the planning inventory is not a frozen implem
 - [Pinned Goemon config/manifest parser](https://github.com/klorfmorf/N64ModernRuntime/blob/fc4592a31414daf0040c19907e0b1976b2e48a67/librecomp/src/mod_manifest.cpp)
 - [LLVM source and license](https://github.com/llvm/llvm-project/tree/llvmorg-21.1.8)
 - [Existing export bounds](export.md) and [room-authoring workflow](room-authoring.md)
+
+## 0.3.1 editing ergonomics
+
+The follow-up replaces the Window popout menu with direct header/tab controls. Assets/Console
+have permanent tabs, inline popout/maximize actions and region visibility shortcuts. Source ROM
+selection moved into Settings. The material dialog uses trusted, bounded ROM material lookup,
+lazy image decoding and native dialog focus/Escape handling in the Inspector's own document.
+Selection edges use contrasting screen-space lines, with a separate outlined vertex marker.
+
+Editor clipboard snapshots retain native values and mesh attributes. Paste creates independent
+record IDs/material bindings and remaps linked collision; room copies preserve self-linked doors.
+Native actor paste converts the destination to an editable replacement using the existing clone
+and admission validator. Unsupported event creation remains unsupported; compatible event
+properties can be copied. Source ROM hashes prevent foreign-ROM objects being applied. All
+object pastes share the project history, while text fields keep ordinary copy/paste.
+
+Local checks: 350 source tests, 261 passing and 89 optional skips without a private ROM; with
+the user's ROM, 339 passed and 11 optional export/GPU environment skips. Nine native UI checks
+cover source Settings, panel shortcuts/text guards, bottom controls, native surface/actor/mesh/face/vertex
+paste and Undo, context menus, lazy material previews, and Inspector popup focus/clipboard.
+The existing 21-check real-ROM workspace and 11-check no-ROM native recovery suites passed.
+These checks do not execute a generated mod or establish physical Windows/Intel rendering.

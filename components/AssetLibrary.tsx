@@ -86,6 +86,7 @@ function AssetCard({
     <div
       ref={host}
       data-testid="asset-card"
+      tabIndex={0}
       data-asset-id={id}
       data-asset-kind={kind}
       className="asset-card"
@@ -144,13 +145,16 @@ export default function AssetLibrary({
   api,
   disabled,
   onInsert,
-  onClose,
+  onContextMenu,
 }: {
   catalog: AuthoringCatalog;
   api: AppApi;
   disabled: boolean;
   onInsert(asset: LibraryDrop): void;
-  onClose(): void;
+  onContextMenu?(
+    event: React.MouseEvent<HTMLElement>,
+    asset: LibraryDrop,
+  ): void;
 }) {
   const ownerWindow = useContext(WorkspacePanelWindowContext);
   const [kind, setKind] = useState<LibraryDrop["kind"]>("actor"),
@@ -173,19 +177,30 @@ export default function AssetLibrary({
     <Column
       className="asset-library"
       data-testid="authoring-library"
+      onContextMenu={(event: React.MouseEvent<HTMLElement>) => {
+        const card = (event.target as HTMLElement).closest<HTMLElement>(
+          "[data-asset-id][data-asset-kind]",
+        );
+        if (card)
+          onContextMenu?.(event, {
+            id: card.dataset.assetId!,
+            kind: card.dataset.assetKind as LibraryDrop["kind"],
+          });
+      }}
       borderRight
     >
-      <Row padding="16" horizontal="between">
-        <Text variant="label-strong-s">ASSET LIBRARY</Text>
-        <Button size="s" variant="tertiary" onClick={onClose}>
-          Close
-        </Button>
-      </Row>
-      <Row paddingX="16" gap="4">
+      <Row
+        className="asset-category-tabs"
+        paddingX="8"
+        gap="4"
+        role="group"
+        aria-label="Asset category"
+      >
         {(["actor", "geometry", "skybox"] as const).map((k) => (
           <Button
             size="s"
             key={k}
+            aria-pressed={kind === k}
             variant={kind === k ? "secondary" : "tertiary"}
             onClick={() => setKind(k)}
           >

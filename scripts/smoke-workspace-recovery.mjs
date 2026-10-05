@@ -76,14 +76,12 @@ async function withinDisplay(page) {
 }
 async function popup(id) {
   const label = id[0].toUpperCase() + id.slice(1);
-  const menu = main.locator(".workspace-menu-popup").filter({ has: main.locator("summary").filter({ hasText: /^Window$/ }) });
-  await menu.locator("summary").click();
+  if (["assets","console"].includes(id)) await main.getByRole("tab", {name:label,exact:true}).click();
   const waiting = app.waitForEvent("window");
-  await button(menu, `Pop out ${label} from menu`).click();
+  await button(main, `Pop out ${label}`).filter({visible:true}).click();
   const child = await waiting;
   child.on("pageerror", error => report.errors.push(error.message));
   await child.getByTestId(`workspace-panel-${id}`).waitFor();
-  await menu.locator("summary").click();
   return child;
 }
 try {

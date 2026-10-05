@@ -996,7 +996,7 @@ test("authoring selects have stable exact names and deduplicated preview details
   const markup = JSON.parse(result.stdout);
   const cases: [string, string[]][] = [
     [markup.actor, ["Actor prototype", "Actor loading"]],
-    [markup.mesh, ["Material"]],
+    [markup.mesh, ["Choose material"]],
     [
       markup.door,
       [
