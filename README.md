@@ -40,6 +40,7 @@ the docked regions. Popouts share one project and Undo/Redo history; layout chan
 | Cmd/Ctrl+Shift+B | Hide/show the right panels |
 | Cmd/Ctrl+J | Hide/show the bottom panel |
 | Cmd/Ctrl+C / V | Copy/paste the selected editor object |
+| Cmd/Ctrl-click | Add/remove an item from the selection |
 
 Keyboard shortcuts leave text editing and IME composition alone. Right-click actors, geometry,
 rooms or library assets for Copy/Paste. Mesh copies keep UV/RGBA, material and linked collision;
@@ -54,6 +55,13 @@ in Undo/Redo. Clipboard objects retain their copied values after the originals c
 The geometry Inspector shows the current material preview. **Choose material** opens a searchable
 grid of lazy ROM texture/color thumbnails, including in a native Inspector window. Mesh and face
 selections outline the actual edges; vertex selections have a contrasting screen-sized marker.
+Hold **Cmd** on macOS or **Ctrl** on Windows while clicking to add or remove actors, events,
+meshes, faces or vertices. This works in the viewport and Hierarchy, including mixed selections.
+Choose face or vertex mode before selecting geometry elements. Press **T** and drag the shared
+move gizmo, or enter X/Y/Z offsets in the group Inspector. Shared vertices move once, and one
+Undo restores the entire move. Plain clicking selects one item; plain clicking empty space
+clears the selection. Read-only items must be deselected or made editable before a group move.
+
 Change the source ROM under **Settings → Source ROM**. Read the local checks and release gates below.
 
 ## Editing scope
@@ -174,7 +182,7 @@ zoom. Camera movement leaves project data untouched.
 | --- | --- |
 | W / S | Move forward / backward along the view direction. |
 | A / D | Move left / right relative to the view. |
-| F | Frame the selected actor or event. |
+| F | Frame the selected items. |
 | T | Toggle the translation gizmo for an editable selection. |
 | G | Toggle the grid. |
 

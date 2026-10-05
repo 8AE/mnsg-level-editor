@@ -291,3 +291,22 @@ blocked HTTP/HTTPS, then all 11 isolated native recovery checks. Normal-profile 
 confirmed the removed asset-library header gap, Source ROM settings and native material grid.
 The user's existing unsaved room was saved to a local recovery project before replacement and
 reopened with its 42 meshes and 31 actors intact. The original ROM cache hash stayed unchanged.
+
+## 0.3.2 multiple selection
+
+Cmd-click on macOS and Ctrl-click on Windows toggle selection membership in the viewport
+and Hierarchy. Plain clicks replace the selection; whole meshes supersede their sub-elements.
+All selected geometry and records have outlines, and the Scene shows the selection count.
+The group Inspector provides shared X/Y/Z offsets and the translation tool uses one pivot.
+Face and vertex groups use the union of selected vertex indices, so shared vertices move once.
+Native actor/event aliases are deduplicated. Group movement preserves UV/RGBA, materials,
+topology, unrelated overrides and template collision. Linked authored collision follows the
+existing setting. Range, native partition and read-only checks apply before one immutable
+project transaction; one Undo restores the entire group. Popouts use the same owner selection.
+
+Local source validation passed typecheck, production build and 346 of 357 tests with the user's
+ROM (11 optional environment skips). Seven selection tests cover modifier toggling, shared
+vertices, mixed records/geometry, actor aliases, linked collision, unchanged unrelated data and
+atomic validation failure. The nine existing native UI ergonomics checks also passed.
+Native multi-selection checks use actual viewport raycasts and Hierarchy clicks in an isolated
+profile, then save and compare project data. Generated mods are not executed in the game.

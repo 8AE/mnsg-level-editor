@@ -1,6 +1,6 @@
 {
   "name": "mnsg-level-editor",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "description": "Local MNSG room and actor editor for macOS and Windows",
   "author": "MNSG Level Editor contributors",
@@ -24,7 +24,8 @@
     "package": "npm run managed:smoke && npm run build && electron-builder --publish never",
     "package:mac": "npm run managed:smoke && npm run build && electron-builder --mac --publish never",
     "package:win": "npm run managed:smoke && npm run build && electron-builder --win --publish never",
-    "test:editor-ux": "node scripts/smoke-editor-ux.mjs"
+    "test:editor-ux": "node scripts/smoke-editor-ux.mjs",
+    "test:multiselect": "node scripts/smoke-multiselect.mjs"
   },
   "dependencies": {
     "@once-ui-system/core": "2.0.0",
@@ -36,7 +37,6 @@
     "three": "0.186.1"
   },
   "devDependencies": {
-    "playwright": "1.63.0",
     "@types/node": "26.6.4",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
@@ -44,6 +44,7 @@
     "electron": "44.5.1",
     "electron-builder": "26.15.3",
     "esbuild": "0.28.2",
+    "playwright": "1.63.0",
     "tsx": "4.23.15",
     "typescript": "7.0.2"
   },

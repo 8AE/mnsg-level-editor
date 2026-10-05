@@ -46,10 +46,17 @@ Choose a mesh in **Geometry**. The inspector has three selection modes:
 | **vertex** | Choose a vertex index and edit position, UV coordinates and RGBA color. Colors use four integers from 0 to 255. Use **Add vertex** or **Remove vertex & incident faces** to change the vertex list. |
 | **face** | Choose a triangle index and edit its three vertex indices. Use **Add triangle** or **Remove face** to change topology. |
 
-Press **T** to show the translation gizmo for the current editable selection.
-You can move a whole mesh, one vertex, or the three vertices of a selected face.
-Faces that share those vertices move with them. Use **F** to frame the selection.
-Cancel a gizmo drag to discard its preview; release it to commit an undoable edit.
+Hold **Cmd** on macOS or **Ctrl** on Windows while clicking to add or remove meshes,
+faces, vertices or records from the selection. Choose face or vertex mode in the Inspector
+before selecting those elements in the viewport. Hierarchy clicks support the same modifier;
+you can combine geometry and records. Plain clicking selects one item.
+
+Press **T** to show the translation gizmo for the current editable selection. The group
+Inspector also offers X/Y/Z offsets. A shared move translates all selected objects together,
+moving each shared vertex once. Faces that share those vertices move with them. Use **F** to
+frame the entire selection. Cancel a gizmo drag to discard its preview; release it to commit
+one edit that one Undo restores. Read-only items prevent a group move until made editable
+or deselected. Whole-mesh selection replaces its selected faces or vertices.
 
 Use mesh rotation in degrees. Actor rotations and entrance heading use their
 native units. You edit integer vertex positions within the native signed

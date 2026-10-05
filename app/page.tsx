@@ -59,6 +59,16 @@ import {
   withGeometryOverride,
 } from "../components/editorModel";
 import AuthoringInspector from "../components/AuthoringInspector";
+import SelectionInspector from "../components/SelectionInspector";
+import {
+  selectItems,
+  selectionId,
+  selectionKey,
+  selectionExists,
+  selectionMovable,
+  translateProjectSelection,
+  type EditorSelection,
+} from "../components/editorSelection";
 import EditorContextMenu, {
   type ContextMenuLocation,
 } from "../components/EditorContextMenu";
@@ -222,7 +232,13 @@ export default function EditorPage() {
     null,
   );
   const [sample, setSample] = useState(false);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selections, setSelections] = useState<EditorSelection[]>([]);
+  const primarySelection = selections.at(-1);
+  const selected = primarySelection ? selectionId(primarySelection) : null;
+  const geometrySelection =
+    primarySelection?.kind === "geometry" ? primarySelection.choice : null;
+  const setSelected = (id: string | null) =>
+    setSelections(id ? [{ kind: "record", id }] : []);
   const [roomSearch, setRoomSearch] = useState("");
   const [recordSearch, setRecordSearch] = useState("");
   const [tab, setTab] = useState<"actors" | "events" | "room" | "geometry">(
@@ -293,8 +309,6 @@ export default function EditorPage() {
   const [consoleFilter, setConsoleFilter] = useState("all");
   const [consoleSource, setConsoleSource] = useState("all");
   const [followCollision, setFollowCollision] = useState(true);
-  const [geometrySelection, setGeometrySelection] =
-    useState<GeometrySelection | null>(null);
   const [newRoomName, setNewRoomName] = useState("New room");
   const [newRoomMode, setNewRoomMode] = useState<"blank" | "clone">("blank");
   const deferred = useRef<(() => void) | null>(null);
@@ -312,6 +326,13 @@ export default function EditorPage() {
       ? { ...view, ...actorPayload.data }
       : view;
   }, [baseRoom, project, actorPayload]);
+  useEffect(() => {
+    if (!room) return;
+    setSelections((current) => {
+      const valid = current.filter((value) => selectionExists(room, value));
+      return valid.length === current.length ? current : valid;
+    });
+  }, [room]);
   const authoredRoom =
     project?.version === 2
       ? project.authoredRooms[String(baseRoom?.id)]
@@ -364,7 +385,6 @@ export default function EditorPage() {
       if (sequence !== loadSequence.current) return;
       sceneReady.current = `${project?.id}/${id}/${JSON.stringify(project?.version === 2 ? (project.authoredRooms[id] ?? null) : null)}`;
       setBaseRoom(data);
-      setGeometrySelection(null);
       setSelected(null);
       setFrame({ version: 0, selected: false });
     });
@@ -490,7 +510,6 @@ export default function EditorPage() {
           if (active) {
             setBaseRoom(data);
             setSelected(null);
-            setGeometrySelection(null);
           }
         })
         .catch((issue) => {
@@ -541,7 +560,6 @@ export default function EditorPage() {
       setBaseRoom(preview);
       if (sceneId !== baseRoom?.id) {
         setSelected(null);
-        setGeometrySelection(null);
       }
     });
   };
@@ -591,11 +609,18 @@ export default function EditorPage() {
     else delete roomOverrides[authoredRoom.id];
     transact({ ...next, authoredRooms, roomOverrides });
     setSelected(null);
-    setGeometrySelection(null);
   };
-  const selectGeometry = (selection: GeometrySelection | null) => {
-    setGeometrySelection(selection);
-    setSelected(selection?.meshId ?? null);
+  const selectGeometry = (
+    selection: GeometrySelection | null,
+    additive = false,
+  ) => {
+    setSelections((current) =>
+      selectItems(
+        current,
+        selection ? { kind: "geometry", choice: selection } : null,
+        additive,
+      ),
+    );
     setTab("geometry");
   };
   const makeEditable = () =>
@@ -646,7 +671,6 @@ export default function EditorPage() {
           throw new Error("Actor is absent from the imported ROM catalog.");
         next = addActor(next, prototype, p);
         setSelected(next.actors.at(-1)!.id);
-        setGeometrySelection(null);
         setTab("actors");
       } else if (asset.kind === "geometry") {
         const payload = await api().loadGeometryAsset(asset.id);
@@ -703,7 +727,6 @@ export default function EditorPage() {
       setProject(next);
       setBaseRoom(preview);
       setSelected(null);
-      setGeometrySelection(null);
       setTab("room");
       setModal(null);
     });
@@ -1121,8 +1144,13 @@ export default function EditorPage() {
       setFuture([]);
       setProject(next);
       setBaseRoom(preview);
-      setSelected(nextSelected);
-      setGeometrySelection(nextGeometry);
+      setSelections(
+        nextGeometry
+          ? [{ kind: "geometry", choice: nextGeometry }]
+          : nextSelected
+            ? [{ kind: "record", id: nextSelected }]
+            : [],
+      );
       setTab(
         nextGeometry
           ? "geometry"
@@ -1245,11 +1273,29 @@ export default function EditorPage() {
     followCollision,
     contextMenu,
   ]);
-  const selectRecord = (id: string | null) => {
-    setGeometrySelection(null);
-    setSelected(id);
+  const selectRecord = (id: string | null, additive = false) => {
+    setSelections((current) =>
+      selectItems(current, id ? { kind: "record", id } : null, additive),
+    );
     if (room?.events.some((event) => event.id === id)) setTab("events");
     else if (id) setTab("actors");
+  };
+  const translateSelection = (delta: Vec3) => {
+    if (!project || !room || sample || busyLock.current || modal) return;
+    try {
+      transact(
+        translateProjectSelection(
+          project,
+          room,
+          selections,
+          delta,
+          followCollision,
+        ),
+      );
+    } catch (issue) {
+      setError(messageOf(issue));
+      setOptions((value) => ({ ...value, translate: false }));
+    }
   };
   const moveRecord = (id: string, position: Vec3) => {
     try {
@@ -1314,13 +1360,7 @@ export default function EditorPage() {
           reason: visualFailure,
         }
       : sourceVisual;
-  const selectedMovable = Boolean(
-    (authoredRoom && selected) ||
-      (selectedActor?.editable &&
-        (selectedActor.sourceKind !== "partition" ||
-          selectedActor.partition)) ||
-      (selectedEvent?.editable && selectedEvent.position),
-  );
+  const selectedMovable = Boolean(room && selectionMovable(room, selections));
   const sources = new Set(room?.meshes.map((mesh) => mesh.source));
   const textureCoverage =
     room && renderCoverage.roomId === room.id
@@ -1703,6 +1743,15 @@ export default function EditorPage() {
                         {room?.name ?? "Choose a room"}
                       </Text>
                       <span className="geometry-badge">{geometryLabel}</span>
+                      {selections.length > 0 && (
+                        <span
+                          className="geometry-badge"
+                          data-testid="selection-summary"
+                          aria-live="polite"
+                        >
+                          {selections.length} selected
+                        </span>
+                      )}
                     </Row>
                     <Row gap="4">
                       <Button
@@ -1735,6 +1784,8 @@ export default function EditorPage() {
                         hostWindow={sceneHost?.window ?? null}
                         sceneVisible={sceneHost?.visible ?? false}
                         selected={selected}
+                        selections={selections}
+                        onTranslateSelection={translateSelection}
                         options={
                           busy ? { ...options, translate: false } : options
                         }
@@ -1979,7 +2030,6 @@ export default function EditorPage() {
                             setTab(kind);
                             if (kind === "room") {
                               setSelected(null);
-                              setGeometrySelection(null);
                             }
                           }}
                         >
@@ -2017,12 +2067,26 @@ export default function EditorPage() {
                             size="s"
                             horizontal="start"
                             key={item.id}
-                            className={`record-item ${selected === item.id ? "is-selected" : ""}`}
-                            onClick={() => selectRecord(item.id)}
+                            data-record-id={item.id}
+                            className={`record-item ${selections.some((value) => selectionId(value) === item.id) ? "is-selected" : ""}`}
+                            aria-pressed={selections.some(
+                              (value) => selectionId(value) === item.id,
+                            )}
+                            onClick={(event: React.MouseEvent<HTMLElement>) =>
+                              selectRecord(
+                                item.id,
+                                event.metaKey || event.ctrlKey,
+                              )
+                            }
                             onContextMenu={(
                               event: React.MouseEvent<HTMLElement>,
                             ) => {
-                              selectRecord(item.id);
+                              if (
+                                !selections.some(
+                                  (value) => selectionId(value) === item.id,
+                                )
+                              )
+                                selectRecord(item.id);
                               openContextMenu(event, item.id);
                             }}
                           >
@@ -2063,17 +2127,31 @@ export default function EditorPage() {
                           <Button
                             size="s"
                             variant="tertiary"
-                            className={`record-item ${selected === mesh.id ? "is-selected" : ""}`}
+                            className={`record-item ${selections.some((value) => selectionId(value) === mesh.id) ? "is-selected" : ""}`}
+                            aria-pressed={selections.some(
+                              (value) => selectionId(value) === mesh.id,
+                            )}
                             key={mesh.id}
                             data-mesh-id={mesh.id}
                             onContextMenu={(
                               event: React.MouseEvent<HTMLElement>,
                             ) => {
-                              selectGeometry({ meshId: mesh.id, mode: "mesh" });
+                              if (
+                                !selections.some(
+                                  (value) => selectionId(value) === mesh.id,
+                                )
+                              )
+                                selectGeometry({
+                                  meshId: mesh.id,
+                                  mode: "mesh",
+                                });
                               openContextMenu(event, mesh.id);
                             }}
-                            onClick={() =>
-                              selectGeometry({ meshId: mesh.id, mode: "mesh" })
+                            onClick={(event: React.MouseEvent<HTMLElement>) =>
+                              selectGeometry(
+                                { meshId: mesh.id, mode: "mesh" },
+                                event.metaKey || event.ctrlKey,
+                              )
                             }
                           >
                             Mesh {i + 1} · {mesh.vertices.length} vertices
@@ -2138,9 +2216,33 @@ export default function EditorPage() {
                         );
                     }}
                   >
-                    {authoredRoom &&
-                    catalog &&
-                    !(tab === "events" && selectedEvent) ? (
+                    {selections.length > 1 ? (
+                      <SelectionInspector
+                        key={selections.map(selectionKey).join("|")}
+                        count={selections.length}
+                        movable={Boolean(
+                          room && selectionMovable(room, selections),
+                        )}
+                        disabled={sample || Boolean(busy) || Boolean(modal)}
+                        onTranslate={translateSelection}
+                        onFrame={() => frameRoom(true)}
+                        translating={options.translate}
+                        onToggleMove={() =>
+                          setOptions((value) => ({
+                            ...value,
+                            translate: !value.translate,
+                          }))
+                        }
+                        onMakeEditable={
+                          !authoredRoom &&
+                          selections.some((value) => value.kind === "geometry")
+                            ? makeEditable
+                            : undefined
+                        }
+                      />
+                    ) : authoredRoom &&
+                      catalog &&
+                      !(tab === "events" && selectedEvent) ? (
                       <AuthoringInspector
                         loadMaterialPreview={api().loadMaterialPreview}
                         key={selected ?? `room:${authoredRoom.id}`}
