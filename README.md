@@ -10,7 +10,7 @@ outside the supported package targets. The app uses Electron, Next.js,
 [Once UI](https://docs.once-ui.com/ai-coding) and Three.js. Bring your own US ROM; installers
 contain no ROM or decoded game assets.
 
-[Download 0.3.0 for macOS or Windows](https://github.com/8AE/mnsg-level-editor/releases/tag/v0.3.0).
+[Download 0.3.1 for macOS or Windows](https://github.com/8AE/mnsg-level-editor/releases/tag/v0.3.1).
 Install the app, import your ROM, create a project, configure **Settings**, and export an NRM.
 The app supplies the compiler, mod packager and each project's template.
 
@@ -353,6 +353,21 @@ path, affected rooms, changes and remaining uncertainties. You choose whether to
 test it in Goemon64Recomp; the editor's build checks do not establish gameplay.
 
 ## Source and native evidence
+
+The 0.3.1 follow-up passed [native desktop CI](https://github.com/8AE/mnsg-level-editor/actions/runs/37379510157)
+at `c51e8d93`. Each host passed 261 source tests (89 optional skips), five packaged-tool
+metadata/archive tests, offline no-ROM first boot and all 11 native recovery milestones.
+Windows used the actual NSIS-installed executable and tools; Mac signatures passed strict deep
+verification. The Intel guest's missing-WebGL diagnostic was checked; physical Intel rendering
+and Intel/Windows own-ROM editing remain separate.
+
+Local real-ROM tests passed 339/350 with 11 optional environment skips. Nine new native UI
+milestones verified material previews/search, source Settings, panel shortcuts, bottom controls,
+selection outlines, context menus, copy/paste with Undo, and Inspector popout focus/clipboard.
+The installed ARM64 0.3.1 app repeated offline cached-ROM export and all 11 recovery milestones.
+Normal-profile checks confirmed the compact asset-category spacing, relocated source controls
+and material grid. The user's saved Oedo Town edits reopened, and the ROM cache hash stayed
+unchanged. These results do not establish generated-mod gameplay.
 
 | Directory | Contents |
 | --- | --- |

@@ -277,3 +277,17 @@ cover source Settings, panel shortcuts/text guards, bottom controls, native surf
 paste and Undo, context menus, lazy material previews, and Inspector popup focus/clipboard.
 The existing 21-check real-ROM workspace and 11-check no-ROM native recovery suites passed.
 These checks do not execute a generated mod or establish physical Windows/Intel rendering.
+
+[Native CI](https://github.com/8AE/mnsg-level-editor/actions/runs/37379510157) passed at
+`c51e8d9372d76d1c1cd8d0a95f5746fdc8e3b72c`: all three target hosts passed 261 source tests
+(89 optional skips), five packaged-tool metadata/archive checks, offline first boot and all 11
+native recovery milestones. Windows executed and checked the actual NSIS install; Mac packages
+passed strict deep signature verification. Intel's virtual guest checked the visible WebGL
+unavailable diagnostic, so physical Intel rendering and Intel/Windows own-ROM editing remain
+unverified.
+
+The final installed ARM64 0.3.1 repeated offline cached-ROM NRM export with an empty PATH and
+blocked HTTP/HTTPS, then all 11 isolated native recovery checks. Normal-profile interaction
+confirmed the removed asset-library header gap, Source ROM settings and native material grid.
+The user's existing unsaved room was saved to a local recovery project before replacement and
+reopened with its 42 meshes and 31 actors intact. The original ROM cache hash stayed unchanged.

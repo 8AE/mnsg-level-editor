@@ -1,10 +1,12 @@
 # MNSG Level Editor design-system master
 
-**Status: 0.3.0 local workspace checks passed; visual/release acceptance PARTIAL.** The
-source implements this six-pane design with native portal popouts. Real-ROM GUI and no-ROM
-ARM64 candidate checks passed. Installation matches that candidate; normal-profile interaction
-and physical Intel GPU/Intel-Windows own-ROM results remain separate. All three native package
-checks passed, including Windows installation and 11 recovery milestones per host.
+**Status: 0.3.1 editor checks passed; full interaction/gameplay acceptance PARTIAL.** The
+source implements this six-pane design with native portal popouts. Nine follow-up real-ROM GUI
+checks and the existing workspace suites passed. The installed ARM64 app passed offline export
+and 11 native recovery milestones. Normal-profile checks confirmed compact asset spacing,
+Source ROM settings and the material preview grid. All three native CI package checks passed,
+including Windows installation and 11 recovery milestones per host. Physical Intel GPU and
+Intel/Windows own-ROM editing remain separate.
 The root retains final release decisions.
 
 ## Design direction and source fit
