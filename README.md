@@ -10,7 +10,7 @@ outside the supported package targets. The app uses Electron, Next.js,
 [Once UI](https://docs.once-ui.com/ai-coding) and Three.js. Bring your own US ROM; installers
 contain no ROM or decoded game assets.
 
-[Download 0.3.2 for macOS or Windows](https://github.com/8AE/mnsg-level-editor/releases/tag/v0.3.2).
+[Download 0.3.3 for macOS or Windows](https://github.com/8AE/mnsg-level-editor/releases/tag/v0.3.3).
 Install the app, import your ROM, create a project, configure **Settings**, and export an NRM.
 The app supplies the compiler, mod packager and each project's template.
 
@@ -362,6 +362,17 @@ path, affected rooms, changes and remaining uncertainties. You choose whether to
 test it in Goemon64Recomp; the editor's build checks do not establish gameplay.
 
 ## Source and native evidence
+
+The 0.3.3 selection-retention fix passed [native desktop CI](https://github.com/8AE/mnsg-level-editor/actions/runs/37389732776)
+at `6551137e`, with all six jobs succeeding. The new native UI regression reproduces 0.3.2's
+selection loss after a two-pixel gizmo drag, then verifies that repeated tiny moves and a
+no-motion release keep the exact group, its outlines and the shared tool. All seven native
+multi-selection milestones passed, including Inspector offsets, Undo, popouts and canvas
+focus-loss cancellation. Typecheck, production build and 346 own-ROM source tests passed
+(11 optional environment skips). The installed ARM64 0.3.3 app reopened the current saved
+room and displayed two selected meshes and the shared move tool. User edits and the original
+ROM cache were preserved. Each CI target repeated source, bundled-tool, package, offline
+first-boot and native recovery checks; Windows verified the actual NSIS installation.
 
 The 0.3.2 multi-selection update passed [native desktop CI](https://github.com/8AE/mnsg-level-editor/actions/runs/37385049631)
 at `5595dae5`: all six jobs succeeded. Each host passed 268 of 357 source tests (89 optional

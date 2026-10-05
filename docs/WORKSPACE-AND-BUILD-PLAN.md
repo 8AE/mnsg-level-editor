@@ -343,3 +343,26 @@ zero-motion gizmo gestures. Inspector offsets already retain the selection.
 The native multi-selection regression explicitly compares selection membership after every
 Inspector move and Undo, then repeats two sub-four-pixel gizmo moves and a no-motion release
 without reselecting. It checks both outlines, the shared move tool and saved native positions.
+
+The regression failed on the prior 0.3.2 build: a two-pixel face-group drag replaced two
+selected faces with one. On the corrected build all seven native multi-selection milestones
+passed. Exact membership stayed unchanged after Inspector moves, Undo, repeated two-pixel
+gizmo moves and a no-motion release; outlines and the shared gizmo remained active.
+The focus-loss check uses the enabled Redock control because Undo can be disabled after
+restoring the initial project. Source validation passed typecheck, production build and 346
+of 357 own-ROM tests (11 optional environment skips).
+
+The installed ARM64 0.3.3 app passed strict deep signature verification and matched the tested
+local candidate ASAR. Current edits were saved and a separate recovery copy was retained
+before replacement. The saved Oedo Town project reopened with 42 meshes and 31 actors; native
+modifier activation selected two meshes and enabled the shared move tool without changing
+positions. The saved file and original ROM-cache hash remained unchanged by verification.
+
+[Native CI](https://github.com/8AE/mnsg-level-editor/actions/runs/37389732776) passed at
+`6551137e7c19adfd8cfa7961e673e7add58cdefc`, with all six jobs succeeding. Each host passed
+268 source tests (89 optional skips), five packaged metadata/archive checks, offline no-ROM
+first boot with six panel lifecycles and all 11 recovery milestones. Windows checked the
+actual NSIS install, payload parity and installed tools. Mac strict deep signatures passed.
+Intel's virtual guest checked the unavailable-WebGL diagnostic; physical Intel rendering
+and Windows/Intel own-ROM editing remain separate. The release follow-up changes only
+documentation and the GUI test harness; packaged application code matches the tested commit.

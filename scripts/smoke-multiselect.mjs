@@ -41,7 +41,9 @@ delete env.ELECTRON_RUN_AS_NODE;
 delete env.MNSG_DEV_URL;
 const app = await electron.launch({ args: [wrapper], env, timeout: 30000 });
 const report = { artifacts, milestones: [], errors: [], dialogs: [] };
+const observedWindows = [];
 function observe(page) {
+  observedWindows.push(page);
   page.on("pageerror", (e) => report.errors.push(e.message));
   page.on("dialog", (dialog) => {
     void dialog.accept().catch((error) => {
@@ -587,7 +589,7 @@ try {
         .transformDragging === "true",
   );
   await child.mouse.move(canceled.p.x + 25, canceled.p.y - 8, { steps: 4 });
-  await button(child, "Undo").focus();
+  await button(child, "Redock Scene").focus();
   await child.waitForFunction(
     () =>
       document.querySelector('[data-testid="viewport-canvas"]').dataset
@@ -630,5 +632,7 @@ try {
       .catch(() => {});
   throw error;
 } finally {
+  for (const page of observedWindows)
+    if (!page.isClosed()) await page.mouse.up().catch(() => {});
   await app.close();
 }
