@@ -1,7 +1,7 @@
 // Build on the native target host. Build prerequisites belong to CI/developers,
 // never to an installed editor's runtime. No ROM or game assets are consumed.
 import { execFileSync, spawn } from 'node:child_process';
-import { cp, mkdir, readFile, writeFile, chmod, access } from 'node:fs/promises';
+import { cp, mkdir, readFile, writeFile, chmod, access, rm, stat, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -40,10 +40,10 @@ const recompSource = path.resolve(options['recomp-source'] || path.join(work, 'N
 const llvmBuild = path.resolve(options['llvm-build'] || path.join(work, 'llvm-build'));
 const recompBuild = path.resolve(options['recomp-build'] || path.join(work, 'recomp-build'));
 const exists = async (target) => access(target).then(() => true, () => false);
-const run = (file, args, cwd = work, phase = 'tool preparation', timeoutMs = 10 * 60 * 1000) => new Promise((resolve, reject) => {
+const run = (file, args, cwd = work, phase = 'tool preparation', timeoutMs = 10 * 60 * 1000, windowsVerbatimArguments = false) => new Promise((resolve, reject) => {
   console.log(`> ${file} ${args.join(' ')}`);
   const started = Date.now();
-  const child = spawn(file, args, { cwd, stdio: 'inherit', shell: false, detached: process.platform !== 'win32' });
+  const child = spawn(file, args, { cwd, stdio: 'inherit', shell: false, detached: process.platform !== 'win32', windowsVerbatimArguments });
   const heartbeat = setInterval(() => console.log(`${phase}: running for ${Math.round((Date.now() - started) / 1000)}s`), 30000);
   const timer = setTimeout(() => {
     if (child.pid) {
@@ -108,19 +108,48 @@ if (!options['stage-only']) {
     '-DLLVM_INCLUDE_TESTS=OFF', '-DLLVM_INCLUDE_EXAMPLES=OFF', '-DLLVM_INCLUDE_BENCHMARKS=OFF',
     '-DLLVM_INCLUDE_DOCS=OFF', '-DLLVM_ENABLE_BINDINGS=OFF', '-DLLVM_ENABLE_ASSERTIONS=OFF',
     '-DCLANG_ENABLE_STATIC_ANALYZER=OFF', '-DCLANG_ENABLE_ARCMT=OFF',
-    '-DLLVM_ENABLE_BACKTRACES=OFF', '-DLLVM_ENABLE_DUMP=OFF', '-DLLVM_ENABLE_RTTI=OFF', '-DLLVM_ENABLE_EH=OFF']);
+    '-DLLVM_ENABLE_BACKTRACES=OFF', '-DLLVM_ENABLE_DUMP=OFF', '-DLLVM_ENABLE_RTTI=OFF', '-DLLVM_ENABLE_EH=OFF',
+    ...(options['source-compile-probe'] ? ['-DCMAKE_EXPORT_COMPILE_COMMANDS=ON'] : [])]);
   if (options['source-compile-probe']) {
     const object = `tools/lld/MachO/CMakeFiles/lldMachO.dir/Arch/ARM64.cpp.${process.platform === 'win32' ? 'obj' : 'o'}`;
     if (generator === 'Ninja') {
-      // Show the actual generated prerequisites and commands before building only
-      // the previously failing object; Ninja may build required table generators.
+      // Preserve the order-only dependency inventory as evidence, but compile
+      // this one header consumer directly instead of building unrelated generators.
       await run('ninja', ['-C', llvmBuild, '-t', 'query', object], work, 'LLVM consumer prerequisite inventory', 60000);
-      await run('cmake', ['--build', llvmBuild, '--target', object, '--', '-n'], work, 'LLVM consumer build plan', 60000);
-      await run('cmake', ['--build', llvmBuild, '--target', object, '--parallel', String(options.jobs || 3), '--', '-v'], work, 'LLVM missing-header consumer compile', 10 * 60 * 1000);
-    } else if (process.platform === 'darwin' && generator === 'Unix Makefiles') {
-      await run('make', ['VERBOSE=1', '-f', 'tools/lld/MachO/CMakeFiles/lldMachO.dir/build.make', object], llvmBuild, 'LLVM missing-header consumer compile', 10 * 60 * 1000);
-    } else throw new Error('Source consumer probe requires Ninja, or Unix Makefiles on macOS');
-    if (!await exists(path.join(llvmBuild, object))) throw new Error('LLVM consumer object was not produced');
+    } else if (!(process.platform === 'darwin' && generator === 'Unix Makefiles')) throw new Error('Source consumer probe requires Ninja, or Unix Makefiles on macOS');
+    const nativePath = (value) => process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value);
+    // Windows TEMP may use RUNNER~1 while CMake records runneradmin. Resolve
+    // existing roots/files before comparing the generated command's identity.
+    const canonicalBuild = await realpath(llvmBuild);
+    const objectPath = path.join(canonicalBuild, object);
+    const sourcePath = await realpath(path.join(llvmSource, 'lld/MachO/Arch/ARM64.cpp'));
+    const database = JSON.parse(await readFile(path.join(llvmBuild, 'compile_commands.json'), 'utf8'));
+    const entries = [];
+    for (const entry of database) {
+      if (typeof entry.directory !== 'string' || typeof entry.file !== 'string' || typeof entry.output !== 'string'
+        || !entry.file.replaceAll('\\', '/').toLowerCase().endsWith('/lld/macho/arch/arm64.cpp')) continue;
+      if (nativePath(await realpath(path.resolve(entry.directory, entry.file))) === nativePath(sourcePath)
+        && nativePath(path.resolve(canonicalBuild, entry.output)) === nativePath(objectPath)) entries.push(entry);
+    }
+    if (entries.length !== 1) throw new Error('CMake must record exactly one compiler command for the expected LLVM consumer object');
+    const entry = entries[0];
+    const commandDirectory = await realpath(entry.directory);
+    const relativeDirectory = path.relative(canonicalBuild, commandDirectory);
+    if (relativeDirectory.startsWith('..') || path.isAbsolute(relativeDirectory)
+      || typeof entry.command !== 'string' || !entry.command || /[\0\r\n]/.test(entry.command)) throw new Error('Invalid generated LLVM consumer compile command/directory');
+    await mkdir(path.dirname(objectPath), { recursive: true });
+    await rm(objectPath, { force: true });
+    console.log(`CMake compiler command directory: ${commandDirectory}`);
+    // This command is generated locally by CMake from the checksum-pinned source,
+    // with the normal compiler flags. No project/mod/ROM data enters this shell.
+    if (process.platform === 'win32') {
+      const cmd = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32/cmd.exe');
+      // Match Node's native CMD shell quoting: retain the generated internal quotes
+      // and disable additional argv quoting around the complete command string.
+      await run(cmd, ['/d', '/s', '/c', `"${entry.command}"`], commandDirectory, 'LLVM missing-header consumer compile', 2 * 60 * 1000, true);
+    } else await run('/bin/sh', ['-c', entry.command], commandDirectory, 'LLVM missing-header consumer compile', 2 * 60 * 1000);
+    const output = await stat(objectPath);
+    if (!output.isFile() || output.size === 0) throw new Error('LLVM consumer object was not produced');
     console.log(`Source consumer compile probe passed: ${object}; no full compiler build, Recomp source clone or bundle staging performed.`);
     process.exit(0);
   }
