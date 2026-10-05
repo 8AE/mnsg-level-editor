@@ -10,7 +10,7 @@ outside the supported package targets. The app uses Electron, Next.js,
 [Once UI](https://docs.once-ui.com/ai-coding) and Three.js. Bring your own US ROM; installers
 contain no ROM or decoded game assets.
 
-[Download 0.3.1 for macOS or Windows](https://github.com/8AE/mnsg-level-editor/releases/tag/v0.3.1).
+[Download 0.3.2 for macOS or Windows](https://github.com/8AE/mnsg-level-editor/releases/tag/v0.3.2).
 Install the app, import your ROM, create a project, configure **Settings**, and export an NRM.
 The app supplies the compiler, mod packager and each project's template.
 
@@ -361,6 +361,22 @@ path, affected rooms, changes and remaining uncertainties. You choose whether to
 test it in Goemon64Recomp; the editor's build checks do not establish gameplay.
 
 ## Source and native evidence
+
+The 0.3.2 multi-selection update passed [native desktop CI](https://github.com/8AE/mnsg-level-editor/actions/runs/37385049631)
+at `5595dae5`: all six jobs succeeded. Each host passed 268 of 357 source tests (89 optional
+skips), five packaged-tool metadata/archive checks, offline first boot with all six panel
+lifecycles and 11 native recovery milestones. Windows checked the actual NSIS-installed
+payload and tools. Mac signatures passed strict deep verification. Intel's virtual guest
+checked the missing-WebGL diagnostic; physical Intel rendering remains unverified.
+
+Local own-ROM validation passed 346 of 357 source tests (11 optional skips), typecheck and
+production build. All six multi-selection native UI milestones and the nine existing UI
+regression milestones passed. These include actual face/vertex raycasts, shared-vertex movement,
+mixed groups, one-step Undo, a real Scene-popout gizmo drag and canvas focus-loss cancellation.
+The installed ARM64 0.3.2 app repeated offline cached-ROM export and all 11 recovery checks.
+Normal-profile interaction reopened the saved Oedo Town project, selected two outlined meshes
+and enabled the shared move tool without editing project data. The ROM cache hash stayed unchanged.
+Generated-mod gameplay and Windows/Intel own-ROM editing remain unverified.
 
 The 0.3.1 follow-up passed [native desktop CI](https://github.com/8AE/mnsg-level-editor/actions/runs/37379510157)
 at `c51e8d93`. Each host passed 261 source tests (89 optional skips), five packaged-tool

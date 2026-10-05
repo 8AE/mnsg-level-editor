@@ -178,3 +178,11 @@ Copy/Paste uses immutable snapshots and shared project history across native win
 text-field clipboard behavior. ROM source controls belong in Settings, and Assets has no close
 or duplicate Library button. Local source, nine own-ROM UI checks and native recovery passed;
 platform/gameplay limits above remain separate.
+
+## Multiple selection
+
+Cmd/Ctrl-click toggles selection membership in the Scene and Hierarchy. Keep every selected
+item outlined and show the selection count. The group Inspector exposes one shared offset,
+and the move tool uses one shared pivot. Frame the entire selection. Shared vertices and
+actor/event aliases translate once; one Undo restores every changed item. Keep selection
+state through native panel relocation, and cancel unsaved previews when the canvas loses focus.

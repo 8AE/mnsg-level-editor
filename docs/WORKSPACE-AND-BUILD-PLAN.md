@@ -310,3 +310,24 @@ vertices, mixed records/geometry, actor aliases, linked collision, unchanged unr
 atomic validation failure. The nine existing native UI ergonomics checks also passed.
 Native multi-selection checks use actual viewport raycasts and Hierarchy clicks in an isolated
 profile, then save and compare project data. Generated mods are not executed in the game.
+
+All six own-ROM multi-selection GUI milestones passed: native actor groups, two meshes,
+actual adjacent-face raycasts, vertex groups, mixed actor/mesh movement, and a real gizmo drag
+in a native Scene popout. Saved-project comparisons proved shared vertices move once,
+unselected records stay fixed, one Undo restores each group, and moving focus from the canvas
+to the popout toolbar cancels all previews. Scene redocking retained both selected faces.
+These checks do not certify OS window switching during a held automated mouse gesture.
+
+[Native CI](https://github.com/8AE/mnsg-level-editor/actions/runs/37385049631) passed at
+`5595dae56d3a4bbdffca62d5b59069320fbed842`: all six jobs succeeded. Each host passed 268
+source tests (89 optional skips), five packaged metadata/archive checks, offline no-ROM first
+boot with six panel lifecycles, and all 11 recovery milestones. Windows verified the actual
+NSIS install and payload parity. Mac strict deep signatures passed. Intel's virtual guest
+checked the unavailable-WebGL diagnostic; physical Intel rendering remains unverified.
+
+The installed ARM64 0.3.2 app passed cached-ROM offline export with empty PATH and blocked
+HTTP/HTTPS, then all 11 isolated recovery milestones. The normal profile reopened the user's
+saved Oedo Town project with 42 meshes and 31 actors. Native modifier activation selected two
+outlined meshes and the group move tool displayed their shared pivot; no positions were edited.
+Project data and the original ROM-cache hash remained intact. The prior app and project copies
+were retained locally. The release follow-up changes only documentation and the GUI test harness.

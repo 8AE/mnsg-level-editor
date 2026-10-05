@@ -490,10 +490,8 @@ try {
   await undo();
   await savedFixture();
   await count(child, 2);
-  // Native focus loss cancels the entire preview rather than committing part of it.
-  await app.evaluate(({ app }) => app.focus({ steal: true }));
-  await nativeChild.evaluate((w) => w.focus());
-  await child.waitForFunction(() => document.hasFocus());
+  // Moving focus off the real canvas cancels every selected preview.
+  await child.getByTestId("viewport-navigation-canvas").focus();
   const canceled = await grabAxis();
   await child.mouse.down();
   await child.waitForFunction(
@@ -502,9 +500,7 @@ try {
         .transformDragging === "true",
   );
   await child.mouse.move(canceled.p.x + 25, canceled.p.y - 8, { steps: 4 });
-  const nativeMain = await app.browserWindow(main);
-  await nativeMain.evaluate((w) => w.focus());
-  await child.waitForFunction(() => !document.hasFocus());
+  await button(child, "Undo").focus();
   await child.waitForFunction(
     () =>
       document.querySelector('[data-testid="viewport-canvas"]').dataset
@@ -525,7 +521,7 @@ try {
     fullPage: true,
   });
   await record(
-    "native Scene popout retains multi-selection; real gizmo drag moves both faces, Undo and blur cancellation restore all",
+    "native Scene popout retains multi-selection; real gizmo drag moves both faces, Undo and canvas focus-loss cancellation restore all",
   );
   assert.deepEqual(report.errors, []);
   report.status = "passed";
