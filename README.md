@@ -301,6 +301,9 @@ and window sizes, off-monitor recovery, and all six compact popouts' redock cont
 The installed ARM64 app also passed the 11 recovery milestones after a shutdown fix that
 flushes pending window-position writes before quitting. Its 44 embedded build files match the
 tested build; strict signature, cached-ROM offline export and five metadata/archive checks pass.
+An installed-AppApi A/B check also built two projects offline with distinct templates, metadata,
+config options and imported icons. Reopen restored the saved settings, the other project's files
+stayed unchanged, and cancellation or incomplete symbols preserved the earlier NRM.
 
 Normal-profile interactive checks, manual cross-window drag, IME and Intel/Windows package
 checks remain outstanding.

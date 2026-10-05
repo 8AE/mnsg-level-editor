@@ -190,6 +190,14 @@ copy repeated those 11 checks after a shutdown fix that flushes window-position 
 quitting. It also repeated the cached-ROM offline export and five packaged-tool metadata tests,
 passed strict signature verification and matched all 44 embedded build files.
 
+A separate installed-AppApi check created two projects in a disposable path containing spaces,
+an apostrophe and Japanese text. Each retained its own template, mod ID, String config option,
+normalized icon and native door edit. Both built with an empty PATH and blocked HTTP/HTTPS;
+archive manifest/icon readback matched the saved projects. Reopening restored project A while
+project B's template/source/icon hashes stayed unchanged. Export cancellation and incomplete
+function-symbol rejection preserved A's previous NRM. This checks the installed backend, not
+manual project switching or simultaneous builds. The original ROM cache remained unchanged.
+
 A **LOCAL** status covers its named source, GUI or packaged-build observation. **PARTIAL**
 identifies remaining observations in a broader gate. This matrix does not equate a candidate
 build with an installed release or an editor check with gameplay.
@@ -210,9 +218,9 @@ build with an installed release or an editor check with gameplay.
 | All manifest fields | TOML parse and emitted mod.json match all 18 fields, ordered lists, dependency/native-library tables and supported config variants | LOCAL PACKAGED BUILD PASS |
 | Input paths honored | Custom ELF/symbol paths/output filename resolve to managed workspace content and affect actual compile/package/readback | LOCAL PACKAGED BUILD PASS |
 | Icons and attachments | Decode/reopen/hash roundtrip; NRM has exact valid thumb.png and declared members; reserved/duplicate/oversized members reject | LOCAL PACKAGED BUILD PASS |
-| Project independence | A/B projects retain separate settings/workspaces/icons; Save As/switch/stale build cannot overwrite the other project | PARTIAL: settings Apply/Undo/Redo/Save/Reopen/Cancel passed; A/B and stale-build concurrency pending |
+| Project independence | A/B projects retain separate settings/workspaces/icons; Save As/switch/stale build cannot overwrite the other project | PARTIAL: settings Apply/Undo/Redo/Save/Reopen/Cancel and installed-AppApi A/B template/icon/manifest independence passed; Save As/stale-build concurrency pending |
 | Injection and corruption | Reject traversal, absolute/drive/UNC paths, symlink escapes, unsafe quoting, executable/URL fields, altered tool/symbol bundles | PARTIAL: source guards and packaged child-IPC denial passed; complete hostile-path runtime matrix pending |
-| Admission regression | Invalid native preimages/dependencies/donors/budgets still reject after metadata edits; old output survives failed/cancelled builds | PARTIAL: source and 30 host-tool exports passed; failed/cancelled managed-output preservation pending |
+| Admission regression | Invalid native preimages/dependencies/donors/budgets still reject after metadata edits; old output survives failed/cancelled builds | PARTIAL: source and 30 host-tool exports passed; installed cancelled export/incomplete-symbol rejection preserved old NRM; later compiler-failure preservation remains separate |
 | macOS ARM64 offline package | Clean profile, network off and host tools hidden; installed package uses bundled tools to compile/link/NRM and verify mod.json/ZIP | LOCAL INSTALLED PASS: isolated cached-ROM build with empty PATH/HTTP blocked, five metadata/archive tests and 11 native recovery milestones; normal-profile/manual drag checks remain separate |
 | macOS Intel offline package | Same test on a native x64 host; audit architecture/minimum OS/libraries and verify output, without ARM/Rosetta substitution | PENDING |
 | Windows x64 offline package | Same test on native Windows; spaces/Unicode/quoting paths and runtime dependencies work without installed LLVM/VS tools | PENDING |
