@@ -1379,7 +1379,8 @@ export default function EditorPage() {
                     zoom
                   </span>
                 </div>
-                {room && !room.meshes.length && (
+                {room && !room.meshes.length &&
+                  (actorCoverage.roomId !== room.id || actorCoverage.parts === 0) && (
                   <div className="no-geometry">
                     No verified room geometry. Actor previews remain available.
                   </div>

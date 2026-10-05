@@ -12,9 +12,13 @@ export interface RenderedRoom {meshes:GeometryMesh[];textures:GeometryTexture[];
 export interface ModelDisplayRoot {displayList:number;material?:number;label?:string;matrix?:number[];preserveVertexCache?:boolean}
 export interface RenderTriangleState {combine0:number;combine1:number;otherH:number;otherL:number;tile:number;tiles:TextureTile[]}
 export interface ModelRenderOptions {inheritedTextureFallback?:boolean;vertexProvenance?:boolean;materialProvenance?:boolean}
-interface Combiner {texture:boolean;shade:boolean;primitive:boolean;alphaPrimitive:boolean;alphaEnvironment?:boolean;environment?:"constant-add"|"shade-add"|ActorTextureColor;cycle?:number;environmentAfterShade?:boolean;secondTexture?:boolean}
+interface Combiner {texture:boolean;shade:boolean;primitive:boolean;alphaPrimitive:boolean;alphaEnvironment?:boolean;environment?:"constant-add"|"shade-add"|ActorTextureColor;cycle?:number;explicitCycle?:boolean;primitiveAlphaOnly?:boolean;environmentAfterShade?:boolean;secondTexture?:boolean}
 const COMBINERS:Record<string,Combiner>={
   "fc127e24:fffff3f9":{texture:true,shade:true,primitive:false,alphaPrimitive:false},
+  // 07D/24FAC: nested 8006D198 BA001402/0 establishes one-cycle.
+  // SDK banks0/1: RGB=(TEXEL0-0)*SHADE+0, alpha=(0-0)*0+PRIM_A.
+  // RT64 one-cycle selects bank1 without the two-cycle texel swap.
+  "fc127e24:fffff7fb":{texture:true,shade:true,primitive:false,alphaPrimitive:true,primitiveAlphaOnly:true,cycle:0,explicitCycle:true},
   "fc127fff:fffff238":{texture:true,shade:true,primitive:false,alphaPrimitive:false},
   "fc327e64:fffffdfe":{texture:false,shade:true,primitive:true,alphaPrimitive:false},
   "fc327fff:fffff638":{texture:false,shade:true,primitive:true,alphaPrimitive:true},
@@ -42,7 +46,7 @@ export function renderModelLists(read:(address:number,size:number)=>Uint8Array,r
   const stateCommands:number[][]=[];
   const warnings=new Set<string>(),images=new Map<string,GeometryTexture>(),textureCache=new Map<string,GeometryTexture|Error>(),variants=new Map<string,GeometryTexture>(),failedProducts=new Set<string>();
   const memory=new NativeTextureMemory(read);
-  let mode=0,otherH=0,otherL=0,tile=0,textureOn=false,scaleS=1,scaleT=1,primitive=[1,1,1,1],environment=[0,0,0,1],blendAlpha=0;
+  let mode=0,otherH=0,otherL=0,cycleBitsKnown=0,tile=0,textureOn=false,scaleS=1,scaleT=1,primitive=[1,1,1,1],environment=[0,0,0,1],blendAlpha=0;
   let rootMatrix:number[]|undefined,drawRoot=0;
   // Scene LookAt state is unknown until both explicit MOVEMEM records are read.
   // Never substitute task-reset defaults for inherited native frame state.
@@ -63,10 +67,12 @@ export function renderModelLists(read:(address:number,size:number)=>Uint8Array,r
     const gen=rows[0].texgen;
     const homogeneousGen=!!gen&&!!gen.basis&&rows.every(vertex=>vertex.loadRoot===drawRoot&&vertex.texgen&&JSON.stringify(vertex.texgen)===JSON.stringify(gen));
     const unsupportedGen=generated&&!homogeneousGen;
+    const unknownCycle=!!combiner?.explicitCycle&&cycleBitsKnown!==0x300000;
     const wrongCycle=combiner?.cycle!==undefined&&combiner.cycle!==((otherH>>>20)&3);
-    let texture:GeometryTexture|undefined,unsupported=unsupportedState||unsupportedGen||!combiner||wrongCycle||inheritedFallback;
+    let texture:GeometryTexture|undefined,unsupported=unsupportedState||unsupportedGen||!combiner||wrongCycle||unknownCycle||inheritedFallback;
     if(combiner?.environmentAfterShade&&rows.some(vertex=>!vertex.lighting)){unsupported=true;warnings.add("Native texture/shade plus environment color requires a per-pixel unlit combiner; affected surfaces use an untextured fallback.");}
     if(wrongCycle)warnings.add("Unsupported native actor combiner cycle type; affected surfaces use an untextured fallback.");
+    if(unknownCycle)warnings.add("Native procedural combiner cycle type is inherited or incomplete; affected surfaces use an untextured fallback.");
     if(inheritedFallback)warnings.add("Native actor inherited scene material is unknown; displaying decoded native texture/UVs with a neutral static color fallback.");
     else if(!combiner)warnings.add(`Unsupported native color combiner ${combine0.toString(16)}/${combine1.toString(16)}; affected surfaces use an untextured fallback.`);
     if(unsupportedGen)warnings.add("Native generated texture coordinates mix vertex modes, scales, incomplete LookAt state or load/draw roots; affected surfaces use an untextured fallback.");
@@ -76,6 +82,10 @@ export function renderModelLists(read:(address:number,size:number)=>Uint8Array,r
       if(!decoded){if(textureCache.size>=4096)throw new Error("Native texture state cache budget exceeded.");try{decoded=memory.decode(tile,(otherH>>>14)&3);addImage(decoded);}catch(error){decoded=error instanceof Error?error:new Error(String(error));}textureCache.set(textureKey,decoded);}
       if(decoded instanceof Error){unsupported=true;warnings.add(`Texture unavailable: ${decoded.message}`);}else{
         texture=decoded;
+        if(combiner.primitiveAlphaOnly){
+          const key=`${decoded.id}:native-primitive-alpha`;let variant=variants.get(key);
+          if(!variant){if(variants.size>=128)throw new Error("Actor color variant budget exceeded.");variant=actorPrimitiveAlphaTexture(decoded);addImage(variant);variants.set(key,variant);}texture=variant;
+        }
         if(combiner.environment&&!["constant-add","shade-add"].includes(combiner.environment)){
           const mode=combiner.environment as ActorTextureColor,key=`${decoded.id}:${mode}:${environment.join(",")}`;let variant=variants.get(key);
           if(!variant){if(variants.size>=128)throw new Error("Actor color variant budget exceeded.");variant=actorTextureColorVariant(decoded,mode,environment);addImage(variant);variants.set(key,variant);}texture=variant;
@@ -138,7 +148,10 @@ export function renderModelLists(read:(address:number,size:number)=>Uint8Array,r
       else if(op===0xb1){triangle([((w0>>>16)&255)/2,((w0>>>8)&255)/2,(w0&255)/2]);triangle([((w1>>>16)&255)/2,((w1>>>8)&255)/2,(w1&255)/2]);}
       else if(op===0xb6)mode&=~w1;else if(op===0xb7)mode|=w1;
       else if(op===0xbb){textureOn=(w0&255)!==0;tile=(w0>>>8)&7;scaleS=(w1>>>16)/65536;scaleT=(w1&65535)/65536;}
-      else if(op===0xba||op===0xb9){const shift=(w0>>>8)&255,length=w0&255;if(shift+length>32||!length)throw new Error("Invalid RDP other-mode field.");const mask=(length===32?0xffffffff:((2**length-1)<<shift))>>>0;if(op===0xba)otherH=((otherH&~mask)|(w1&mask))>>>0;else otherL=((otherL&~mask)|(w1&mask))>>>0;}
+      else if(op===0xba||op===0xb9){const shift=(w0>>>8)&255,length=w0&255;if(shift+length>32||!length)throw new Error("Invalid RDP other-mode field.");const mask=(length===32?0xffffffff:((2**length-1)<<shift))>>>0;if(op===0xba){otherH=((otherH&~mask)|(w1&mask))>>>0;cycleBitsKnown|=mask&0x300000;}else otherL=((otherL&~mask)|(w1&mask))>>>0;}
+      // Full RDP SETOTHERMODE is not decoded here. It invalidates the new
+      // procedural rule's cycle proof until explicit RSP cycle bits follow.
+      else if(op===0xef)cycleBitsKnown=0;
       else if(op===0xfd)memory.setImage(w0,w1);else if(op===0xf5)memory.setTile(w0,w1);else if(op===0xf2)memory.setTileSize(w0,w1);
       else if([0xf0,0xf3,0xf4].includes(op)){try{memory.load(op,w0,w1);}catch(error){memory.initialized.fill(0);memory.version++;warnings.add(`Texture load failed: ${error instanceof Error?error.message:String(error)}`);}}
       else if(op===0xfa)primitive=rgba(w1);else if(op===0xfb)environment=rgba(w1);else if(op===0xf9)blendAlpha=(w1&255)/255;else if(op===0xfc){combine0=w0;combine1=w1;}

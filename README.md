@@ -19,10 +19,9 @@ without selecting the ROM again.
 
 ## Editing scope
 
-Version 0.2.4 supports version 2 room authoring and C/H or `.nrm` export. It adds read-only
-room-initialization details and five guarded nonvisual actor classifications. Native textured
-models, scoped child previews and the existing geometry, collision, door and sky tools remain
-available.
+Version 0.2.5 supports version 2 room authoring and C/H or `.nrm` export. It adds a conditional
+initial surface preview for procedural actor 0x07D. Native textured models, read-only room
+initialization and the existing geometry, collision, door and sky tools remain available.
 
 - **Rooms:** browse 383 native room records, including 378 with decoded visual
   geometry. View original static textures, UVs, indexed palettes and supported
@@ -84,12 +83,12 @@ of game behavior:
 | Unavailable | A placement marker and diagnostic details for an unresolved model. |
 | Nonvisual controller | A hollow placement marker for a verified controller without a primary mesh. |
 
-The actor library includes 361 candidate IDs: 74 supported, 172 conditional,
-19 nonvisual and 96 unresolved. The unresolved group includes seven partial
+The 0.2.5 actor library includes 361 candidate IDs: 74 supported, 173 conditional,
+19 nonvisual and 95 unresolved. The unresolved group includes seven partial
 previews. These counts describe bounded decoder results; they do not establish
 later gameplay behavior or export admission for each candidate.
 
-The census contains 500 decoded parts and 26,439 triangles: 23,050 textured and 3,389
+The census contains 501 decoded parts and 26,831 triangles: 23,442 textured and 3,389
 untextured. Across 255 IDs with canonical native placements, the results are 54 supported, 154
 conditional, 15 nonvisual and 32 unresolved. Library seed previews can use different scene hints
 from the original placements, so their status can differ.
@@ -101,6 +100,12 @@ Authored previews require the matching template and zero payload words/definitio
 Both remain conditional with incomplete CPU/export results. The nonvisual 0x23B/0x35E/0x1BF
 classifications execute no native instructions. Only 0x23B adds a static File43 resource contract;
 audio, camera, player and UI effects remain outside those metadata markers.
+
+Actor 0x07D previews one initial flat surface with 392 textured triangles. Its native constructor
+fixes XYZ at [10, 0, -300], phase angles at [256, 0, 0] and scale at 0.2; dragging the record or
+editing its transform does not reposition this surface. The preview stops before future wave
+callbacks, keeps its conditional status and rejects export. Read the
+[procedural preview guide](docs/native-procedural-actor-preview.md) for texture and readiness limits.
 
 Version 0.2.4 classifies empty constructors 0x079/0x07A/0x07B/0x07C and Tsurami scene controller
 0x357 without executing native instructions. Only 0x079/0x07C add static File24 resource closure
@@ -260,8 +265,22 @@ Developer ID release, override `mac.identity` with your certificate identity and
 configure notarization credentials in electron-builder. Windows distribution
 builds need code-signing credentials.
 
-Version 0.2.4 passed fresh nonincremental typecheck, production build and the actual-ROM/toolchain
-suite: 286 tests total, 283 passed, none failed and three optional GPU checks skipped. Four
+Version 0.2.5 passed fresh typecheck, the versioned production build and the actual-ROM/toolchain
+suite: 296 tests total, 293 passed, none failed and three optional GPU checks skipped. Ten
+focused procedural checks and a separate isolated Electron/GPU run covered the 07D library
+preview, drag/drop, save, undo/redo and the blank-room notice. Texture toggles restored exact
+pixels, with no page or console errors. These checks establish an initial editor surface;
+future waves, export admission and gameplay remain unverified.
+
+The macOS ARM64 0.2.5 package passed strict deep ad hoc signature verification. Its bundled
+main and HTML match the tested build; it contains no ROM, projects or generated NRM. The
+candidate packaged-app smoke passed with version 0.2.5 and preserved the existing ROM cache.
+Normal installation and cached reopen remain pending. Consult the desktop workflow for this
+revision's platform build results; Intel macOS and Windows runtime checks remain open.
+
+The historical 0.2.4 checks passed fresh nonincremental typecheck, production build and the
+actual-ROM/toolchain suite: 286 tests total, 283 passed, none failed and three optional GPU
+checks skipped. Four
 actual Electron initialization cases covered native, special-alias, clone and replacement
 rooms with no page, console or process errors and no changes to project history. The fresh
 census changed only the five new nonvisual IDs; ROM bytes, parts and triangle totals stayed
@@ -282,7 +301,7 @@ The historical 0.2.3 source suite passed 250 tests: 247 passed and three optiona
 skipped. Separate runs passed 16 texture/actor and 19 thumbnail-framing checks, and four
 Electron cases covered the scoped loader placements and library cards. Its ARM64 package,
 installed smoke and normal cached launch passed. Those earlier GPU/card fixtures remain
-historical; the 0.2.4 source suite skipped its optional GPU targets.
+historical; the 0.2.4 and 0.2.5 source suites skipped their optional GPU targets.
 
 The prior 0.2.2 Electron authoring smoke passed 14 milestones, preserving the eight House actors
 and File96 through C/H export. That run did not request `.nrm` packaging.

@@ -1431,7 +1431,7 @@ these static contracts.
 
 
 The historical 0.2.3 census records the two conditional loaders and three nonvisual metadata
-controllers as the only five status changes. Library results now total 361 IDs: 74 supported,
+controllers as the only five status changes. That library census totals 361 IDs: 74 supported,
 172 conditional, 14 nonvisual and 101 unresolved. The [actor coverage table](
 native-actors.md#version-023-coverage) records the canonical and triangle totals. The census
 confirmed unchanged ROM bytes and native room coverage; it does not certify live scheduling or
@@ -1526,8 +1526,10 @@ its finite body, typed allocator/copy/destructor helpers, camera template, nativ
 empty parts tables and canonical ROM identity. Neighboring controllers retain separate rules.
 
 The fresh 0.2.4 metadata census changes exactly 0x079/0x07A/0x07B/0x07C/0x357 to nonvisual,
-with unchanged ROM bytes and mesh/triangle totals. See [current actor coverage](
-native-actors.md#version-024-metadata-controllers) for the library/canonical distinction.
+with unchanged ROM bytes and mesh/triangle totals. See [historical 0.2.4 coverage](
+native-actors.md#version-024-metadata-controllers) for those counts and
+[current 0.2.5 coverage](native-actors.md#version-025-procedural-preview-and-coverage) for the
+library/canonical distinction after the procedural preview.
 No native state-machine, game or generated NRM ran to establish these static classifications.
 
 
@@ -1536,3 +1538,19 @@ clone and replacement contexts without project-history changes or page/console/p
 The installed ARM64 app also passed isolated native-room rendering and input checks. Read the
 [validation record](../README.md#package-and-validation-status) for exact revision scopes.
 Those editor checks do not execute the resource callback in the game or validate live events.
+
+
+## Editor 0.2.5 procedural setup boundary
+
+The editor now previews 0x07D through the actual fixed File15 constructor and finite native
+24160 setup in an isolated owned context. It captures one direct procedural part, slot -1,
+with 392 textured triangles, and stops before 25B38/CC710. This result remains conditional,
+raw completion remains false, and export rejects 07D. The native constructor fixes the visual
+transform regardless of the actor record's drag position or edited transform.
+
+The surface consumes PIC8679 from post-processed File4CD, separate from sprite PIC8678. Its
+64×32 image repeats through the native 64×64 mask period; the one-cycle mux uses texture ×
+shade RGB and primitive alpha 128/255. Native lighting/filtering and the first game draw remain
+separate limits. Read the [procedural preview guide](native-procedural-actor-preview.md) for
+exact helper, memory and callback scopes. The existing native proof above retains its original
+static-research boundary; implementation checks do not establish live scene readiness.

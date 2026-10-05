@@ -448,7 +448,7 @@ and effects on the live player, progression, audio and dialogue/UI remain native
 The classifier neither executes that state machine nor closes its future resource paths.
 Neighboring IDs 0x358/0x35D retain their own unresolved status and receive no inherited rule.
 
-The 0.2.4 census reports 361 library IDs: 74 supported, 172 conditional, 19 nonvisual and 96
+The historical 0.2.4 census reports 361 library IDs: 74 supported, 172 conditional, 19 nonvisual and 96
 unresolved, including seven partial previews. Its 500 parts and 26,439 triangles remain
 unchanged: 23,050 textured and 3,389 untextured. For 255 canonical IDs, the results are 54
 supported, 154 conditional, 15 nonvisual and 32 unresolved, with 454 parts and 24,116 triangles:
@@ -459,3 +459,34 @@ Read the [room-initialization guide](room-initialization.md) for the separate fi
 callback inventory and the [validation record](../README.md#package-and-validation-status) for
 revision-specific source, editor and package checks. Raw completion, export closure and later
 live gameplay remain separate evidence boundaries.
+
+
+## Version 0.2.5 procedural preview and coverage
+
+Actor 0x07D now has a conditional initial-surface preview: one part with 392 textured triangles.
+The editor executes the guarded fixed File15 constructor `801CC978_65F828`, then finite native
+setup `80024160_24D60`, in owned task/object/arena memory. It stops before `80025B38_26738` and
+File15 `801CC710_65F5C0`. The result keeps `completed=false` and grants no export admission.
+The canonical bounded run uses 80,083 instructions within its scoped 200,000 limit.
+
+The constructor fixes position [10,0,-300], phase angles [256,0,0] and float32 scale 0.2. Record
+dragging and transform edits therefore leave the surface at that native transform. The captured
+part has direct slot -1 and source files 15/1229; registry codeFile25 identifies a different
+namespace. Read the [procedural preview guide](native-procedural-actor-preview.md) for the
+resource, material and readiness boundaries.
+
+| 0.2.5 census | IDs | Supported | Conditional | Nonvisual | Unresolved |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Library seed previews | 361 | 74 | 173 | 19 | 95 |
+| Canonical native placements | 255 | 54 | 154 | 15 | 32 |
+
+The library's 501 parts contain 26,831 triangles: 23,442 textured and 3,389 untextured. Seven
+unresolved candidates include partial parts. The canonical census remains at 454 parts and
+24,116 triangles, with 21,275 textured and 2,841 untextured; six unresolved canonical IDs have
+partial parts. The unplaced 07D candidate accounts for the one additional library part and
+392 textured triangles. ROM bytes and native room geometry remain unchanged.
+
+Ten focused tests and an isolated Electron/GPU check covered the initial surface, library
+placement, save and undo/redo. Full source and release checks have their own revision scopes in
+the [validation record](../README.md#package-and-validation-status). Native lighting/filtering,
+future waves and live-game behavior remain unverified.

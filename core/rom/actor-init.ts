@@ -8,6 +8,7 @@ import {NativeLoaderPreview,LOADER_REGISTRY_ADDRESS,LOADER_ARENA_DESCRIPTOR,veri
 import {nativeActorControllerClassification} from "./actor-controller-classification";
 import {nativeSceneControllerClassification} from "./actor-scene-controller";
 import {nativeEmptyControllerClassification} from "./actor-empty-controllers";
+import {nativeProceduralActorPreview} from "./actor-init-procedural-preview";
 
 export interface NativeActorSceneDeclaration {prototypeId:string;parameters:[number,number,number];position:Vec3;rotation:Vec3}
 export interface NativeActorContext {roomId:number;templateRoomId?:number;siblings?:NativeActorSceneDeclaration[]}
@@ -24,6 +25,8 @@ export function nativeActorRoomContext(reader:RomReader,context:NativeActorConte
 }
 export interface NativeActorBinding {
   identity:number;slot:number;modelPointer:number;materialPointer:number;
+  /** Guarded physical code/resource owners of a direct procedural part. */
+  sourceFileIds?:number[];
   segments:{segment:number;fileId:number;offset:number}[];
   scale:Vec3;rotation:Vec3;position:Vec3;positionOffset:Vec3;
   rotationOverrideMask:{x:boolean;y:boolean;z:boolean};
@@ -32,6 +35,8 @@ export interface NativeActorBinding {
 }
 export interface NativeActorInitResult {
   bindings:NativeActorBinding[];
+  /** Guarded executed code images, when different from the registry overlay metadata. */
+  codeFileIds?:number[];
   status:"resolved"|"conditional"|"nonvisual"|"unsupported";
   diagnostics:string[];instructionCount:number;
   /** All selected constructor/deferred/child calls returned without an unresolved dependency path. */
@@ -214,6 +219,7 @@ export class ActorMemory implements InitMemory {
 export class ActorInitializer {
   constructor(readonly reader:RomReader,readonly files:Map<number,RomFile>,readonly waves:Pick<RenderWaves,"wave">&Partial<Pick<RenderWaves,"image">>){}
   resolve(input:NativeActorInitInput):NativeActorInitResult {
+    const procedural=nativeProceduralActorPreview(this.reader,this.files,input,this.waves);if(procedural)return procedural;
     const observed=new Set<number>(),initial=new Map<number,boolean>();
     const baseline=this.evaluate(input,initial,observed,12000);let used=baseline.instructionCount;
     if(baseline.bindings.length||baseline.status==="nonvisual"||!observed.size)return baseline;
