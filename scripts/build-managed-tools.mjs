@@ -12,12 +12,21 @@ const options = Object.fromEntries(process.argv.slice(2).map((arg) => {
   const index = arg.indexOf('=');
   return index < 0 ? [arg.replace(/^--/, ''), true] : [arg.slice(2, index), arg.slice(index + 1)];
 }));
+if (options['source-compile-probe'] && (options['stage-only'] || options['extract-only'])) throw new Error('Source compile probe must run separately from stage-only/extract-only modes');
 if (!['darwin', 'win32'].includes(process.platform) || !['arm64', 'x64'].includes(process.arch)
   || (process.platform === 'win32' && process.arch !== 'x64')) throw new Error('Build requires a supported native host');
 const work = path.resolve(options['work-dir'] || path.join(os.tmpdir(), 'mnsg-managed-tool-build'));
 const destination = path.resolve(options.output || path.join(root, 'resources/managed-tools'));
 const llvmArchiveName = 'llvm-project-21.1.8.src.tar.xz';
 const llvmArchiveHash = '4633a23617fa31a3ea51242586ea7fb1da7140e426bd62fc164261fe036aa142';
+const llvmUnwindHeaders = {
+  'libunwind/include/__libunwind_config.h': '5e963e752482bf8cefcabbb6b4f3f09ae3bff247f59b7a2f1d8fcabbe539c18b',
+  'libunwind/include/libunwind.h': '9f9a52c31dbb093e09ccef880652fdced398070b6062515a2fa118361cf8afb7',
+  'libunwind/include/mach-o/compact_unwind_encoding.h': '06f58e9d0058583b6da91ca2328fa663f80d089496a4979754ee7608fe9bd877',
+  'libunwind/include/unwind.h': 'e4a58637fc8ca1d29cd600c3c4416aafed50085edf276fa076214c8d81c263f0',
+  'libunwind/include/unwind_arm_ehabi.h': '80edc55ea33440f46e676e4ac805ecdc64a7222f2c9107f8ff6b1097eb8a51df',
+  'libunwind/include/unwind_itanium.h': 'c8cc61d806e13a2e75e93f1c15afd432f93a99283d27d15f5a28a3ebee989cba',
+};
 const recompCommit = 'ffb39cdad1da5de07eaaa48bd1db4a89a7986771';
 const submodules = {
   'lib/ELFIO': 'ad8b641f9682b6091ba8b9f7c8152255c1a2c803',
@@ -63,7 +72,7 @@ if (!options['stage-only']) {
     await run('curl', ['-fL', '--connect-timeout', '30', '--max-time', '300', '--retry', '3', `https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.8/${llvmArchiveName}`, '-o', archive], work, 'LLVM source download');
   }
   if (sha256(await readFile(archive)) !== llvmArchiveHash) throw new Error('LLVM source archive checksum mismatch');
-  const useStreamingExtractor = process.platform === 'win32' || options['extract-only'];
+  const useStreamingExtractor = process.platform === 'win32' || options['extract-only'] || options['source-compile-probe'];
   if (useStreamingExtractor) {
     const marker = path.join(llvmSource, '.mnsg-llvm-extraction.json');
     if (!await exists(marker)) {
@@ -72,13 +81,47 @@ if (!options['stage-only']) {
         work, 'LLVM source extraction', 12 * 60 * 1000);
     }
     const extracted = JSON.parse(await readFile(marker, 'utf8'));
-    if (extracted.format !== 'mnsg-llvm-source-extraction' || extracted.version !== 1 || extracted.sha256 !== llvmArchiveHash
+    if (extracted.format !== 'mnsg-llvm-source-extraction' || extracted.version !== 1 || extracted.selectionVersion !== 2 || extracted.sha256 !== llvmArchiveHash
       || extracted.method !== 'python-streaming-lzmafile-tar' || extracted.uncompressedBufferBytes !== 65536) throw new Error('LLVM extraction completion marker does not match the pinned archive/extractor; use a fresh work directory');
+    for (const [header, expected] of Object.entries(llvmUnwindHeaders)) {
+      if (extracted.requiredHeaderHashes?.[header] !== expected) throw new Error(`LLVM extraction marker omits the pinned include dependency: ${header}`);
+    }
   } else if (!await exists(path.join(llvmSource, 'llvm/CMakeLists.txt'))) {
     await run('tar', ['-xJf', archive, '-C', work], work, 'LLVM source extraction');
   }
+  for (const [header, expected] of Object.entries(llvmUnwindHeaders)) {
+    if (sha256(await readFile(path.join(llvmSource, header))) !== expected) throw new Error(`Pinned LLVM include dependency mismatch: ${header}`);
+  }
   if (options['extract-only']) {
     console.log(`Verified extraction-only source: ${llvmSource}; no compiler build or application launch performed.`);
+    process.exit(0);
+  }
+  const generator = options.generator || (process.platform === 'win32' ? 'Ninja' : 'Unix Makefiles');
+  const native = process.platform === 'darwin'
+    ? ['-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0', '-DCMAKE_C_COMPILER=/usr/bin/clang', '-DCMAKE_CXX_COMPILER=/usr/bin/clang++']
+    : ['-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded', '-DLLVM_USE_CRT_RELEASE=MT', '-DLLVM_USE_CRT_MINSIZEREL=MT'];
+  const common = ['-G', generator, '-DCMAKE_BUILD_TYPE=MinSizeRel', '-DBUILD_SHARED_LIBS=OFF', '-DCMAKE_POLICY_DEFAULT_CMP0091=NEW', ...native];
+  await run('cmake', ['-S', path.join(llvmSource, 'llvm'), '-B', llvmBuild, ...common,
+    '-DLLVM_ENABLE_PROJECTS=clang;lld', '-DLLVM_TARGETS_TO_BUILD=Mips', '-DLLVM_BUILD_LLVM_DYLIB=OFF',
+    '-DLLVM_LINK_LLVM_DYLIB=OFF', '-DCLANG_LINK_CLANG_DYLIB=OFF', '-DLLVM_ENABLE_ZLIB=OFF',
+    '-DLLVM_ENABLE_ZSTD=OFF', '-DLLVM_ENABLE_LIBXML2=OFF', '-DLLVM_ENABLE_LIBEDIT=OFF',
+    '-DLLVM_INCLUDE_TESTS=OFF', '-DLLVM_INCLUDE_EXAMPLES=OFF', '-DLLVM_INCLUDE_BENCHMARKS=OFF',
+    '-DLLVM_INCLUDE_DOCS=OFF', '-DLLVM_ENABLE_BINDINGS=OFF', '-DLLVM_ENABLE_ASSERTIONS=OFF',
+    '-DCLANG_ENABLE_STATIC_ANALYZER=OFF', '-DCLANG_ENABLE_ARCMT=OFF',
+    '-DLLVM_ENABLE_BACKTRACES=OFF', '-DLLVM_ENABLE_DUMP=OFF', '-DLLVM_ENABLE_RTTI=OFF', '-DLLVM_ENABLE_EH=OFF']);
+  if (options['source-compile-probe']) {
+    const object = `tools/lld/MachO/CMakeFiles/lldMachO.dir/Arch/ARM64.cpp.${process.platform === 'win32' ? 'obj' : 'o'}`;
+    if (generator === 'Ninja') {
+      // Show the actual generated prerequisites and commands before building only
+      // the previously failing object; Ninja may build required table generators.
+      await run('ninja', ['-C', llvmBuild, '-t', 'query', object], work, 'LLVM consumer prerequisite inventory', 60000);
+      await run('cmake', ['--build', llvmBuild, '--target', object, '--', '-n'], work, 'LLVM consumer build plan', 60000);
+      await run('cmake', ['--build', llvmBuild, '--target', object, '--parallel', String(options.jobs || 3), '--', '-v'], work, 'LLVM missing-header consumer compile', 10 * 60 * 1000);
+    } else if (process.platform === 'darwin' && generator === 'Unix Makefiles') {
+      await run('make', ['VERBOSE=1', '-f', 'tools/lld/MachO/CMakeFiles/lldMachO.dir/build.make', object], llvmBuild, 'LLVM missing-header consumer compile', 10 * 60 * 1000);
+    } else throw new Error('Source consumer probe requires Ninja, or Unix Makefiles on macOS');
+    if (!await exists(path.join(llvmBuild, object))) throw new Error('LLVM consumer object was not produced');
+    console.log(`Source consumer compile probe passed: ${object}; no full compiler build, Recomp source clone or bundle staging performed.`);
     process.exit(0);
   }
   if (!await exists(path.join(recompSource, '.git'))) {
@@ -94,19 +137,6 @@ if (!options['stage-only']) {
   // Apply only the tracked, auditable packaging-path patch, never remote patches.
   try { execFileSync('git', ['apply', '--reverse', '--check', patch], { cwd: recompSource, stdio: 'pipe' }); }
   catch { await run('git', ['apply', '--check', patch], recompSource); await run('git', ['apply', patch], recompSource); }
-  const generator = options.generator || (process.platform === 'win32' ? 'Ninja' : 'Unix Makefiles');
-  const native = process.platform === 'darwin'
-    ? ['-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0', '-DCMAKE_C_COMPILER=/usr/bin/clang', '-DCMAKE_CXX_COMPILER=/usr/bin/clang++']
-    : ['-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded', '-DLLVM_USE_CRT_RELEASE=MT', '-DLLVM_USE_CRT_MINSIZEREL=MT'];
-  const common = ['-G', generator, '-DCMAKE_BUILD_TYPE=MinSizeRel', '-DBUILD_SHARED_LIBS=OFF', '-DCMAKE_POLICY_DEFAULT_CMP0091=NEW', ...native];
-  await run('cmake', ['-S', path.join(llvmSource, 'llvm'), '-B', llvmBuild, ...common,
-    '-DLLVM_ENABLE_PROJECTS=clang;lld', '-DLLVM_TARGETS_TO_BUILD=Mips', '-DLLVM_BUILD_LLVM_DYLIB=OFF',
-    '-DLLVM_LINK_LLVM_DYLIB=OFF', '-DCLANG_LINK_CLANG_DYLIB=OFF', '-DLLVM_ENABLE_ZLIB=OFF',
-    '-DLLVM_ENABLE_ZSTD=OFF', '-DLLVM_ENABLE_LIBXML2=OFF', '-DLLVM_ENABLE_LIBEDIT=OFF',
-    '-DLLVM_INCLUDE_TESTS=OFF', '-DLLVM_INCLUDE_EXAMPLES=OFF', '-DLLVM_INCLUDE_BENCHMARKS=OFF',
-    '-DLLVM_INCLUDE_DOCS=OFF', '-DLLVM_ENABLE_BINDINGS=OFF', '-DLLVM_ENABLE_ASSERTIONS=OFF',
-    '-DCLANG_ENABLE_STATIC_ANALYZER=OFF', '-DCLANG_ENABLE_ARCMT=OFF',
-    '-DLLVM_ENABLE_BACKTRACES=OFF', '-DLLVM_ENABLE_DUMP=OFF', '-DLLVM_ENABLE_RTTI=OFF', '-DLLVM_ENABLE_EH=OFF']);
   await run('cmake', ['--build', llvmBuild, '--target', 'clang', 'lld', '--parallel', String(options.jobs || 3)], work, 'LLVM compiler build', 150 * 60 * 1000);
   await run('cmake', ['-S', recompSource, '-B', recompBuild, ...common, '-DFMT_TEST=OFF', '-DFMT_DOC=OFF']);
   await run('cmake', ['--build', recompBuild, '--target', 'RecompModTool', '--parallel', String(options.jobs || 3)], work, 'RecompModTool build', 15 * 60 * 1000);

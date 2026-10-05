@@ -23,10 +23,13 @@ ARCHIVE_SHA256 = "4633a23617fa31a3ea51242586ea7fb1da7140e426bd62fc164261fe036aa1
 PREFIX = "llvm-project-21.1.8.src"
 TREES = {"llvm", "clang", "lld", "cmake", "third-party"}
 DISABLED = {"test", "tests", "unittests", "benchmarks"}
+UNWIND_HEADERS = ["libunwind/include/__libunwind_config.h", "libunwind/include/libunwind.h",
+                  "libunwind/include/mach-o/compact_unwind_encoding.h", "libunwind/include/unwind.h",
+                  "libunwind/include/unwind_arm_ehabi.h", "libunwind/include/unwind_itanium.h"]
 REQUIRED = ["LICENSE.TXT", "llvm/CMakeLists.txt", "clang/CMakeLists.txt",
             "lld/CMakeLists.txt", "cmake/Modules/CMakePolicy.cmake",
             "cmake/Modules/LLVMVersion.cmake", "llvm/lib/Target/Mips/CMakeLists.txt",
-            "llvm/include/llvm/Support/LICENSE.TXT", "llvm/lib/Support/BLAKE3/LICENSE"]
+            "llvm/include/llvm/Support/LICENSE.TXT", "llvm/lib/Support/BLAKE3/LICENSE"] + UNWIND_HEADERS
 
 
 def digest(filename):
@@ -48,6 +51,12 @@ def safe_member(name):
 
 
 def selected(parts):
+    # LLD builds its MachO backend on every native host; its CMake includes
+    # libunwind/include for compact-unwind declarations, even on Windows.
+    relative = "/".join(parts[1:])
+    if relative in {"libunwind", "libunwind/include", "libunwind/include/mach-o"} \
+            or relative in UNWIND_HEADERS:
+        return True
     return len(parts) > 1 and (parts[1] in TREES or parts[1] == "LICENSE.TXT") \
         and not (parts[1] in {"llvm", "clang", "lld"} and len(parts) > 2 and parts[2] in DISABLED)
 
@@ -149,8 +158,10 @@ def extract(archive, destination, expected_sha256=ARCHIVE_SHA256, budget_seconds
             if not (stage / tree).is_dir():
                 raise ValueError("Required compiler tree missing: " + tree)
         report = {"format": "mnsg-llvm-source-extraction", "version": 1,
+                  "selectionVersion": 2,
                   "sha256": expected_sha256, "method": "python-streaming-lzmafile-tar",
                   "uncompressedBufferBytes": 64 * 1024,
+                  "requiredHeaderHashes": {name: digest(stage / name) for name in UNWIND_HEADERS},
                   "trees": sorted(TREES), "excludedTopLevelTestTrees": sorted(DISABLED),
                   "scanned": count, "files": written, "skipped": skipped,
                   "bytes": total, "materializedLinks": len(links),
@@ -165,10 +176,12 @@ def extract(archive, destination, expected_sha256=ARCHIVE_SHA256, budget_seconds
 
 
 class ExtractionTests(unittest.TestCase):
-    def fixture(self, directory, extra=()):
+    def fixture(self, directory, extra=(), omitted=()):
         archive = Path(directory) / "source.tar.xz"
         with tarfile.open(archive, "w:xz") as output:
             for name in REQUIRED + ["third-party/README.md", "llvm/test/skipped.txt"]:
+                if name in omitted:
+                    continue
                 data = b"preserved source bytes\n"
                 member = tarfile.TarInfo(PREFIX + "/" + name)
                 member.size = len(data)
@@ -187,6 +200,17 @@ class ExtractionTests(unittest.TestCase):
             self.assertEqual(report["skipped"], 1)
             self.assertEqual(report["method"], "python-streaming-lzmafile-tar")
             self.assertEqual(report["uncompressedBufferBytes"], 65536)
+            self.assertEqual(report["selectionVersion"], 2)
+            self.assertEqual(sorted(report["requiredHeaderHashes"]), sorted(UNWIND_HEADERS))
+
+    def test_required_unwind_header_missing_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            missing = "libunwind/include/mach-o/compact_unwind_encoding.h"
+            archive = self.fixture(directory, omitted=[missing])
+            with self.assertRaisesRegex(ValueError, "Required compiler source missing"):
+                extract(archive, Path(directory) / "output", digest(archive))
+            self.assertFalse((Path(directory) / "output").exists())
+            self.assertFalse(list(Path(directory).glob(".llvm-source-stage-*")))
 
     def test_checksum_rejected_before_writes(self):
         with tempfile.TemporaryDirectory() as directory:
