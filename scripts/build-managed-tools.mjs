@@ -72,7 +72,8 @@ if (!options['stage-only']) {
         work, 'LLVM source extraction', 12 * 60 * 1000);
     }
     const extracted = JSON.parse(await readFile(marker, 'utf8'));
-    if (extracted.format !== 'mnsg-llvm-source-extraction' || extracted.version !== 1 || extracted.sha256 !== llvmArchiveHash) throw new Error('LLVM extraction completion marker does not match the pinned archive');
+    if (extracted.format !== 'mnsg-llvm-source-extraction' || extracted.version !== 1 || extracted.sha256 !== llvmArchiveHash
+      || extracted.method !== 'python-streaming-lzmafile-tar' || extracted.uncompressedBufferBytes !== 65536) throw new Error('LLVM extraction completion marker does not match the pinned archive/extractor; use a fresh work directory');
   } else if (!await exists(path.join(llvmSource, 'llvm/CMakeLists.txt'))) {
     await run('tar', ['-xJf', archive, '-C', work], work, 'LLVM source extraction');
   }

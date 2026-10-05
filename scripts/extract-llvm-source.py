@@ -8,6 +8,7 @@ import argparse
 import hashlib
 import io
 import json
+import lzma
 import os
 from pathlib import Path
 import posixpath
@@ -16,6 +17,7 @@ import tarfile
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 ARCHIVE_SHA256 = "4633a23617fa31a3ea51242586ea7fb1da7140e426bd62fc164261fe036aa142"
 PREFIX = "llvm-project-21.1.8.src"
@@ -83,7 +85,12 @@ def extract(archive, destination, expected_sha256=ARCHIVE_SHA256, budget_seconds
     last_progress = start
     try:
         print("LLVM extraction: streaming lzma/tar; selecting compiler source trees", flush=True)
-        with tarfile.open(archive, "r|xz", bufsize=1024 * 1024) as source:
+        # Bound buffering in uncompressed bytes. In r|xz mode tarfile inflates
+        # an entire compressed chunk, then copies its remaining inflated bytes
+        # for each small header read. LLVM's highly compressed tests magnify that
+        # copying cost; LZMAFile instead decodes only the bytes requested by r|.
+        with lzma.open(archive, "rb") as decoded, \
+                tarfile.open(fileobj=decoded, mode="r|", bufsize=64 * 1024) as source:
             for member in source:
                 count += 1
                 if count > 300000 or time.monotonic() - start > budget_seconds:
@@ -142,7 +149,8 @@ def extract(archive, destination, expected_sha256=ARCHIVE_SHA256, budget_seconds
             if not (stage / tree).is_dir():
                 raise ValueError("Required compiler tree missing: " + tree)
         report = {"format": "mnsg-llvm-source-extraction", "version": 1,
-                  "sha256": expected_sha256, "method": "python-streaming-lzma-tar",
+                  "sha256": expected_sha256, "method": "python-streaming-lzmafile-tar",
+                  "uncompressedBufferBytes": 64 * 1024,
                   "trees": sorted(TREES), "excludedTopLevelTestTrees": sorted(DISABLED),
                   "scanned": count, "files": written, "skipped": skipped,
                   "bytes": total, "materializedLinks": len(links),
@@ -177,6 +185,8 @@ class ExtractionTests(unittest.TestCase):
             self.assertEqual((target / "llvm/CMakeLists.txt").read_bytes(), b"preserved source bytes\n")
             self.assertFalse((target / "llvm/test").exists())
             self.assertEqual(report["skipped"], 1)
+            self.assertEqual(report["method"], "python-streaming-lzmafile-tar")
+            self.assertEqual(report["uncompressedBufferBytes"], 65536)
 
     def test_checksum_rejected_before_writes(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -229,6 +239,36 @@ class ExtractionTests(unittest.TestCase):
                 extract(archive, Path(directory) / "output", digest(archive), budget_seconds=-1)
             self.assertFalse((Path(directory) / "output").exists())
             self.assertFalse(list(Path(directory).glob(".llvm-source-stage-*")))
+
+    def test_decode_requests_bounded_for_highly_compressed_skipped_data(self):
+        with tempfile.TemporaryDirectory() as directory:
+            data = b"\0" * (10 * 1024 * 1024)
+            member = tarfile.TarInfo(PREFIX + "/llvm/test/compressible.txt")
+            member.size = len(data)
+            archive = self.fixture(directory, [(member, data)])
+            requests = []
+            original_open = lzma.open
+
+            class BoundedReader:
+                def __init__(self, *args, **kwargs):
+                    self.source = original_open(*args, **kwargs)
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *args):
+                    self.source.close()
+
+                def read(self, size=-1):
+                    if not 0 < size <= 65536:
+                        raise AssertionError("Unbounded inflated-data read")
+                    requests.append(size)
+                    return self.source.read(size)
+
+            with patch("lzma.open", side_effect=BoundedReader):
+                report = extract(archive, Path(directory) / "output", digest(archive))
+            self.assertGreater(len(requests), 100)
+            self.assertEqual(report["skipped"], 2)
 
 
 if __name__ == "__main__":
