@@ -275,8 +275,17 @@ future waves, export admission and gameplay remain unverified.
 The macOS ARM64 0.2.5 package passed strict deep ad hoc signature verification. Its bundled
 main and HTML match the tested build; it contains no ROM, projects or generated NRM. The
 candidate packaged-app smoke passed with version 0.2.5 and preserved the existing ROM cache.
-Normal installation and cached reopen remain pending. Consult the desktop workflow for this
-revision's platform build results; Intel macOS and Windows runtime checks remain open.
+The installed 0.2.5 ARM64 app passed strict signature verification and matches the candidate
+package. A normal-profile launch restored 383 cached rooms without ROM reselection. House
+465's native textures rendered, Pan/Tilt controls responded, and the 07D library card showed
+its textured surface and conditional, fixed-transform and export limits. The project stayed
+clean, with Undo/Redo/Export disabled. ROM profile, cache and original source hashes remained
+unchanged. Exact-pixel texture restoration belongs to the isolated checks above.
+
+The [0.2.5 CI run](https://github.com/8AE/mnsg-level-editor/actions/runs/37251790474)
+for code revision `108a0d5` passed macOS ARM64, macOS x64 and Windows x64 package jobs.
+These results verify platform builds and packages; Intel macOS and Windows runtime checks
+remain open.
 
 The historical 0.2.4 checks passed fresh nonincremental typecheck, production build and the
 actual-ROM/toolchain suite: 286 tests total, 283 passed, none failed and three optional GPU

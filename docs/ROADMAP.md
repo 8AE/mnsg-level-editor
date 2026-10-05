@@ -136,8 +136,12 @@ The 0.2.5 typecheck, versioned build and actual-ROM/toolchain suite passed: 296 
 293 passed, none failed and three optional GPU checks skipped. Ten focused procedural tests
 and an isolated Electron/GPU run covered the library surface, drag/drop, save and history.
 The ARM64 package passed signature, build-byte parity and candidate packaged-app smoke checks.
-Normal installation and cached reopen remain pending. Consult the [validation record](
-../README.md#package-and-validation-status) for the completed scope.
+The installed 0.2.5 ARM64 app passed signature and candidate-byte checks. Its normal launch
+restored 383 cached rooms, displayed House geometry/textures and the conditional 07D library
+card, and preserved a clean project and ROM/profile/cache hashes. The
+[0.2.5 CI run](https://github.com/8AE/mnsg-level-editor/actions/runs/37251790474)
+passed all three platform package jobs. Intel macOS and Windows runtime checks remain open;
+consult the [validation record](../README.md#package-and-validation-status) for the exact scope.
 
 The historical 0.2.4 source checks passed fresh nonincremental typecheck, production build and the
 actual-ROM/toolchain suite: 286 tests, 283 passed, none failed and three optional GPU checks
