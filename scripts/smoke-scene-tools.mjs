@@ -177,13 +177,17 @@ try {
   if(await button(main,'Toggle rotation gizmo').getAttribute('aria-pressed')==='true')await button(main,'Toggle rotation gizmo').click();
   await button(main,'Frame all geometry').click();await main.waitForTimeout(400);
   const imageHash=bytes=>createHash('sha256').update(bytes).digest('hex');
-  const sourcePixels=imageHash(await main.getByTestId('viewport-navigation-canvas').screenshot()), boundedChoice=await selection(main);
+  const beforePixels=await main.getByTestId('viewport-navigation-canvas').screenshot(), sourcePixels=imageHash(beforePixels), boundedChoice=await selection(main);
+  await writeFile(path.join(artifacts,'rejection-before.png'),beforePixels);
+  report.rejection={before:await data(main)};
   await dragRing(main);await main.locator('.error-banner').filter({hasText:/Vertex coordinates/}).waitFor();
-  assert.deepEqual((await save()).authoredRooms,bounded.authoredRooms);assert.deepEqual(await selection(main),boundedChoice);
+  assert.deepEqual(await selection(main),boundedChoice);
   assert(await button(main,'Undo').isDisabled(),'rejected rotation creates no history entry');
-  // Saving clears the transient error banner through the normal operation boundary.
-  await button(main,'Frame all geometry').click();await main.waitForTimeout(400);
-  assert.equal(imageHash(await main.getByTestId('viewport-navigation-canvas').screenshot()),sourcePixels,'rejection restores the exact original rendered geometry');
+  await button(main,'Dismiss error').click();await button(main,'Frame all geometry').click();await main.waitForTimeout(400);
+  const afterPixels=await main.getByTestId('viewport-navigation-canvas').screenshot();
+  await writeFile(path.join(artifacts,'rejection-after.png'),afterPixels);report.rejection.after=await data(main);
+  assert.equal(imageHash(afterPixels),sourcePixels,'rejection restores the exact original rendered geometry');
+  assert.deepEqual((await save()).authoredRooms,bounded.authoredRooms);
   await milestone('out-of-bounds rotation leaves the project and Undo unchanged, retains selection and restores the original viewport pixels');
   assert.deepEqual(report.errors,[]);await writeFile(path.join(artifacts,'scene-tools.json'),JSON.stringify({...report,status:'passed'},null,2));console.log(artifacts);
 } catch(error) { report.error=error.stack;await writeFile(path.join(artifacts,'scene-tools.json'),JSON.stringify({...report,status:'failed'},null,2));if(main)await main.screenshot({path:path.join(artifacts,'failure.png')}).catch(()=>{});throw error; }

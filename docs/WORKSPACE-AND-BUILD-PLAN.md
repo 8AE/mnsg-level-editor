@@ -422,9 +422,11 @@ records. Preparation/navigation leave project and ROM bytes unchanged; authoring
 export admission still apply to actual changes.
 
 Local source checks passed typecheck, production build and 360 of 364 tests, with
-four optional environment skips. Six own-ROM Scene milestones passed actual actor
+four optional environment skips. Seven own-ROM Scene milestones passed actual actor
 and shared-face ring drags, first native mesh editing, retained selection, Undo,
-compass orbit updates, footer placement, native popout/redock and tooltips. Tooltip
+compass orbit updates, footer placement, native popout/redock and tooltips. Rejected
+out-of-bounds rotations preserve the project/history/selection and restore the original
+viewport image; the native GUI regression compares exact rendered pixels. Tooltip
 text and compass letters exceeded 4.5:1 contrast, including rear-axis opacity. All
 seven existing multi-selection milestones passed, including repeated tiny moves,
 no-motion release and popout focus-loss cancellation. The ARM64 candidate passed

@@ -198,7 +198,7 @@ held movement. Release the key and press it again to resume. Modifier-key
 combinations do not move the camera; there are no speed modifiers. Canceling a
 gizmo drag discards its preview. A normal drop commits one edit that you can undo.
 
-The 0.3.5 Scene update passed 360 source tests (four optional skips), six native
+The 0.3.5 Scene update passed 360 source tests (four optional skips), seven native
 Scene-tool checks and seven multi-selection regression checks on ARM64 macOS. The
 editable-room preparation scan passed all 383 native rooms. See the
 [Scene validation record](docs/WORKSPACE-AND-BUILD-PLAN.md#035-scene-orientation-and-rotation).
