@@ -221,7 +221,7 @@ try {
     finalPanel = result.finalChild;
   }
   if (status.rom) {
-    await page.getByTestId("room-geometry-tab").click();
+    await page.getByRole("tab", { name: "Geometry", exact: true }).click();
     await page.getByTestId("authored-geometry-list").waitFor();
     assert(Number(await page.getByTestId("viewport-canvas").getAttribute("data-authored-mesh-count")) > 0, "Native geometry is editable without an explicit conversion");
     assert.deepEqual((await page.evaluate(() => window.mnsg.getStatus())).project.authoredRooms, {}, "Preparing geometry must leave the project unchanged");
