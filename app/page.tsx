@@ -1291,13 +1291,14 @@ export default function EditorPage() {
     }
   };
   const rotateSelection = (delta: RotationDelta, pivot: Vec3) => {
-    if (!project || !room || sample || busyLock.current || modal || Math.hypot(delta.x, delta.y, delta.z) < 1e-10) return;
+    if (!project || !room || sample || busyLock.current || modal || Math.hypot(delta.x, delta.y, delta.z) < 1e-10) return false;
     try {
       const target = !projectAuthoredRoom && authoredRoom && selections.some(item => item.kind === "geometry")
         ? updateAuthoredRoom(project, authoredRoom, baseRoom?.geometryEdit?.affectedRoomIds ?? []) : project;
       const next = rotateProjectSelection(target, room, selections, delta, pivot, followCollision);
       transact(next);
-    } catch (issue) { setError(messageOf(issue));setOptions(value => ({ ...value, translate: false })); }
+      return true;
+    } catch (issue) { setError(messageOf(issue));setOptions(value => ({ ...value, translate: false }));return false; }
   };
   const moveRecord = (id: string, position: Vec3) => {
     try {

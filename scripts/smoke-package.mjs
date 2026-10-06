@@ -222,8 +222,9 @@ try {
   }
   if (status.rom) {
     await page.getByTestId("room-geometry-tab").click();
-    await page.getByTestId("geometry-panel").waitFor();
-    assert.equal(await page.getByTestId("geometry-x").inputValue(), "0");
+    await page.getByTestId("authored-geometry-list").waitFor();
+    assert(Number(await page.getByTestId("viewport-canvas").getAttribute("data-authored-mesh-count")) > 0, "Native geometry is editable without an explicit conversion");
+    assert.deepEqual((await page.evaluate(() => window.mnsg.getStatus())).project.authoredRooms, {}, "Preparing geometry must leave the project unchanged");
     geometryTab = "passed";
     textures = await checkTexturedRooms(page, artifacts);
     actors = await page.evaluate(async () => {

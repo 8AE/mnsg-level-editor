@@ -75,7 +75,7 @@ interface Props {
   ): void;
   selections?: EditorSelection[];
   onTranslateSelection?(delta: Vec3): void;
-  onRotateSelection?(rotation: RotationDelta, pivot: Vec3): void;
+  onRotateSelection?(rotation: RotationDelta, pivot: Vec3): boolean;
   onEditMenu?(
     location: import("./EditorContextMenu").ContextMenuLocation,
   ): void;
@@ -772,7 +772,12 @@ export default function RoomViewport({
       const object = transform.object;
       if (transform.getMode() === "rotate" && object === groupAnchor && dragOrigin && dragRotation) {
         const delta = object.quaternion.clone().multiply(dragRotation.clone().invert()).normalize();
-        callbacks.current.onRotateSelection?.({ x: delta.x, y: delta.y, z: delta.z, w: delta.w }, { x: dragOrigin.x, y: dragOrigin.y, z: dragOrigin.z });
+        const committed = callbacks.current.onRotateSelection?.({ x: delta.x, y: delta.y, z: delta.z, w: delta.w }, { x: dragOrigin.x, y: dragOrigin.y, z: dragOrigin.z });
+        if (!committed) {
+          object.position.copy(dragOrigin);
+          object.quaternion.copy(dragRotation);
+          restoreGeometry();
+        }
       } else if (object === groupAnchor && dragOrigin) {
         const delta = object.position.clone().sub(dragOrigin).round();
         callbacks.current.onTranslateSelection?.({

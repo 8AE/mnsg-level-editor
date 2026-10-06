@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, readFile, writeFile, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { prepareEditableRoom } from "../components/editableRoom.ts";
 import { rotatePoint, rotationQuaternion } from "../components/selectionRotation.ts";
 
@@ -167,6 +168,23 @@ try {
   assert.deepEqual(await selection(main),faces);
   await main.screenshot({path:path.join(artifacts,'scene-workspace.png')});
   await milestone('Scene popout retains compass, bottom help, tooltips and shared rotation/Undo without dropping selection');
+  // A valid native-size mesh can overflow when rotated. Its rejected preview must reset.
+  const bounded=JSON.parse(JSON.stringify(fixture)), boundedMesh=bounded.authoredRooms[465].meshes[0];
+  boundedMesh.vertices.forEach(vertex=>{vertex.position.x*=327;vertex.position.z*=327;});
+  const boundedPath=path.join(artifacts,'rotation-overflow.mnsgproj');await writeFile(boundedPath,JSON.stringify(bounded));
+  await app.evaluate((_e,p)=>globalThis.__sceneSmoke.open.push([p]),boundedPath);await button(main,'Open').click();opened=boundedPath;await idle();
+  await main.getByTestId('authored-geometry-list').locator('[data-mesh-id="rotation-quad"]').click();
+  if(await button(main,'Toggle rotation gizmo').getAttribute('aria-pressed')==='true')await button(main,'Toggle rotation gizmo').click();
+  await button(main,'Frame all geometry').click();await main.waitForTimeout(400);
+  const imageHash=bytes=>createHash('sha256').update(bytes).digest('hex');
+  const sourcePixels=imageHash(await main.getByTestId('viewport-navigation-canvas').screenshot()), boundedChoice=await selection(main);
+  await dragRing(main);await main.locator('.error-banner').filter({hasText:/Vertex coordinates/}).waitFor();
+  assert.deepEqual((await save()).authoredRooms,bounded.authoredRooms);assert.deepEqual(await selection(main),boundedChoice);
+  assert(await button(main,'Undo').isDisabled(),'rejected rotation creates no history entry');
+  // Saving clears the transient error banner through the normal operation boundary.
+  await button(main,'Frame all geometry').click();await main.waitForTimeout(400);
+  assert.equal(imageHash(await main.getByTestId('viewport-navigation-canvas').screenshot()),sourcePixels,'rejection restores the exact original rendered geometry');
+  await milestone('out-of-bounds rotation leaves the project and Undo unchanged, retains selection and restores the original viewport pixels');
   assert.deepEqual(report.errors,[]);await writeFile(path.join(artifacts,'scene-tools.json'),JSON.stringify({...report,status:'passed'},null,2));console.log(artifacts);
 } catch(error) { report.error=error.stack;await writeFile(path.join(artifacts,'scene-tools.json'),JSON.stringify({...report,status:'failed'},null,2));if(main)await main.screenshot({path:path.join(artifacts,'failure.png')}).catch(()=>{});throw error; }
 finally { await app.close(); }
