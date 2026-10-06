@@ -399,7 +399,7 @@ try {
   const visual = await page.evaluate(({ value, id }) => window.mnsg.loadProjectActorVisuals(value, id), { value: graph, id: blankId });
   const placedVisual = visual.actorVisuals.find(entry => entry.actorRef === inserted.id);
   assert(placedVisual.parts.length >= 2 && visual.actorModels.some(model => model.textures.length > 0));
-  await button("Close", library).click();
+  assert.equal(await button("Close", library).count(), 0, "Assets remains a permanent workspace tab");
   await button("Frame", inspector()).click();
   await page.waitForFunction(() => Number(document.querySelector('[data-testid="viewport-canvas"]').dataset.actorTexturedTriangles) > 0);
   const acceptedActorCoverage = await page.getByTestId("viewport-canvas").evaluate(element => ({ models: Number(element.dataset.actorModelCount), parts: Number(element.dataset.actorModelPartCount), texturedTriangles: Number(element.dataset.actorTexturedTriangles) }));

@@ -429,4 +429,8 @@ text and compass letters exceeded 4.5:1 contrast, including rear-axis opacity. A
 seven existing multi-selection milestones passed, including repeated tiny moves,
 no-motion release and popout focus-loss cancellation. The ARM64 candidate passed
 strict deep signature verification and the packaged managed-tool compile/link check.
-Generated-mod gameplay and Windows/Intel own-ROM editing remain separate checks.
+The full 15-milestone authoring check also passed save/reopen, original-room restoration,
+UV/RGBA/topology, native asset drag/drop, collision, reciprocal doors, sky selection and
+C/H plus NRM compilation with bundled tools. The installed candidate matches its tested
+ASAR, and the current unsaved scene was saved with a separate recovery copy before
+replacement. Generated-mod gameplay and Windows/Intel own-ROM editing remain separate.
