@@ -186,3 +186,13 @@ item outlined and show the selection count. The group Inspector exposes one shar
 and the move tool uses one shared pivot. Frame the entire selection. Shared vertices and
 actor/event aliases translate once; one Undo restores every changed item. Keep selection
 state through native panel relocation, and cancel unsaved previews when the canvas loses focus.
+
+## Scene orientation and transforms
+
+Use a camera-oriented XYZ compass in Scene; remove the Perspective badge and inert axis
+bubbles. Move navigation help to a readable bottom bar that also travels with the Scene
+popout. Icon help appears on hover and keyboard focus in the control's own window, clears
+on Escape/blur, and remains outside panel overflow clipping. Keep selected items outlined
+while moving or rotating them. T selects Move; R selects Rotate around a shared center.
+Native rooms expose editable geometry automatically, and only the first edit changes the
+project. Preparing or navigating a room must leave Undo and dirty state untouched.

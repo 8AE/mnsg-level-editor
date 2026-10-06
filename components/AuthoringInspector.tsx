@@ -108,7 +108,7 @@ interface Props {
   loadEntrances(roomId: number): Promise<AuthoredEntrance[]>;
   savedRoom?: AuthoredRoom;
   onRevertSaved(): void;
-  onRestoreNative(): void;
+  onRestoreNative?: () => void;
   followCollision: boolean;
   onFollowCollision(value: boolean): void;
   visual?: ActorVisual;
@@ -1107,7 +1107,7 @@ export default function AuthoringInspector({
           >
             Revert room to saved
           </Button>
-          {room.kind === "replacement" ? (
+          {room.kind === "replacement" && onRestoreNative ? (
             <Button
               size="s"
               variant="danger"
@@ -1121,7 +1121,7 @@ export default function AuthoringInspector({
             >
               Restore native room
             </Button>
-          ) : !savedRoom ? (
+          ) : room.kind === "new" && !savedRoom ? (
             <Button
               size="s"
               variant="danger"

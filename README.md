@@ -10,7 +10,7 @@ outside the supported package targets. The app uses Electron, Next.js,
 [Once UI](https://docs.once-ui.com/ai-coding) and Three.js. Bring your own US ROM; installers
 contain no ROM or decoded game assets.
 
-[Download 0.3.4 for macOS or Windows](https://github.com/8AE/mnsg-level-editor/releases/tag/v0.3.4).
+[Download 0.3.5 for macOS or Windows](https://github.com/8AE/mnsg-level-editor/releases/tag/v0.3.5).
 Install the app, import your ROM, create a project, configure **Settings**, and export an NRM.
 The app supplies the compiler, mod packager and each project's template.
 
@@ -58,8 +58,9 @@ selections outline the actual edges; vertex selections have a contrasting screen
 Hold **Cmd** on macOS or **Ctrl** on Windows while clicking to add or remove actors, events,
 meshes, faces or vertices. This works in the viewport and Hierarchy, including mixed selections.
 Choose face or vertex mode before selecting geometry elements. Press **T** and drag the shared
-move gizmo, or enter X/Y/Z offsets in the group Inspector. Shared vertices move once, and one
-Undo restores the entire move. Moving the group keeps its selection and outlines, including
+move gizmo, or press **R** for rotation rings around the selection center. You can also enter
+X/Y/Z offsets in the group Inspector. Shared vertices change once, and one Undo restores the
+entire transform. Moving or rotating the group keeps its selection and outlines, including
 short gizmo drags, so you can move it again immediately. Plain clicking selects one item; plain clicking empty space
 clears the selection. Read-only items must be deselected or made editable before a group move.
 
@@ -93,10 +94,11 @@ limits remain in force; the workspace overhaul does not add actor export admissi
   **Native sources** for addresses and hashes. This read-only setup inventory covers 374
   world metadata records and nine special geometry aliases; it does not decode all game events.
 - **Room authoring:** create a blank room, clone the current room into a new ID,
-  or choose **Make editable copy** to replace an existing room. Edit meshes,
+  or edit any existing room directly. Native geometry is prepared automatically; its first
+  edit creates an undoable replacement. Merely opening a room leaves the project clean. Edit meshes,
   vertex positions, triangle indices, UVs and RGBA colors. Apply mesh
   translation, rotation and scale, or move a mesh, vertex or face with the
-  translation gizmo.
+  translation or rotation gizmo.
 - **Asset libraries:** browse actor prototypes, room geometry/components and
   native sky imagery from your ROM. Inspect thumbnail status, then drag a card
   into an authored room or use **Place at origin**. Choose actor loading,
@@ -177,7 +179,9 @@ Changing a payload word requires understanding that actor's native behavior.
 Click the viewport to focus it, then hold **W/A/S/D** to move the camera.
 Choose **Pan** or **Tilt** below the viewport: left-drag pans in Pan mode and
 orbits in Tilt mode. Right-drag pans in either mode. Scroll or middle-drag to
-zoom. Camera movement leaves project data untouched.
+zoom. Camera movement leaves project data untouched. A camera-oriented XYZ compass shows world
+directions. Navigation help sits in the Scene bottom bar, and icon controls show tooltips
+on hover or keyboard focus.
 
 | Control | Action |
 | --- | --- |
@@ -185,6 +189,7 @@ zoom. Camera movement leaves project data untouched.
 | A / D | Move left / right relative to the view. |
 | F | Frame the selected items. |
 | T | Toggle the translation gizmo for an editable selection. |
+| R | Toggle rotation rings for selected actors, meshes, faces or vertex groups. |
 | G | Toggle the grid. |
 
 WASD movement requires viewport focus. Typing in an inspector field,
@@ -192,6 +197,11 @@ opening a dialog, losing focus or starting an orbit, pan or gizmo drag clears
 held movement. Release the key and press it again to resume. Modifier-key
 combinations do not move the camera; there are no speed modifiers. Canceling a
 gizmo drag discards its preview. A normal drop commits one edit that you can undo.
+
+The 0.3.5 Scene update passed 360 source tests (four optional skips), six native
+Scene-tool checks and seven multi-selection regression checks on ARM64 macOS. The
+editable-room preparation scan passed all 383 native rooms. See the
+[Scene validation record](docs/WORKSPACE-AND-BUILD-PLAN.md#035-scene-orientation-and-rotation).
 
 ## Export a mod
 

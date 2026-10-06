@@ -11,7 +11,9 @@ export default function SelectionInspector({
   onFrame,
   translating,
   onToggleMove,
-  onMakeEditable,
+  rotatable,
+  rotating,
+  onToggleRotate,
 }: {
   count: number;
   movable: boolean;
@@ -20,7 +22,9 @@ export default function SelectionInspector({
   onTranslate(delta: Vec3): void;
   onFrame(): void;
   onToggleMove(): void;
-  onMakeEditable?: () => void;
+  rotatable: boolean;
+  rotating: boolean;
+  onToggleRotate(): void;
 }) {
   const [offset, setOffset] = useState({ x: "0", y: "0", z: "0" });
   const delta = {
@@ -41,16 +45,18 @@ export default function SelectionInspector({
       </Row>
       <Text variant="body-default-s">
         Cmd/Ctrl-click adds or removes an item. Drag the move tool to translate
-        the whole selection, or enter a shared offset below.
+        the whole selection, use Rotate to turn it around its shared center, or enter an offset below.
       </Text>
       <Button
         size="s"
         disabled={disabled || !movable}
+        variant={translating ? "primary" : "secondary"}
         aria-pressed={translating}
         onClick={onToggleMove}
       >
         Move selected items
       </Button>
+      <Button size="s" disabled={disabled || !rotatable} variant={rotating ? "primary" : "secondary"} aria-pressed={rotating} onClick={onToggleRotate}>Rotate selected items</Button>
       {(["x", "y", "z"] as const).map((axis) => (
         <label className="value-field" key={axis}>
           Move selection {axis.toUpperCase()}
@@ -76,14 +82,8 @@ export default function SelectionInspector({
       </Button>
       {!movable && (
         <Text variant="body-default-s">
-          The selection includes read-only items. Make an editable room copy to
-          move room geometry, or deselect read-only records.
+          The selection includes records without an editable position. Deselect those records to transform the group.
         </Text>
-      )}
-      {!movable && onMakeEditable && (
-        <Button disabled={disabled} onClick={onMakeEditable}>
-          Make editable copy
-        </Button>
       )}
       <Text variant="body-default-xs" onBackground="neutral-weak">
         Shared vertices move once. One Undo restores the entire group move.

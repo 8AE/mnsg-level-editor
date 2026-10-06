@@ -260,14 +260,15 @@ try {
   });
   await record("blank and native clone", { blankId, cloneId, cloneDonorId, nativeMeshCount: cloned.meshes.length, nativeActorCount: canonical.actors.length });
 
-  // Preserve translated native collision through the Make editable transition.
+  // A legacy saved translation remains valid when the first ordinary edit promotes it.
+  graph = await saved();
+  graph.roomOverrides[0] = { actors: {}, events: {}, ...graph.roomOverrides[0], geometry: { translation: { x: 16, y: 0, z: 0 } } };
+  await writeFile(projectPath, JSON.stringify(graph));
+  await app.evaluate((_electron, value) => globalThis.__authoringSmoke.open.push([value]), projectPath);
+  await button("Open").click();await idle();
   await room(0);
-  await page.getByTestId("geometry-x").fill("16");
-  await page.getByTestId("geometry-x").press("Enter");
-  await idle();
-  await page.getByRole("tab", { name: "Geometry", exact: true }).click();
-  await page.getByTestId("make-editable-button").click();
-  await idle();
+  await page.getByRole("tab", { name: "Room", exact: true }).click();
+  await commit("Room name", "Translated editable room");
   graph = await saved();
   assert.deepEqual(graph.authoredRooms[0].collisionTranslation, { x: 16, y: 0, z: 0 });
   const promoted = await page.evaluate(value => window.mnsg.loadProjectRoom(value, 0), graph);

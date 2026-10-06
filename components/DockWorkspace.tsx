@@ -12,6 +12,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { createPortal } from "react-dom";
+import TooltipButton from "./TooltipButton";
 import { Button, Column, Row, Text } from "@once-ui-system/core";
 import {
   FiArrowUpRight,
@@ -451,7 +452,7 @@ export default forwardRef<DockWorkspaceHandle, Props>(function DockWorkspace(
         >
           <Text variant="label-strong-xs">{PANEL_LABELS[id]}</Text>
           <Row gap="2">
-            <Button
+            <TooltipButton
               size="s"
               variant="tertiary"
               aria-label={
@@ -465,9 +466,9 @@ export default forwardRef<DockWorkspaceHandle, Props>(function DockWorkspace(
               onClick={() => (hosts[id] ? redock(id) : popup(id))}
             >
               <FiArrowUpRight />
-            </Button>
+            </TooltipButton>
             {!hosts[id] && (
-              <Button
+              <TooltipButton
                 size="s"
                 variant="tertiary"
                 aria-label={
@@ -480,17 +481,17 @@ export default forwardRef<DockWorkspaceHandle, Props>(function DockWorkspace(
                 }
               >
                 {current.maximized === id ? <FiMinimize /> : <FiMaximize />}
-              </Button>
+              </TooltipButton>
             )}
             {id !== "assets" && id !== "console" && (
-              <Button
+              <TooltipButton
                 size="s"
                 variant="tertiary"
                 aria-label={`Close ${PANEL_LABELS[id]}`}
                 onClick={() => close(id)}
               >
                 <FiX />
-              </Button>
+              </TooltipButton>
             )}
           </Row>
         </Row>
@@ -764,15 +765,15 @@ export default forwardRef<DockWorkspaceHandle, Props>(function DockWorkspace(
                     ))}
                 </Row>
                 <Row gap="2" className="bottom-panel-actions">
-                  <Button
+                  <TooltipButton
                     size="s"
                     variant="tertiary"
                     aria-label={`Pop out ${PANEL_LABELS[activeBottom]}`}
                     onClick={() => popup(activeBottom)}
                   >
                     <FiArrowUpRight />
-                  </Button>
-                  <Button
+                  </TooltipButton>
+                  <TooltipButton
                     size="s"
                     variant="tertiary"
                     aria-label={`Maximize ${PANEL_LABELS[activeBottom]}`}
@@ -783,7 +784,7 @@ export default forwardRef<DockWorkspaceHandle, Props>(function DockWorkspace(
                     }
                   >
                     <FiMaximize />
-                  </Button>
+                  </TooltipButton>
                 </Row>
               </Row>
             )}

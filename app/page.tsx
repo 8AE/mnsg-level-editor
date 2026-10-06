@@ -15,6 +15,7 @@ import {
   FiLayers,
   FiMaximize,
   FiMove,
+  FiRotateCw,
   FiPlus,
   FiSave,
   FiSearch,
@@ -37,6 +38,9 @@ import type {
   ProjectRoomScene,
 } from "../shared/types";
 import RoomViewport, { type ViewOptions } from "../components/RoomViewport";
+import TooltipButton from "../components/TooltipButton";
+import { prepareEditableRoom } from "../components/editableRoom";
+import { rotateProjectSelection, selectionRotatable, type RotationDelta } from "../components/selectionRotation";
 import { ValueField } from "../components/Inspector";
 import Inspector from "../components/Inspector";
 import RoomInspector from "../components/RoomInspector";
@@ -126,6 +130,7 @@ const initialOptions: ViewOptions = {
   actors: true,
   events: true,
   translate: false,
+  transformMode: "translate",
 };
 
 function ModalShell({
@@ -195,14 +200,14 @@ function ModalShell({
             <Text id="modal-title" variant="heading-strong-l">
               {title}
             </Text>
-            <Button
+            <TooltipButton
               size="s"
               variant="tertiary"
               aria-label="Close dialog"
               onClick={onClose}
             >
               <FiX />
-            </Button>
+            </TooltipButton>
           </Row>
           {children}
         </Column>
@@ -315,17 +320,40 @@ export default function EditorPage() {
   const loadSequence = useRef(0);
   const busyLock = useRef(false);
   const sceneReady = useRef("");
+  const projectAuthoredRoom = project?.version === 2 ? project.authoredRooms[String(baseRoom?.id)] : undefined;
+  const nativeOverrideKey = JSON.stringify(project?.roomOverrides[String(baseRoom?.id)] ?? null);
+  const [nativeDraft, setNativeDraft] = useState<{
+    source: RoomData | ProjectRoomScene;
+    projectId: string;
+    overrideKey: string;
+    prepared: ReturnType<typeof prepareEditableRoom>;
+  } | null>(null);
+  const editableDraft = nativeDraft?.source === baseRoom && nativeDraft?.projectId === project?.id && nativeDraft?.overrideKey === nativeOverrideKey && !projectAuthoredRoom ? nativeDraft.prepared : undefined;
   const room = useMemo(() => {
     if (!baseRoom) return null;
     const view =
-      "kind" in baseRoom && baseRoom.kind !== "native"
+      editableDraft?.scene ?? ("kind" in baseRoom && baseRoom.kind !== "native"
         ? baseRoom
-        : applyOverrides(baseRoom as RoomData, project);
+        : applyOverrides(baseRoom as RoomData, project));
     return actorPayload?.source.id === baseRoom.id &&
       actorPayload?.projectId === project?.id
       ? { ...view, ...actorPayload.data }
       : view;
-  }, [baseRoom, project, actorPayload]);
+  }, [baseRoom, project, actorPayload, editableDraft]);
+  useEffect(() => {
+    if (!baseRoom || !project || !catalog || sample || projectAuthoredRoom || ("kind" in baseRoom && baseRoom.kind !== "native")) return;
+    let active = true;
+    void (async () => {
+      const scene = await api().loadProjectRoom(project, baseRoom.id);
+      const entry = catalog.geometry.find(asset => asset.roomIds.includes(scene.id) && asset.id.startsWith("geometry:"));
+      const asset = entry ? await api().loadGeometryAsset(entry.id) : undefined;
+      const prepared = prepareEditableRoom(scene, catalog, asset);
+      if (active) setNativeDraft({ source: baseRoom, projectId: project.id, overrideKey: nativeOverrideKey, prepared });
+    })().catch(issue => { if (active) setError(`Room editing could not initialize: ${messageOf(issue)}`); });
+    return () => { active = false; };
+    // Stage native geometry only when its effective source changes, never on selection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseRoom, project?.id, nativeOverrideKey, catalog, sample, Boolean(projectAuthoredRoom)]);
   useEffect(() => {
     if (!room) return;
     setSelections((current) => {
@@ -333,14 +361,11 @@ export default function EditorPage() {
       return valid.length === current.length ? current : valid;
     });
   }, [room]);
-  const authoredRoom =
-    project?.version === 2
-      ? project.authoredRooms[String(baseRoom?.id)]
-      : undefined;
-  const authoredKey = JSON.stringify(authoredRoom ?? null);
+  const authoredRoom = projectAuthoredRoom ?? editableDraft?.authored;
+  const authoredKey = JSON.stringify(projectAuthoredRoom ?? null);
   const actorOverrideKey = JSON.stringify(
-    authoredRoom
-      ? { actors: authoredRoom.actors, doors: authoredRoom.doors }
+    projectAuthoredRoom
+      ? { actors: projectAuthoredRoom.actors, doors: projectAuthoredRoom.doors }
       : (project?.roomOverrides[String(baseRoom?.id)]?.actors ?? {}),
   );
   const actorRefreshing = Boolean(
@@ -464,11 +489,11 @@ export default function EditorPage() {
     setActorVisualError(null);
     return requestActorVisuals(
       (id, overrides) =>
-        authoredRoom && project
+        projectAuthoredRoom && project
           ? api().loadProjectActorVisuals(project, id)
           : api().loadActorVisuals(id, overrides),
       baseRoom.id,
-      authoredRoom
+      projectAuthoredRoom
         ? {}
         : (JSON.parse(actorOverrideKey) as Record<string, ActorOverride>),
       (data) =>
@@ -495,7 +520,7 @@ export default function EditorPage() {
         if (active) setError(messageOf(issue));
       });
     if (
-      !authoredRoom &&
+      !projectAuthoredRoom &&
       baseRoom &&
       "kind" in baseRoom &&
       baseRoom.kind !== "native"
@@ -509,7 +534,7 @@ export default function EditorPage() {
         .then((data) => {
           if (active) {
             setBaseRoom(data);
-            setSelected(null);
+            if (data.id !== baseRoom.id) setSelected(null);
           }
         })
         .catch((issue) => {
@@ -517,11 +542,11 @@ export default function EditorPage() {
         });
     }
     if (
-      authoredRoom &&
-      sceneReady.current !== `${project.id}/${authoredRoom.id}/${authoredKey}`
+      projectAuthoredRoom &&
+      sceneReady.current !== `${project.id}/${projectAuthoredRoom.id}/${authoredKey}`
     )
       api()
-        .loadProjectRoom(project, authoredRoom.id)
+        .loadProjectRoom(project, projectAuthoredRoom.id)
         .then((data) => {
           if (active) setBaseRoom(data);
         })
@@ -596,19 +621,19 @@ export default function EditorPage() {
       : [],
   );
   const restoreNative = () => {
-    if (!project || !authoredRoom || busyLock.current) return;
+    if (!project || !projectAuthoredRoom || busyLock.current) return;
     const next = canonicalProject(project),
       authoredRooms = { ...next.authoredRooms },
       roomOverrides = { ...next.roomOverrides };
-    delete authoredRooms[authoredRoom.id];
+    delete authoredRooms[projectAuthoredRoom.id];
     const baseline =
       savedSnapshot?.id === project.id
-        ? savedSnapshot.roomOverrides[authoredRoom.id]
+        ? savedSnapshot.roomOverrides[projectAuthoredRoom.id]
         : undefined;
-    if (baseline) roomOverrides[authoredRoom.id] = structuredClone(baseline);
-    else delete roomOverrides[authoredRoom.id];
+    if (baseline) roomOverrides[projectAuthoredRoom.id] = structuredClone(baseline);
+    else delete roomOverrides[projectAuthoredRoom.id];
     transact({ ...next, authoredRooms, roomOverrides });
-    setSelected(null);
+    // Source IDs remain stable, so Undo/restoration can retain existing selections.
   };
   const selectGeometry = (
     selection: GeometrySelection | null,
@@ -623,41 +648,6 @@ export default function EditorPage() {
     );
     setTab("geometry");
   };
-  const makeEditable = () =>
-    void run("Creating editable room", async () => {
-      if (!project || !baseRoom || !catalog) return;
-      const scene = await api().loadProjectRoom(project, baseRoom.id);
-      const assetEntry = catalog.geometry.find(
-        (a) => a.roomIds.includes(scene.id) && a.id.startsWith("geometry:"),
-      );
-      const nativeAsset = assetEntry
-        ? await api().loadGeometryAsset(assetEntry.id)
-        : undefined;
-      const authored = cloneScene(
-        scene,
-        catalog,
-        scene.id,
-        scene.name,
-        "replacement",
-        nativeAsset,
-      );
-      const next = updateAuthoredRoom(
-        project,
-        authored,
-        scene.geometryEdit?.affectedRoomIds ?? [],
-      );
-      const preview = await api().loadProjectRoom(next, authored.id);
-      sceneReady.current = `${next.id}/${authored.id}/${JSON.stringify(authored)}`;
-      setPast((history) => [...history.slice(-99), project]);
-      setFuture([]);
-      setProject(next);
-      setBaseRoom(preview);
-      setSelected(null);
-      setTab("room");
-      setNotice(
-        "Editable replacement created. Native service metadata comes from the original room.",
-      );
-    });
   const insertAsset = (asset: LibraryDrop, position?: Vec3) =>
     void run("Placing asset", async () => {
       if (!project || !authoredRoom || !catalog) return;
@@ -1248,7 +1238,9 @@ export default function EditorPage() {
       } else if (!event.repeat && event.key.toLowerCase() === "g")
         setOptions((value) => ({ ...value, grid: !value.grid }));
       else if (!event.repeat && event.key.toLowerCase() === "t")
-        setOptions((value) => ({ ...value, translate: !value.translate }));
+        setOptions((value) => ({ ...value, translate: value.transformMode !== "translate" || !value.translate, transformMode: "translate" }));
+      else if (!event.repeat && event.key.toLowerCase() === "r")
+        setOptions((value) => ({ ...value, translate: value.transformMode !== "rotate" || !value.translate, transformMode: "rotate" }));
     };
     const targets = [window, ...popupWindows];
     targets.forEach((target) => target.addEventListener("keydown", keydown));
@@ -1281,11 +1273,12 @@ export default function EditorPage() {
     else if (id) setTab("actors");
   };
   const translateSelection = (delta: Vec3) => {
-    if (!project || !room || sample || busyLock.current || modal) return;
+    if (!project || !room || sample || busyLock.current || modal || (!delta.x && !delta.y && !delta.z)) return;
     try {
       transact(
         translateProjectSelection(
-          project,
+          !projectAuthoredRoom && authoredRoom && selections.some(item => item.kind === "geometry")
+            ? updateAuthoredRoom(project, authoredRoom, baseRoom?.geometryEdit?.affectedRoomIds ?? []) : project,
           room,
           selections,
           delta,
@@ -1297,13 +1290,23 @@ export default function EditorPage() {
       setOptions((value) => ({ ...value, translate: false }));
     }
   };
+  const rotateSelection = (delta: RotationDelta, pivot: Vec3) => {
+    if (!project || !room || sample || busyLock.current || modal || Math.hypot(delta.x, delta.y, delta.z) < 1e-10) return;
+    try {
+      const target = !projectAuthoredRoom && authoredRoom && selections.some(item => item.kind === "geometry")
+        ? updateAuthoredRoom(project, authoredRoom, baseRoom?.geometryEdit?.affectedRoomIds ?? []) : project;
+      const next = rotateProjectSelection(target, room, selections, delta, pivot, followCollision);
+      transact(next);
+    } catch (issue) { setError(messageOf(issue));setOptions(value => ({ ...value, translate: false })); }
+  };
   const moveRecord = (id: string, position: Vec3) => {
     try {
-      if (authoredRoom) {
+      if (authoredRoom && (projectAuthoredRoom || authoredRoom.meshes.some(mesh => mesh.id === id))) {
         const checked = checkedPosition(position);
         const mesh = authoredRoom.meshes.find((m) => m.id === id);
         if (mesh) {
           const next = moveGeometrySelection(mesh, geometrySelection, checked);
+          if (documentFingerprint(next) === documentFingerprint(mesh)) return;
           changeAuthoredRoom(
             replaceMesh(
               authoredRoom,
@@ -1361,6 +1364,7 @@ export default function EditorPage() {
         }
       : sourceVisual;
   const selectedMovable = Boolean(room && selectionMovable(room, selections));
+  const selectedRotatable = Boolean(room && selectionRotatable(room, selections));
   const sources = new Set(room?.meshes.map((mesh) => mesh.source));
   const textureCoverage =
     room && renderCoverage.roomId === room.id
@@ -1754,7 +1758,7 @@ export default function EditorPage() {
                       )}
                     </Row>
                     <Row gap="4">
-                      <Button
+                      <TooltipButton
                         size="s"
                         variant="tertiary"
                         aria-label="Undo"
@@ -1763,8 +1767,8 @@ export default function EditorPage() {
                         onClick={undo}
                       >
                         <FiCornerUpLeft />
-                      </Button>
-                      <Button
+                      </TooltipButton>
+                      <TooltipButton
                         size="s"
                         variant="tertiary"
                         aria-label="Redo"
@@ -1773,7 +1777,7 @@ export default function EditorPage() {
                         onClick={redo}
                       >
                         <FiCornerUpRight />
-                      </Button>
+                      </TooltipButton>
                     </Row>
                   </Row>
                   <div className="viewport-stage">
@@ -1786,6 +1790,7 @@ export default function EditorPage() {
                         selected={selected}
                         selections={selections}
                         onTranslateSelection={translateSelection}
+                        onRotateSelection={rotateSelection}
                         options={
                           busy ? { ...options, translate: false } : options
                         }
@@ -1808,16 +1813,8 @@ export default function EditorPage() {
                       />
                     )}
                     <div className="viewport-top-overlay">
-                      <Column gap="8">
-                        <span className="view-tag">
-                          PERSPECTIVE <span>Y UP</span>
-                        </span>
-                        <span className="camera-key-hint">
-                          Click viewport · hold <kbd>WASD</kbd> to move
-                        </span>
-                      </Column>
                       <div className="view-tool-stack">
-                        <Button
+                        <TooltipButton
                           variant="tertiary"
                           size="s"
                           horizontal="start"
@@ -1826,8 +1823,8 @@ export default function EditorPage() {
                           onClick={() => frameRoom(false)}
                         >
                           <FiMaximize />
-                        </Button>
-                        <Button
+                        </TooltipButton>
+                        <TooltipButton
                           variant="tertiary"
                           size="s"
                           horizontal="start"
@@ -1837,38 +1834,34 @@ export default function EditorPage() {
                           onClick={() => frameRoom(true)}
                         >
                           <span>F</span>
-                        </Button>
+                        </TooltipButton>
                         <span className="stack-divider" />
-                        <Button
+                        <TooltipButton
                           variant="tertiary"
                           size="s"
                           horizontal="start"
                           aria-label="Toggle translation gizmo"
                           title="Translate · T"
-                          aria-pressed={options.translate}
+                          aria-pressed={options.translate && options.transformMode === "translate"}
                           disabled={sample || Boolean(busy) || !selectedMovable}
                           onClick={() =>
                             setOptions((value) => ({
                               ...value,
-                              translate: !value.translate,
+                              translate: value.transformMode !== "translate" || !value.translate,
+                              transformMode: "translate",
                             }))
                           }
                         >
                           <FiMove />
-                        </Button>
+                        </TooltipButton>
+                        <TooltipButton
+                          variant="tertiary" size="s" horizontal="start"
+                          aria-label="Toggle rotation gizmo" title="Rotate selected items · R"
+                          aria-pressed={options.translate && options.transformMode === "rotate"}
+                          disabled={sample || Boolean(busy) || !selectedRotatable}
+                          onClick={() => setOptions(value => ({ ...value, translate: value.transformMode !== "rotate" || !value.translate, transformMode: "rotate" }))}
+                        ><FiRotateCw /></TooltipButton>
                       </div>
-                    </div>
-                    <div className="viewport-bottom-overlay">
-                      <span className="axis-key">
-                        <i>X</i>
-                        <i>Y</i>
-                        <i>Z</i>
-                      </span>
-                      <span className="orbit-help">
-                        Left-drag to {mouseMode === "pan" ? "pan" : "tilt"}{" "}
-                        <span>·</span> Right-drag to pan <span>·</span> Scroll
-                        to zoom
-                      </span>
                     </div>
                     {room &&
                       !room.meshes.length &&
@@ -1993,6 +1986,10 @@ export default function EditorPage() {
                       triangles
                     </Text>
                   </Row>
+                  <div className="scene-navigation-bar" data-testid="viewport-navigation-hint">
+                    <span>Click viewport · <kbd>WASD</kbd> to move</span>
+                    <span>Left-drag to {mouseMode === "pan" ? "pan" : "tilt"} · right-drag to pan · scroll to zoom</span>
+                  </div>
                   <div className="viewport-note">
                     {sharedImpacts.length > 0
                       ? `Shared geometry translation from room ${sharedImpacts.map((id) => `0x${id.toString(16).toUpperCase()}`).join(", ")} · actor placements unchanged`
@@ -2159,17 +2156,7 @@ export default function EditorPage() {
                         ))
                       ) : (
                         <Column padding="20" gap="12">
-                          <Text variant="body-default-s">
-                            Create an editable replacement to author this room's
-                            meshes and actors.
-                          </Text>
-                          <Button
-                            disabled={sample || Boolean(busy) || !catalog}
-                            data-testid="make-editable-button"
-                            onClick={makeEditable}
-                          >
-                            Make editable copy
-                          </Button>
+                          <Text variant="body-default-s">{sample ? "Import your ROM to edit room geometry." : "Preparing room geometry for editing…"}</Text>
                         </Column>
                       )}
                     </div>
@@ -2190,7 +2177,7 @@ export default function EditorPage() {
                       variant="label-default-xs"
                       onBackground="neutral-weak"
                     >
-                      {authoredRoom
+                      {projectAuthoredRoom
                         ? "Authored data"
                         : (
                               tab === "room"
@@ -2226,21 +2213,20 @@ export default function EditorPage() {
                         disabled={sample || Boolean(busy) || Boolean(modal)}
                         onTranslate={translateSelection}
                         onFrame={() => frameRoom(true)}
-                        translating={options.translate}
+                        translating={options.translate && options.transformMode === "translate"}
                         onToggleMove={() =>
                           setOptions((value) => ({
                             ...value,
-                            translate: !value.translate,
+                            translate: value.transformMode !== "translate" || !value.translate,
+                              transformMode: "translate",
                           }))
                         }
-                        onMakeEditable={
-                          !authoredRoom &&
-                          selections.some((value) => value.kind === "geometry")
-                            ? makeEditable
-                            : undefined
-                        }
+                        rotatable={selectedRotatable}
+                        rotating={options.translate && options.transformMode === "rotate"}
+                        onToggleRotate={() => setOptions(value => ({ ...value, translate: value.transformMode !== "rotate" || !value.translate, transformMode: "rotate" }))}
                       />
                     ) : authoredRoom &&
+                      (projectAuthoredRoom || geometrySelection || tab === "room" || tab === "geometry") &&
                       catalog &&
                       !(tab === "events" && selectedEvent) ? (
                       <AuthoringInspector
@@ -2261,7 +2247,7 @@ export default function EditorPage() {
                           savedAuthored &&
                           changeAuthoredRoom(structuredClone(savedAuthored))
                         }
-                        onRestoreNative={restoreNative}
+                        onRestoreNative={projectAuthoredRoom ? restoreNative : undefined}
                         followCollision={followCollision}
                         onFollowCollision={setFollowCollision}
                         visual={selectedVisual}
@@ -2460,7 +2446,7 @@ export default function EditorPage() {
           {error && (
             <div className="error-banner workspace-banner" role="alert">
               <span>{error}</span>
-              <Button
+              <TooltipButton
                 variant="tertiary"
                 size="s"
                 horizontal="start"
@@ -2468,7 +2454,7 @@ export default function EditorPage() {
                 onClick={() => setError("")}
               >
                 <FiX />
-              </Button>
+              </TooltipButton>
             </div>
           )}
           {roomWarnings.length ? (

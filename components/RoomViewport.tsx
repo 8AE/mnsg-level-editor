@@ -5,6 +5,8 @@ import * as THREE from "three";
 import { SelectionOutline } from "./selectionOutline";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
+import { SceneCompass } from "./sceneCompass";
+import { rotatePoint, rotateNativeAngles, selectionRotatable, type RotationDelta } from "./selectionRotation";
 import type { RoomData, ProjectRoomScene, Vec3 } from "../shared/types";
 import {
   createNativeSurfaceMaterial,
@@ -50,6 +52,7 @@ export interface ViewOptions {
   actors: boolean;
   events: boolean;
   translate: boolean;
+  transformMode?: "translate" | "rotate";
 }
 interface Props {
   room: RoomData | ProjectRoomScene;
@@ -72,6 +75,7 @@ interface Props {
   ): void;
   selections?: EditorSelection[];
   onTranslateSelection?(delta: Vec3): void;
+  onRotateSelection?(rotation: RotationDelta, pivot: Vec3): void;
   onEditMenu?(
     location: import("./EditorContextMenu").ContextMenuLocation,
   ): void;
@@ -95,6 +99,7 @@ export default function RoomViewport({
   onGeometrySelect,
   selections,
   onTranslateSelection,
+  onRotateSelection,
   onAssetDrop,
   onEditMenu,
   mouseMode = "tilt",
@@ -107,6 +112,7 @@ export default function RoomViewport({
     onActorCoverage,
     onGeometrySelect,
     onTranslateSelection,
+    onRotateSelection,
     onAssetDrop,
     onEditMenu,
   });
@@ -117,6 +123,7 @@ export default function RoomViewport({
     onActorCoverage,
     onGeometrySelect,
     onTranslateSelection,
+    onRotateSelection,
     onAssetDrop,
     onEditMenu,
   };
@@ -190,6 +197,8 @@ export default function RoomViewport({
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x111719);
     const camera = new THREE.PerspectiveCamera(42, 1, 0.5, 250000);
+    const compass = new SceneCompass(document);
+    container.appendChild(compass.element);
     const orbit = new OrbitControls(camera, renderer.domElement);
     orbit.enableDamping = true;
     orbit.dampingFactor = 0.12;
@@ -443,7 +452,7 @@ export default function RoomViewport({
     scene.add(groupAnchor);
     const groupOrigin = () => {
       const p = selectionCenter(latestRoom.current, choices.current);
-      return p ? new THREE.Vector3(p.x, p.y, p.z).round() : undefined;
+      return p ? new THREE.Vector3(p.x, p.y, p.z) : undefined;
     };
     const updateRecordOutlines = () => {
       const ids = selectedRecordIds(latestRoom.current, choices.current);
@@ -527,6 +536,7 @@ export default function RoomViewport({
       container.dataset.transformDragging = String(transform.dragging);
       container.dataset.transformAxis = transform.axis ?? "";
       container.dataset.transformObjectId = transform.object?.userData.id ?? "";
+      container.dataset.transformPreviewRotation = transform.object?.quaternion.toArray().join(",") ?? "";
       container.dataset.transformPreviewPosition =
         transform.object?.position
           .toArray()
@@ -581,6 +591,11 @@ export default function RoomViewport({
       return meshCenter(mesh);
     };
     let dragOrigin: THREE.Vector3 | undefined;
+    let dragRotation: THREE.Quaternion | undefined;
+    const modelActors = (data: RoomData | ProjectRoomScene) => [
+      ...data.actors,
+      ...("doors" in data ? data.doors.map((door, index) => ({ id: `door:${door.id}`, index, actorId: 0, name: "Door appearance", position: door.position, rotation: door.rotation, parameters: [], editable: true })) : []),
+    ];
     const restoreGeometry = () => {
       authoredGeometry.forEach(({ surface, original }) => {
         const attr = surface.geometry.getAttribute(
@@ -593,6 +608,15 @@ export default function RoomViewport({
       for (const [id, marker] of markers) {
         const p = recordPosition(latestRoom.current, id);
         if (p) marker.position.set(p.x, p.y, p.z);
+      }
+      actorModels.syncActors(modelActors(latestRoom.current));
+      for (const actor of latestRoom.current.actors) {
+        const direction = directions.get(actor.id);
+        if (direction) direction.rotation.y = (actor.rotation.y & 1023) * Math.PI * 2 / 1024;
+      }
+      if ("doors" in latestRoom.current) for (const door of latestRoom.current.doors) {
+        const volume = doorVolumes.get(door.id);
+        if (volume) updateDoorVolume(volume, door);
       }
       scene.updateMatrixWorld(true);
       updateSelectionOutlines();
@@ -613,6 +637,8 @@ export default function RoomViewport({
           : undefined;
       if (!origin) return;
       const delta = object.position.clone().sub(origin);
+      const rotating = transform.getMode() === "rotate";
+      const rotation = object.quaternion.clone().multiply((dragRotation ?? new THREE.Quaternion()).clone().invert());
       if (grouped) delta.round();
       const selections = grouped
         ? choices.current
@@ -626,12 +652,11 @@ export default function RoomViewport({
         ) as THREE.BufferAttribute;
         attr.array.set(entry.original);
         for (const index of vertices.get(id) ?? [])
-          attr.setXYZ(
-            index,
-            entry.original[index * 3] + delta.x,
-            entry.original[index * 3 + 1] + delta.y,
-            entry.original[index * 3 + 2] + delta.z,
-          );
+          {
+            const p = { x: entry.original[index * 3], y: entry.original[index * 3 + 1], z: entry.original[index * 3 + 2] };
+            const next = rotating ? rotatePoint(p, origin, rotation) : { x: p.x + delta.x, y: p.y + delta.y, z: p.z + delta.z };
+            attr.setXYZ(index, next.x, next.y, next.z);
+          }
         attr.needsUpdate = true;
         entry.surface.geometry.computeBoundingSphere();
       }
@@ -639,18 +664,31 @@ export default function RoomViewport({
         for (const id of selectedRecordIds(latestRoom.current, selections)) {
           const p = recordPosition(latestRoom.current, id),
             marker = markers.get(id);
-          if (p && marker)
-            marker.position.set(p.x + delta.x, p.y + delta.y, p.z + delta.z);
+          const next = p ? rotating ? rotatePoint(p, origin, rotation) : { x: p.x + delta.x, y: p.y + delta.y, z: p.z + delta.z } : undefined;
+          if (next && marker) marker.position.set(next.x, next.y, next.z);
           for (const event of latestRoom.current.events)
             if (event.actorRef === id && event.position)
               markers
                 .get(event.id)
                 ?.position.set(
-                  event.position.x + delta.x,
-                  event.position.y + delta.y,
-                  event.position.z + delta.z,
+                  next?.x ?? event.position.x,
+                  next?.y ?? event.position.y,
+                  next?.z ?? event.position.z,
                 );
         }
+      if (rotating) {
+        const ids = selectedRecordIds(latestRoom.current, selections);
+        actorModels.syncActors(modelActors(latestRoom.current).map(actor => ids.has(actor.id) ? { ...actor, rotation: rotateNativeAngles(actor.rotation, rotation) } : actor));
+        for (const actor of latestRoom.current.actors) if (ids.has(actor.id)) {
+          const direction = directions.get(actor.id);
+          if (direction) direction.rotation.y = rotateNativeAngles(actor.rotation, rotation).y * Math.PI * 2 / 1024;
+        }
+        if ("doors" in latestRoom.current) for (const door of latestRoom.current.doors) if (ids.has(`door:${door.id}`)) {
+          const volume = doorVolumes.get(door.id);
+          if (volume) updateDoorVolume(volume, { ...door, rotation: rotateNativeAngles(door.rotation, rotation) });
+        }
+        actorModels.updateCamera(camera);
+      }
       scene.updateMatrixWorld(true);
       updateSelectionOutlines();
     };
@@ -673,8 +711,10 @@ export default function RoomViewport({
               extra?.position ??
               geometryOrigin(latestRoom.current, id)),
       );
+      if (transform.object) transform.object.quaternion.copy(dragRotation ?? new THREE.Quaternion());
       restoreGeometry();
       dragOrigin = undefined;
+      dragRotation = undefined;
       moving = false;
       orbit.enabled = true;
       keyboard.cancelGestures();
@@ -723,13 +763,17 @@ export default function RoomViewport({
       orbit.enabled = !moving;
       if (moving) {
         dragOrigin = transform.object?.position.clone();
+        dragRotation = transform.object?.quaternion.clone();
         keyboard.beginGesture("transform");
       } else keyboard.endGesture("transform");
       publishTransform();
     });
     transform.addEventListener("mouseUp", () => {
       const object = transform.object;
-      if (object === groupAnchor && dragOrigin) {
+      if (transform.getMode() === "rotate" && object === groupAnchor && dragOrigin && dragRotation) {
+        const delta = object.quaternion.clone().multiply(dragRotation.clone().invert()).normalize();
+        callbacks.current.onRotateSelection?.({ x: delta.x, y: delta.y, z: delta.z, w: delta.w }, { x: dragOrigin.x, y: dragOrigin.y, z: dragOrigin.z });
+      } else if (object === groupAnchor && dragOrigin) {
         const delta = object.position.clone().sub(dragOrigin).round();
         callbacks.current.onTranslateSelection?.({
           x: delta.x,
@@ -936,6 +980,9 @@ export default function RoomViewport({
         } else focus(false);
       },
       update(id, view) {
+        const mode = view.transformMode ?? "translate";
+        if (transform.getMode() !== mode) { cancelTransform();transform.setMode(mode); }
+        container.dataset.transformMode = mode;
         selectedId = id;
         const choice = geometryChoice.current;
         const key = choices.current.map(selectionKey).join("|");
@@ -994,6 +1041,7 @@ export default function RoomViewport({
         const object = id ? markers.get(id) : undefined;
         const pivot = groupOrigin();
         if (!moving && pivot) groupAnchor.position.copy(pivot);
+        if (!moving) groupAnchor.quaternion.identity();
         const groupVisible = choices.current.every((value) =>
           value.kind === "geometry"
             ? view.geometry
@@ -1006,8 +1054,8 @@ export default function RoomViewport({
               ),
         );
         const attached =
-          view.translate && choices.current.length > 1
-            ? selectionMovable(latestRoom.current, choices.current) &&
+          view.translate && (choices.current.length > 1 || mode === "rotate")
+            ? (mode === "rotate" ? selectionRotatable(latestRoom.current, choices.current) : selectionMovable(latestRoom.current, choices.current)) &&
               groupVisible &&
               pivot
               ? groupAnchor
@@ -1330,6 +1378,7 @@ export default function RoomViewport({
       keyboard.step(deltaSeconds, navigationContext());
       // Orbit's change threshold can omit the final damping increments.
       publishCamera();
+      compass.update(camera);
       if (cameraSnapshot)
         cameraSnapshot.current = {
           roomId: room.id,
@@ -1412,6 +1461,7 @@ export default function RoomViewport({
       renderer.dispose();
       renderer.forceContextLoss();
       container.removeChild(renderer.domElement);
+      compass.element.remove();
       runtime.current = null;
     };
     // Scene data changes intentionally rebuild and dispose all GPU resources.

@@ -18,7 +18,7 @@ Open a project and select a room whose native services suit your scene. Choose
 | --- | --- |
 | **Blank room** | Empty geometry, actors and collision, with a Start entrance at the origin. The current room supplies the native service template. |
 | **Clone current room** | A copy of the current geometry, actors, entrances and environment under a new room ID. A native clone retains its original template physics. |
-| **Make editable copy** in Geometry | An authored replacement at the existing room ID. You keep the current placements and native service template while gaining mesh editing. |
+| **Edit an existing room** | Select its geometry directly in Scene. Preparation is automatic; the first edit creates an authored replacement at the same ID, retaining placements and native services. Opening or selecting the room does not change the project. |
 
 New room IDs use the project's available range 620 through 799. Export supplies
 the required native admission hooks and resource setup. Choose a world room
@@ -32,13 +32,13 @@ inspect them after a shared translation or an authored replacement.
 
 ## Build and edit geometry
 
-Open **Asset library**, choose **Geometry**, and search names or IDs. You can choose a complete
+Open the **Assets** tab, choose **Geometry**, and search names or IDs. You can choose a complete
 room asset or a decoded component from your ROM. Drag a card into the viewport to place it, or
 choose **Place at origin**. You retain its native material references when you edit the imported
 triangles. Generated actor texture coordinates depend on normals and vertex-load state; the
 exporter rejects flattening those models into static custom-door appearance UVs.
 
-Choose a mesh in **Geometry**. The inspector has three selection modes:
+Choose a mesh directly in Scene or in **Geometry**. The inspector has three selection modes:
 
 | Mode | Edits |
 | --- | --- |
@@ -51,7 +51,10 @@ faces, vertices or records from the selection. Choose face or vertex mode in the
 before selecting those elements in the viewport. Hierarchy clicks support the same modifier;
 you can combine geometry and records. Plain clicking selects one item.
 
-Press **T** to show the translation gizmo for the current editable selection. The group
+Press **T** to show the translation gizmo, or **R** for rotation rings around the selection
+center. A single actor rotates in place; a group rotates placements and actor orientations
+together. Meshes, faces and groups of vertices rotate their selected vertices. Move and Rotate
+keep the selection active, including after Undo and native Scene relocation. The group
 Inspector also offers X/Y/Z offsets. A shared move translates all selected objects together,
 moving each shared vertex once. Faces that share those vertices move with them. Use **F** to
 frame the entire selection. Cancel a gizmo drag to discard its preview; release it to commit

@@ -398,3 +398,35 @@ environment skips). Native build integration used the bundled current mod tool
 and symbols in an isolated compatible template fixture. The ARM64 package
 passed strict deep signature verification; the installed ASAR matches the tested
 local candidate, with the previous app retained as a recovery copy.
+
+## 0.3.5 Scene orientation and rotation
+
+Scene shows a camera-oriented XYZ compass instead of the Perspective/Y-up badge and
+inert axis bubbles. Navigation instructions live in the Scene bottom bar, including
+in a native popout. Scene and panel icon controls show hover and keyboard-focus help
+through a portal into their own window; Escape, blur and relocation clear it.
+
+T selects Move and R selects Rotate. A single actor turns in place; groups rotate
+positions and actor orientations around their shared center. Mesh, face and vertex
+group transforms deduplicate shared vertices and actor/event aliases. Native actor
+angles retain their existing ZYX convention, 1024-unit turn and billboard sentinels.
+Coordinates remain integer and bounds-checked; invalid transforms leave the document
+unchanged. Rotation participates in shared Undo, retains selection and works in Scene
+popouts. Linked authored collision follows the existing mesh-edit setting.
+
+Native geometry is staged automatically, independently of project/history. Its first
+edit creates a replacement through the existing validation path. Stable source IDs
+keep selection through the first edit, Undo and restoration. Native actor-only edits
+retain sparse override behavior. The room preparation scan passed for all 383 native
+records. Preparation/navigation leave project and ROM bytes unchanged; authoring and
+export admission still apply to actual changes.
+
+Local source checks passed typecheck, production build and 360 of 364 tests, with
+four optional environment skips. Six own-ROM Scene milestones passed actual actor
+and shared-face ring drags, first native mesh editing, retained selection, Undo,
+compass orbit updates, footer placement, native popout/redock and tooltips. Tooltip
+text and compass letters exceeded 4.5:1 contrast, including rear-axis opacity. All
+seven existing multi-selection milestones passed, including repeated tiny moves,
+no-motion release and popout focus-loss cancellation. The ARM64 candidate passed
+strict deep signature verification and the packaged managed-tool compile/link check.
+Generated-mod gameplay and Windows/Intel own-ROM editing remain separate checks.

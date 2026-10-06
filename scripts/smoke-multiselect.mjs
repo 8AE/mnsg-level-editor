@@ -195,8 +195,9 @@ try {
     "native actor modifier selection moves together and one Undo restores both",
   );
   // A controlled portable fixture gives adjacent faces shared by four vertices.
-  await main.getByRole("tab", { name: "Geometry", exact: true }).click();
-  await button(main, "Make editable copy").click();
+  await main.getByRole("tab", { name: "Room", exact: true }).click();
+  await main.getByLabel("Room name", { exact: true }).fill("Selection fixture");
+  await main.getByLabel("Room name", { exact: true }).press("Enter");
   await idle();
   graph = await save();
   const authored = graph.authoredRooms[465],
