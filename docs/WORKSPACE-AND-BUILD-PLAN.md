@@ -366,3 +366,35 @@ actual NSIS install, payload parity and installed tools. Mac strict deep signatu
 Intel's virtual guest checked the unavailable-WebGL diagnostic; physical Intel rendering
 and Windows/Intel own-ROM editing remain separate. The release follow-up changes only
 documentation and the GUI test harness; packaged application code matches the tested commit.
+
+
+## 0.3.4 correct actor resource accounting
+
+An unchanged saved Oedo Town replacement hit the 48-ID export guard because each
+foreign prototype contributed its entire original room's resource list. Shared
+Ryo/start definitions and one door variant brought unrelated castle resources
+into the destination closure. Export now uses the already-admitted initializer
+trace or guarded static controller contract for foreign and parameter-edited
+actors. Canonical definitions keep their source-room fallback. Actual donor,
+material, collision, sky, executable overlay and traced model dependencies remain.
+The native slot/memory admission and runtime failure handling are unchanged.
+True count failures now report the authored room and unique resource count.
+
+The current scene was saved before diagnosis and retained in a separate recovery
+copy. Its 42 meshes, 373 triangles and 32 actors compiled, linked and packaged
+with bundled managed tools into a CRC-checked NRM with 28 resource IDs and 747,952
+allocation bytes. The saved authored data and original ROM were unchanged.
+No generated NRM was installed or run in the game.
+
+Regression fixtures independently retain canonical incomplete-trace fallback,
+reject unresolved foreign actors, exclude unrelated source-room resources for
+completed/edited traces and guarded controller contracts, and retain the actual
+destination donor. An own-ROM fixture clones Oedo353 with its full native roster
+plus Ryo and Mr Arrow; all actor/triangle records and ROM bytes survive compilation.
+The existing 48-ID, allocation-size and native runtime failure tests remain required.
+
+Typecheck, production build and 355 of 359 source tests passed (four optional
+environment skips). Native build integration used the bundled current mod tool
+and symbols in an isolated compatible template fixture. The ARM64 package
+passed strict deep signature verification; the installed ASAR matches the tested
+local candidate, with the previous app retained as a recovery copy.

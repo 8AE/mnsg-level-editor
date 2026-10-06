@@ -64,6 +64,23 @@ controller. Export verifies constructor bytes, entry/overlay identity, file
 bounds and allocation semantics before accepting that contract. It does not
 mark the raw offline CPU result complete or claim that deferred callbacks ran.
 
+From 0.3.4, foreign or parameter-edited actors contribute their admitted trace or
+guarded controller resources. A prototype's original room list remains catalog
+provenance and a conservative canonical-context fallback; it is not the resource
+list for that actor in another room. The actual destination donor, materials,
+collision and sky remain part of the room closure. Previously, common actors
+such as Ryo and the start controller imported unrelated source-room resources,
+causing valid authored scenes to exceed the 48-ID check. Genuine overflow errors
+now identify the room and the number of unique resource files.
+
+The 48-entry count belongs to the vanilla resource registry, not a fundamental
+NRM format limit. An engine extension could redirect the immediate and
+incremental loaders, lookup, reset, truncation, reload and cursor bookkeeping to
+an owned larger table, with a separately bounded asset bank. It would also have
+to retain overlay relocation, resource tags and native transition semantics.
+The current exporter does not emit such an extension; its 48-slot and world-bank
+checks remain in force.
+
 Camera actor 0x308 retains File27. Its inspected constructor requests no child,
 model or additional resource. Later camera callbacks require live camera,
 player and partner tasks, successful room-arena allocation and a nonzero

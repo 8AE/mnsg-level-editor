@@ -46,6 +46,25 @@ test("foreign or edited prototypes require completed dependency traces independe
   assert.throws(()=>context.prototype(id,{}, {roomId:620,templateRoomId:0}),/unresolved resource dependency/);
   completed=true;assert.equal(context.prototype(id,{parameters:[4,2,3]}, {roomId:620,templateRoomId:0}).dependencyClosure,"initializer-trace");
 });
+test("foreign and edited actor closures exclude source-room resources while canonical fallback stays conservative",()=>{
+  const reader=new RomReader(new Uint8Array(0x600000)),files=new Map([[12,{id:12,start:0x5c8770,end:0x5c8870,compressed:false}]]);
+  reader.view.setUint32(0x5e3c8c+3*4,0x8020d2a0);
+  reader.view.setUint16(20,100);reader.view.setUint16(84,200);
+  const source={romOffset:128,expectedHex:"00".repeat(20)},room={id:0,name:"Source donor",source:{romOffset:0,expectedHex:"00".repeat(28)},actors:[{id:"original",index:0,actorId:3,name:"Actor",parameters:[1,2,3],position:zero,rotation:zero,source,sourceKind:"normal"}],meshes:[],textures:[],events:[],warnings:[]} as unknown as RoomData;
+  const destination={...room,id:1,source:{romOffset:64,expectedHex:"00".repeat(28)},actors:[]};
+  let completed=false,controller=false;
+  const actors={preview:()=>({actorModels:[],actorVisuals:[]}),dependencies:()=>({completed,status:"unsupported",failureKind:completed?undefined:"unresolved",fileIds:[77],warnings:[],...(controller?{proofKind:"verified-controller-closure",provenance:["guarded fixture"]}:{})})} as unknown as ActorVisuals;
+  const catalog=new NativeAuthoringCatalog(reader,files,{} as RenderWaves,actors,()=>8,{listRooms:()=>[{id:0},{id:1}] as never,loadBaseRoom:id=>id===0?room:destination,loadRoom:id=>id===0?room:destination},"synthetic"),id=catalog.getCatalog().actorPrototypes[0].id,context=catalog.exportContext();
+  assert.deepEqual(context.prototype(id).resourceFileIds,[77,100],"Canonical unresolved traces retain their source room fallback");
+  assert.throws(()=>context.prototype(id,{}, {roomId:1}),/unresolved resource dependency/);
+  completed=true;
+  for(const target of [{roomId:1},{roomId:620,templateRoomId:1}])assert.deepEqual(context.prototype(id,{},target).resourceFileIds,[77]);
+  assert.deepEqual(context.prototype(id,{parameters:[4,2,3]},{roomId:0}).resourceFileIds,[77],"Edited parameters require the new trace");
+  completed=false;controller=true;
+  assert.deepEqual(context.prototype(id,{}, {roomId:1}).resourceFileIds,[77],"Static controller proof does not import its original room");
+  assert.deepEqual(context.donor(1).resourceFileIds,[200],"Actual destination closure remains separate");
+  assert.deepEqual(catalog.getCatalog().actorPrototypes[0].resourceFileIds,[100],"Source provenance remains available in the catalog");
+});
 test("native source vertex IDs survive cache reuse and material batches without changing triangles",()=>{
   const bytes=new Uint8Array(256),v=new DataView(bytes.buffer);let at=0;
   const command=(a:number,b:number)=>{v.setUint32(at,a);v.setUint32(at+4,b);at+=8;};
@@ -158,6 +177,36 @@ test("complete House465 roster retains guarded controller File96 closure in auth
   const scriptIndex=house.actors.findIndex(a=>a.actorId===0x34e),at=0x79208+0x137*2+1,old=rom.bytes[at];rom.bytes[at]^=1;
   try{assert.throws(()=>exports.prototype(siblings[scriptIndex].prototypeId,siblings[scriptIndex],context),/scenario0x137 pointer\/resource table identity changed/);}finally{rom.bytes[at]=old;}
   assert.equal(hash(),before);
+});
+
+test("Oedo353 replacement with its native roster and Mr Arrow exports without importing unrelated source rooms",{skip:!process.env.MNSG_TEST_ROM},async()=>{
+  const {createProject}=await import("../core/project");
+  const {composeProjectRoom}=await import("../core/authoring/scene");
+  const {cloneScene}=await import("../components/authoringModel");
+  const {compileAuthoredRoom}=await import("../core/export/authoring");
+  const rom=importRomBytes(readFileSync(process.env.MNSG_TEST_ROM!)),before=createHash("sha256").update(rom.bytes).digest("hex"),catalog=rom.getAuthoringCatalog(),exports=rom.authoringExportContext();
+  const project=createProject("Oedo export regression",rom.identity),lookup={catalog,nativeRooms:rom.listRooms(),loadRoom:rom.loadAuthoringRoom.bind(rom),resolveMaterial:rom.resolveAuthoringMaterial.bind(rom),loadActorPrototype:rom.loadActorPrototype.bind(rom),loadSkyboxAsset:rom.loadSkyboxAsset.bind(rom),nativeRoomSkyboxId:rom.nativeRoomSkyboxId.bind(rom)};
+  const scene=composeProjectRoom(project,353,lookup),room=cloneScene(scene,catalog,353,"Oedo Town Housing","replacement");
+  assert.equal(room.actors.length,30);
+  const ryo=catalog.actorPrototypes.find(p=>p.actorId===0x82&&p.sourceRoomId===21)!;
+  room.actors.push({id:"extra-ryo",prototypeId:ryo.id,parameters:[...ryo.parameters],position:{x:0,y:0,z:0},rotation:{...zero},spawnPolicy:"resident"});
+  const arrow=catalog.actorPrototypes.find(p=>p.actorId===0x87&&p.sourceRoomId===99)!;
+  assert.equal(arrow.sourceRoomId,99);
+  room.actors.push({id:"arrow",prototypeId:arrow.id,parameters:[...arrow.parameters],position:{x:0,y:0,z:0},rotation:{...zero},spawnPolicy:"resident"});
+  const beforeRoom=structuredClone(room),result=compileAuthoredRoom(room,exports),actorContext={roomId:353,templateRoomId:353,siblings:room.actors};
+  const start=catalog.actorPrototypes.find(p=>p.actorId===0x8e)!;
+  assert.deepEqual(exports.prototype(start.id,{},actorContext).resourceFileIds,[]);
+  assert.deepEqual(exports.prototype(ryo.id,{},actorContext).resourceFileIds,[338]);
+  assert.deepEqual(exports.prototype(arrow.id,{},actorContext).resourceFileIds,[26,338,404]);
+  assert.equal(result.resources.length,28);
+  assert.ok(exports.donor(353).resourceFileIds.every(id=>result.resources.includes(id)));
+  assert.ok([26,127,338,404].every(id=>result.resources.includes(id)));
+  assert.ok(!result.resources.includes(843),"Ryo source-room actor-data file is unrelated");
+  assert.ok(!result.resources.includes(904),"Mr Arrow source-room actor-data file is unrelated");
+  assert.equal(result.actors.length,room.actors.length);
+  assert.equal(result.geometry.triangleCount,scene.meshes.reduce((n,m)=>n+m.indices.length/3,0));
+  assert.deepEqual(room,beforeRoom);
+  assert.equal(createHash("sha256").update(rom.bytes).digest("hex"),before);
 });
 
 

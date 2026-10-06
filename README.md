@@ -10,7 +10,7 @@ outside the supported package targets. The app uses Electron, Next.js,
 [Once UI](https://docs.once-ui.com/ai-coding) and Three.js. Bring your own US ROM; installers
 contain no ROM or decoded game assets.
 
-[Download 0.3.3 for macOS or Windows](https://github.com/8AE/mnsg-level-editor/releases/tag/v0.3.3).
+[Download 0.3.4 for macOS or Windows](https://github.com/8AE/mnsg-level-editor/releases/tag/v0.3.4).
 Install the app, import your ROM, create a project, configure **Settings**, and export an NRM.
 The app supplies the compiler, mod packager and each project's template.
 
@@ -362,6 +362,18 @@ path, affected rooms, changes and remaining uncertainties. You choose whether to
 test it in Goemon64Recomp; the editor's build checks do not establish gameplay.
 
 ## Source and native evidence
+
+The 0.3.4 exporter corrects resource accounting for foreign and parameter-edited actors.
+Admitted initializer traces or guarded controller contracts contribute their actual code,
+model and resource dependencies, without importing the prototype source room wholesale.
+Canonical fallback and destination-donor resources remain conservative; the native 48-ID
+and world-bank checks are unchanged. An unchanged local Oedo Town replacement with 42 meshes
+and 32 actors compiled, linked and packaged into a CRC-checked NRM using 28 resources,
+including its sky. Project data and ROM bytes stayed unchanged. Generated-mod gameplay
+was not run. Regression tests cover conservative fallback, edited/foreign admission,
+controller contracts, a native Oedo roster with added Ryo/Mr Arrow and genuine overflow.
+Typecheck, production build and all 355 enabled source tests passed (four optional
+environment skips). The local ARM64 package passed strict deep signature verification.
 
 The 0.3.3 selection-retention fix passed [native desktop CI](https://github.com/8AE/mnsg-level-editor/actions/runs/37389732776)
 at `6551137e`, with all six jobs succeeding. The new native UI regression reproduces 0.3.2's

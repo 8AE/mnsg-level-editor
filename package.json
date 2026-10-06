@@ -1,6 +1,6 @@
 {
   "name": "mnsg-level-editor",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "private": true,
   "description": "Local MNSG room and actor editor for macOS and Windows",
   "author": "MNSG Level Editor contributors",

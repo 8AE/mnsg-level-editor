@@ -225,7 +225,7 @@ export function compileAuthoredRoom(room: AuthoredRoom, context: AuthoringExport
     for (const id of resources)
         integer(id, 1, 65535, "Native room dependency");
     if (resources.size > 48)
-        throw new Error("Room resource closure exceeds the verified native 48-ID registry. Remove dependencies or split the authored scene into rooms; active player/service resources share these slots.");
+        throw new Error(`Room ${room.id} (${room.name}) requires ${resources.size} unique resource files, exceeding the verified native 48-ID registry. Remove dependencies or split the authored scene into rooms; native services share these slots.`);
     const allocation = context.resourceFileBytes([...resources]);
     const resourceBytes = allocation.totalBytes;
     const resourceAllocations = [...resources].sort((a,b)=>a-b).map(fileId => {
